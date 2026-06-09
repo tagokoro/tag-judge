@@ -48,7 +48,7 @@
 | API Server | 認証、認可、提出受付、質問管理、順位表 API 提供 |
 | RDS | User / Contest / Problem / Submission / Question などの永続データ保存 |
 | SQS | `submissionId` を含む判定ジョブの待ち行列 |
-| Judge Worker | Queue からのジョブ取得、`judge-core` 呼び出し、Submission 更新 |
+| Judge Worker | Queue からのジョブ取得、提出コード・テストケース取得、`judge-core` 呼び出し、判定結果返却 |
 | judge-core | Rust 製の判定エンジン。compile / run / compare を担当 |
 | S3 | テストケース、提出コード、実行ログなどのファイル保存が必要になった場合に利用 |
 
@@ -67,9 +67,11 @@ Queue に判定ジョブを追加
   ↓
 Judge Worker がジョブを取得
   ↓
+Judge Worker が storage から sourceCode / testCases を取得
+  ↓
 judge-core が compile / run / compare を実行
   ↓
-判定結果で Submission を更新
+判定結果を返す
 ```
 
 ### 解決する課題
@@ -119,7 +121,7 @@ Redis は将来的に、キャッシュやセッション管理、ランキン�
 - 判定ジョブを発行する
 - Worker がジョブを取得する
 - `judge-core` が実際の判定を行う
-- 判定結果を永続化する
+- 判定結果を返し、API Server または Result Consumer が永続化する
 
 Queue 実装を直接アプリケーション全体へ散らさず、境界を抽象化しておくことで、本番移行時の変更範囲を抑える。
 

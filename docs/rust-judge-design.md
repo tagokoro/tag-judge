@@ -47,10 +47,31 @@ judge-core      : 実際に compile / run / compare する
 責務:
 
 - Queue から判定ジョブを取得する
-- DB / storage から提出コードやテストケースを取得する
+- storage から提出コードやテストケースを取得する
 - `judge-core` を呼び出す
-- 判定結果を DB に反映する
+- 判定結果を返す
 - 必要に応じて失敗を再試行可能な形で扱う
+
+現時点では、`judge-worker` は DB に直接アクセスしない方針とする。  
+ローカル実装では file path を受け取り、本番想定では S3 key を受け取る。
+
+```text
+local JudgeJob
+- submissionId
+- language
+- sourceCodePath
+- testCasesPath
+- timeLimitMs
+
+production JudgeJob
+- submissionId
+- language
+- sourceCodeKey
+- testCasesKey
+- timeLimitMs
+```
+
+判定結果を DB に保存する責務は、将来的には API Server または Result Consumer が担う。
 
 ## 3. なぜ分けるのか
 
@@ -241,7 +262,14 @@ actual.trim_end() == expected.trim_end()
     v
 [Queue]
     |
-    | job を渡す
+    | submissionId / sourceCodeKey / testCasesKey を渡す
+    v
+[judge-worker: Rust]
+    |
+    | sourceCode / testCases を取得
+    v
+[Storage: local file or S3]
+    |
     v
 [judge-worker: Rust]
     |

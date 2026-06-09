@@ -1,0 +1,3 @@
+[
+  { "input": "hello\n", "expectedOutput": "HELLO\n" }
+]

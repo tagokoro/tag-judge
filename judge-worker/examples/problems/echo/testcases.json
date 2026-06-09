@@ -1,0 +1,4 @@
+[
+  { "input": "hello\n", "expectedOutput": "hello\n" },
+  { "input": "world\n", "expectedOutput": "world\n" }
+]
