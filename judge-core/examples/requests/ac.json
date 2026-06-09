@@ -1,0 +1,9 @@
+{
+  "language": "python",
+  "sourceCode": "print(input())",
+  "timeLimitMs": 1000,
+  "testCases": [
+    { "input": "hello\n", "expectedOutput": "hello\n" },
+    { "input": "world\n", "expectedOutput": "world\n" }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "language": "python",
+  "sourceCode": "while True:\n    pass",
+  "timeLimitMs": 100,
+  "testCases": [
+    { "input": "\n", "expectedOutput": "\n" }
+  ]
+}

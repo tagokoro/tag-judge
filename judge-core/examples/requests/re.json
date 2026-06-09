@@ -1,0 +1,8 @@
+{
+  "language": "python",
+  "sourceCode": "raise RuntimeError('boom')",
+  "timeLimitMs": 1000,
+  "testCases": [
+    { "input": "\n", "expectedOutput": "\n" }
+  ]
+}
