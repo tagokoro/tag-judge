@@ -1,0 +1,2 @@
+-- Initial schema is intentionally left empty.
+-- Tables should be introduced after the API data model is designed.
