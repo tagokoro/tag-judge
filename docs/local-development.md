@@ -8,6 +8,7 @@
 Rust crates: ローカルで実行
 PostgreSQL: Docker
 SQS: LocalStack
+S3: LocalStack
 ```
 
 `judge-core` は DB / Queue / AWS を知らない判定エンジンとして保つ。  
@@ -19,6 +20,7 @@ SQS: LocalStack
 | --- | --- | --- | --- |
 | DB | PostgreSQL 16 | RDS for PostgreSQL | API が管理する永続データ |
 | Queue | LocalStack SQS | Amazon SQS | 判定ジョブの受け渡し |
+| Object Storage | LocalStack S3 | Amazon S3 | 提出コード、テストケース、実行ログなどの保存候補 |
 
 Redis は現時点では導入しない。判定ジョブの受け渡しは SQS を本番前提に設計し、キャッシュやセッション管理が必要になった段階で Redis を検討する。
 
@@ -66,6 +68,7 @@ endpoint: http://localhost:4566
 region: ap-northeast-1
 queue: judge-submissions
 dead-letter queue: judge-submissions-dlq
+bucket: judge-storage
 ```
 
 ## 5. Judge Worker の実行
@@ -92,7 +95,26 @@ LocalStack へ投入する message body は `JudgeJob` の JSON とする。
 現時点では判定結果は標準出力に出す。  
 API Server と DB の設計後に、結果の永続化責務を API Server または Result Consumer に接続する。
 
-## 6. 設計上の位置づけ
+## 6. S3 の動作確認
+
+LocalStack には `judge-storage` bucket を作成する。  
+現時点では `judge-worker` から S3 を読む実装には接続しない。
+
+sample file を put/get する例:
+
+```sh
+printf 'print("hello")\n' | docker compose exec -T localstack awslocal s3 cp \
+  - \
+  s3://judge-storage/submissions/sub_local_001/main.py
+
+docker compose exec -T localstack awslocal s3 cp \
+  s3://judge-storage/submissions/sub_local_001/main.py \
+  -
+```
+
+将来 S3 を worker に接続する場合は、`JudgeJob` の `sourceCodePath` / `testCasesPath` を直接 S3 key に置き換えるのではなく、local storage と S3 storage を切り替えられる境界を設計してから進める。
+
+## 7. 設計上の位置づけ
 
 この段階では DB テーブルを先に作り込まない。  
 `users`, `problems`, `submissions`, `test_cases` などのスキーマは、API Server の責務、認証、認可、提出データの保存場所を設計してから追加する。
