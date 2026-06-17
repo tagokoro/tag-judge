@@ -68,7 +68,31 @@ queue: judge-submissions
 dead-letter queue: judge-submissions-dlq
 ```
 
-## 5. 設計上の位置づけ
+## 5. Judge Worker の実行
+
+`judge-worker` は LocalStack SQS の `judge-submissions` から `JudgeJob` を 1 件受信し、`judge-core` で判定して、処理に成功したら SQS message を削除する。
+
+```sh
+cd judge-worker
+cargo run
+```
+
+LocalStack へ投入する message body は `JudgeJob` の JSON とする。
+
+```json
+{
+  "submissionId": "sub_local_001",
+  "language": "python",
+  "sourceCodePath": "/absolute/path/to/main.py",
+  "testCasesPath": "/absolute/path/to/testcases.json",
+  "timeLimitMs": 1000
+}
+```
+
+現時点では判定結果は標準出力に出す。  
+API Server と DB の設計後に、結果の永続化責務を API Server または Result Consumer に接続する。
+
+## 6. 設計上の位置づけ
 
 この段階では DB テーブルを先に作り込まない。  
 `users`, `problems`, `submissions`, `test_cases` などのスキーマは、API Server の責務、認証、認可、提出データの保存場所を設計してから追加する。
