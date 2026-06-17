@@ -2,5 +2,5 @@ AGENTS.md
 .env
 target/
 **/target/
-judge-core/tmp/
-judge-core/src/tmp/
+judge/core/tmp/
+judge/core/src/tmp/

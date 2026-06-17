@@ -204,19 +204,20 @@ CLI は開発・デバッグ用の入口であり、本番では `judge-worker` 
 ## 7. 推奨プロジェクト構成
 
 ```text
-judge-core/
-├─ Cargo.toml
-└─ src/
-   ├─ lib.rs
-   ├─ main.rs
-   ├─ models.rs
-   ├─ verdict.rs
-   ├─ judge.rs
-   ├─ compare.rs
-   ├─ error.rs
-   └─ runner/
-      ├─ mod.rs
-      └─ python.rs
+judge/
+└─ core/
+   ├─ Cargo.toml
+   └─ src/
+      ├─ lib.rs
+      ├─ main.rs
+      ├─ models.rs
+      ├─ verdict.rs
+      ├─ judge.rs
+      ├─ compare.rs
+      ├─ error.rs
+      └─ runner/
+         ├─ mod.rs
+         └─ python.rs
 ```
 
 ### 各ファイルの責務
@@ -275,4 +276,3 @@ judge-core/
 - Web API 接続
 
 これらは judge-core の最小核が動いた後に、別フェーズで設計する。
-
