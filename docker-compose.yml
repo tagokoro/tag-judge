@@ -33,5 +33,22 @@ services:
       timeout: 5s
       retries: 10
 
+  judge-runner:
+    build:
+      context: .
+      dockerfile: docker/judge-runner/Dockerfile
+    container_name: judge-runner
+    privileged: true
+    working_dir: /workspace
+    environment:
+      CARGO_HOME: /cargo
+      CARGO_TARGET_DIR: /cargo-target
+    volumes:
+      - ./judge:/workspace/judge
+      - judge_runner_cargo:/cargo
+      - judge_runner_target:/cargo-target
+
 volumes:
   postgres_data:
+  judge_runner_cargo:
+  judge_runner_target:
