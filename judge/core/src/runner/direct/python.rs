@@ -6,11 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::runner::ExecutionOutput;
 
-pub fn exec_py(
-    source_code: &str,
-    input: &str,
-    time_limit_ms: u32,
-) -> Result<ExecutionOutput, String> {
+pub fn exec(source_code: &str, input: &str, time_limit_ms: u32) -> Result<ExecutionOutput, String> {
     let work_dir = tempfile::tempdir().map_err(|error| error.to_string())?;
     let source_path = work_dir.path().join("main.py");
     write(&source_path, source_code).map_err(|error| error.to_string())?;

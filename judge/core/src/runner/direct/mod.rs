@@ -1,5 +1,7 @@
 use crate::models::Language;
-use crate::runner::{ExecutionOutput, RunRequest, Runner, python};
+use crate::runner::{ExecutionOutput, RunRequest, Runner};
+
+mod python;
 
 pub struct DirectRunner;
 
@@ -13,7 +15,7 @@ impl Runner for DirectRunner {
     fn run(&self, request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
         match request.language {
             Language::Python => {
-                python::exec_py(request.source_code, request.input, request.time_limit_ms)
+                python::exec(request.source_code, request.input, request.time_limit_ms)
             }
         }
     }

@@ -1,6 +1,5 @@
 pub mod direct;
 pub mod isolate;
-mod python;
 
 use crate::models::Language;
 
