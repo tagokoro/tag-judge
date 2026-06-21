@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use judge_core::models::{Language, Verdict};
+use judge_core::{
+    models::{Language, Verdict},
+    runner::direct::DirectRunner,
+};
 use judge_worker::{
     mock_sqs::MockSqs,
     models::JudgeJob,
-    worker::{process_job, process_next},
+    worker::{process_job_with_runner, process_next_with_runner},
 };
 
 fn write_file(dir: &Path, relative_path: &str, content: &str) -> PathBuf {
@@ -30,6 +33,10 @@ fn job(
     }
 }
 
+fn direct_runner() -> DirectRunner {
+    DirectRunner::new()
+}
+
 #[test]
 fn process_job_reads_files_runs_judge_core_and_keeps_submission_id() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -44,7 +51,11 @@ fn process_job_reads_files_runs_judge_core_and_keeps_submission_id() {
         r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
     );
 
-    let result = process_job(job("sub_ac_001", source_path, test_cases_path, 1_000));
+    let runner = direct_runner();
+    let result = process_job_with_runner(
+        job("sub_ac_001", source_path, test_cases_path, 1_000),
+        &runner,
+    );
 
     assert_eq!(result.submission_id, "sub_ac_001");
     assert_eq!(result.result.verdict, Verdict::AC);
@@ -80,14 +91,15 @@ fn process_next_receives_jobs_in_fifo_order() {
         job("sub_2", source_two, tests_two, 1_000),
     ]);
 
-    let first = process_next(&mut queue).expect("first job should exist");
-    let second = process_next(&mut queue).expect("second job should exist");
+    let runner = direct_runner();
+    let first = process_next_with_runner(&mut queue, &runner).expect("first job should exist");
+    let second = process_next_with_runner(&mut queue, &runner).expect("second job should exist");
 
     assert_eq!(first.submission_id, "sub_1");
     assert_eq!(first.result.verdict, Verdict::AC);
     assert_eq!(second.submission_id, "sub_2");
     assert_eq!(second.result.verdict, Verdict::WA);
-    assert!(process_next(&mut queue).is_none());
+    assert!(process_next_with_runner(&mut queue, &runner).is_none());
     assert!(queue.is_empty());
 }
 
@@ -123,7 +135,8 @@ fn mock_sqs_job_can_be_deserialized_from_json() {
 
     let jobs: Vec<JudgeJob> = serde_json::from_str(&json).expect("job JSON should parse");
     let mut queue = MockSqs::new(jobs);
-    let result = process_next(&mut queue).expect("job should exist");
+    let runner = direct_runner();
+    let result = process_next_with_runner(&mut queue, &runner).expect("job should exist");
 
     assert_eq!(result.submission_id, "sub_json_001");
     assert_eq!(result.result.verdict, Verdict::AC);
@@ -139,12 +152,11 @@ fn returns_ie_when_referenced_file_is_missing() {
         r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
     );
 
-    let result = process_job(job(
-        "sub_missing_source",
-        missing_source,
-        test_cases_path,
-        1_000,
-    ));
+    let runner = direct_runner();
+    let result = process_job_with_runner(
+        job("sub_missing_source", missing_source, test_cases_path, 1_000),
+        &runner,
+    );
 
     assert_eq!(result.submission_id, "sub_missing_source");
     assert_eq!(result.result.verdict, Verdict::IE);

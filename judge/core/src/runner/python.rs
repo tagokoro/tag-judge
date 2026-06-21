@@ -4,14 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[derive(Debug)]
-pub struct ExecutionOutput {
-    pub stdout: String,
-    pub stderr: String,
-    pub status_success: bool,
-    pub runtime_ms: u128,
-    pub timed_out: bool,
-}
+use crate::runner::ExecutionOutput;
 
 pub fn exec_py(
     source_code: &str,
