@@ -87,11 +87,12 @@ impl S3Storage {
             .await
             .map_err(|error| format!("failed to fetch s3://{}/{}: {}", self.bucket, key, error))?;
 
-        let body = response
-            .body
-            .collect()
-            .await
-            .map_err(|error| format!("failed to read s3://{}/{} body: {}", self.bucket, key, error))?;
+        let body = response.body.collect().await.map_err(|error| {
+            format!(
+                "failed to read s3://{}/{} body: {}",
+                self.bucket, key, error
+            )
+        })?;
 
         String::from_utf8(body.into_bytes().to_vec())
             .map_err(|error| format!("s3://{}/{} is not valid UTF-8: {}", self.bucket, key, error))

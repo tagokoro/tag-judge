@@ -1,8 +1,8 @@
 use std::process;
 
 use judge_worker::{
-    storage::{S3Storage, S3StorageConfig},
     sqs::{SqsQueue, SqsQueueConfig},
+    storage::{S3Storage, S3StorageConfig},
     worker::process_job,
 };
 

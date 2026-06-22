@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    pin::Pin,
-};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use judge_core::{
     models::{Language, Verdict},
@@ -58,7 +54,12 @@ impl ArtifactStore for MemoryArtifactStore {
     }
 }
 
-fn job(submission_id: &str, source_code_key: &str, test_cases_key: &str, time_limit_ms: u32) -> JudgeJob {
+fn job(
+    submission_id: &str,
+    source_code_key: &str,
+    test_cases_key: &str,
+    time_limit_ms: u32,
+) -> JudgeJob {
     JudgeJob {
         submission_id: submission_id.to_string(),
         language: Language::Python,
@@ -116,8 +117,18 @@ async fn process_next_receives_jobs_in_fifo_order() {
     ]);
 
     let mut queue = MockSqs::new(vec![
-        job("sub_1", "submissions/sub_1/main.py", "problems/one/testcases.json", 1_000),
-        job("sub_2", "submissions/sub_2/main.py", "problems/two/testcases.json", 1_000),
+        job(
+            "sub_1",
+            "submissions/sub_1/main.py",
+            "problems/one/testcases.json",
+            1_000,
+        ),
+        job(
+            "sub_2",
+            "submissions/sub_2/main.py",
+            "problems/two/testcases.json",
+            1_000,
+        ),
     ]);
 
     let runner = direct_runner();
@@ -132,7 +143,11 @@ async fn process_next_receives_jobs_in_fifo_order() {
     assert_eq!(first.result.verdict, Verdict::AC);
     assert_eq!(second.submission_id, "sub_2");
     assert_eq!(second.result.verdict, Verdict::WA);
-    assert!(process_next_with_runner(&mut queue, &store, &runner).await.is_none());
+    assert!(
+        process_next_with_runner(&mut queue, &store, &runner)
+            .await
+            .is_none()
+    );
     assert!(queue.is_empty());
 }
 
@@ -204,9 +219,11 @@ async fn returns_ie_when_test_cases_json_is_invalid() {
     .await;
 
     assert_eq!(result.result.verdict, Verdict::IE);
-    assert!(result
-        .result
-        .message
-        .expect("message should exist")
-        .contains("failed to parse test cases JSON"));
+    assert!(
+        result
+            .result
+            .message
+            .expect("message should exist")
+            .contains("failed to parse test cases JSON")
+    );
 }
