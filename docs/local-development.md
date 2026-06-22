@@ -73,7 +73,7 @@ bucket: judge-storage
 
 ## 5. Judge Worker の実行
 
-`judge-worker` は LocalStack SQS の `judge-submissions` から `JudgeJob` を 1 件受信し、`judge-core` で判定して、処理に成功したら SQS message を削除する。
+`judge-worker` は LocalStack SQS の `judge-submissions` から `JudgeJob` を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。
 
 ```sh
 cd judge-worker
@@ -86,8 +86,8 @@ LocalStack へ投入する message body は `JudgeJob` の JSON とする。
 {
   "submissionId": "sub_local_001",
   "language": "python",
-  "sourceCodePath": "/absolute/path/to/main.py",
-  "testCasesPath": "/absolute/path/to/testcases.json",
+  "sourceCodeKey": "submissions/sub_local_001/main.py",
+  "testCasesKey": "problems/echo/testcases.json",
   "timeLimitMs": 1000
 }
 ```
@@ -98,21 +98,40 @@ API Server と DB の設計後に、結果の永続化責務を API Server ま�
 ## 6. S3 の動作確認
 
 LocalStack には `judge-storage` bucket を作成する。  
-現時点では `judge-worker` から S3 を読む実装には接続しない。
+`judge-worker` は `JUDGE_STORAGE_BUCKET` で指定された bucket から `sourceCodeKey` と `testCasesKey` を読む。
 
-sample file を put/get する例:
+sample object を put/get する例:
 
 ```sh
 printf 'print("hello")\n' | docker compose exec -T localstack awslocal s3 cp \
   - \
   s3://judge-storage/submissions/sub_local_001/main.py
 
+printf '[{"input":"hello\n","expectedOutput":"hello\n"}]\n' | \
+  docker compose exec -T localstack awslocal s3 cp \
+  - \
+  s3://judge-storage/problems/echo/testcases.json
+
 docker compose exec -T localstack awslocal s3 cp \
   s3://judge-storage/submissions/sub_local_001/main.py \
   -
 ```
 
-将来 S3 を worker に接続する場合は、`JudgeJob` の `sourceCodePath` / `testCasesPath` を直接 S3 key に置き換えるのではなく、local storage と S3 storage を切り替えられる境界を設計してから進める。
+SQS へメッセージを投入する例:
+
+```sh
+docker compose exec -T localstack awslocal sqs send-message \
+  --queue-url http://localhost:4566/000000000000/judge-submissions \
+  --message-body '{
+    "submissionId": "sub_local_001",
+    "language": "python",
+    "sourceCodeKey": "submissions/sub_local_001/main.py",
+    "testCasesKey": "problems/echo/testcases.json",
+    "timeLimitMs": 1000
+  }'
+```
+
+`cargo run` した `judge-worker` が上記メッセージを受信すると、標準出力に判定結果 JSON を出す。
 
 ## 7. 設計上の位置づけ
 

@@ -2,15 +2,15 @@
   {
     "submissionId": "sub_ac_001",
     "language": "python",
-    "sourceCodePath": "examples/submissions/sub_ac_001/main.py",
-    "testCasesPath": "examples/problems/echo/testcases.json",
+    "sourceCodeKey": "submissions/sub_ac_001/main.py",
+    "testCasesKey": "problems/echo/testcases.json",
     "timeLimitMs": 1000
   },
   {
     "submissionId": "sub_wa_001",
     "language": "python",
-    "sourceCodePath": "examples/submissions/sub_wa_001/main.py",
-    "testCasesPath": "examples/problems/echo/testcases-wa.json",
+    "sourceCodeKey": "submissions/sub_wa_001/main.py",
+    "testCasesKey": "problems/echo/testcases-wa.json",
     "timeLimitMs": 1000
   }
 ]

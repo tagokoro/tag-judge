@@ -53,17 +53,10 @@ judge-core      : 実際に compile / run / compare する
 - 必要に応じて失敗を再試行可能な形で扱う
 
 現時点では、`judge-worker` は DB に直接アクセスしない方針とする。  
-ローカル実装では file path を受け取り、本番想定では S3 key を受け取る。
+ローカル実装でも本番想定に合わせて S3 key を受け取り、worker が object storage から実体を取得する。
 
 ```text
 local JudgeJob
-- submissionId
-- language
-- sourceCodePath
-- testCasesPath
-- timeLimitMs
-
-production JudgeJob
 - submissionId
 - language
 - sourceCodeKey
