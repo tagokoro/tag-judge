@@ -1,17 +1,23 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::path::Path;
-use std::process::{Command, id};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::path::PathBuf;
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
+use fs2::FileExt;
 use crate::runner::{ExecutionOutput, RunRequest};
 
 const MEMORY_LIMIT_KB: u32 = 262_144;
-static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
+const MAX_BOX_ID: u32 = 1_000;
+const LOCK_DIR: &str = "/tmp/tag-judge-isolate-boxes";
+const BOX_ID_RETRY_INTERVAL_MS: u64 = 10;
 
 pub fn exec(request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
-    let box_id = reserve_box_id()?;
-    let box_id_arg = format!("--box-id={}", box_id);
+    let reservation = reserve_box_id()?;
+    let cleanup = Cleanup::new(reservation);
+    let box_id_arg = format!("--box-id={}", cleanup.box_id());
     let workspace = tempfile::tempdir().map_err(|error| error.to_string())?;
     let source_path = workspace.path().join("main.py");
     let stdin_path = workspace.path().join("stdin.txt");
@@ -20,13 +26,26 @@ pub fn exec(request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
     fs::write(&source_path, request.source_code).map_err(|error| error.to_string())?;
     fs::write(&stdin_path, request.input).map_err(|error| error.to_string())?;
 
-    let init_output = Command::new("isolate")
+    let cleanup_output = Command::new(isolate_binary())
+        .arg("--cg")
+        .arg(&box_id_arg)
+        .arg("--cleanup")
+        .output()
+        .map_err(|error| format!("failed to execute isolate --cleanup: {}", error))?;
+
+    if !cleanup_output.status.success() && cleanup_output.status.code() != Some(1) {
+        return Err(format!(
+            "isolate --cleanup failed: {}",
+            String::from_utf8_lossy(&cleanup_output.stderr).trim()
+        ));
+    }
+
+    let init_output = Command::new(isolate_binary())
+        .arg("--cg")
         .arg(&box_id_arg)
         .arg("--init")
         .output()
         .map_err(|error| format!("failed to execute isolate --init: {}", error))?;
-
-    let cleanup = Cleanup::new(box_id);
 
     if !init_output.status.success() {
         return Err(format!(
@@ -48,14 +67,16 @@ pub fn exec(request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
     fs::copy(&stdin_path, sandbox_box_dir.join("stdin.txt"))
         .map_err(|error| format!("failed to copy stdin into isolate box: {}", error))?;
 
-    let time_limit_secs = format!("{:.3}", request.time_limit_ms as f64 / 1_000.0);
-    let run_output = Command::new("isolate")
+    let time_limit_secs = request.time_limit_ms as f64 / 1_000.0;
+    let wall_time_secs = time_limit_secs + 1.0;
+    let run_output = Command::new(isolate_binary())
+        .arg("--cg")
         .arg(&box_id_arg)
         .arg("--run")
         .arg(format!("--meta={}", meta_path.display()))
-        .arg(format!("--time={}", time_limit_secs))
-        .arg(format!("--wall-time={}", time_limit_secs))
-        .arg(format!("--mem={}", MEMORY_LIMIT_KB))
+        .arg(format!("--time={:.3}", time_limit_secs))
+        .arg(format!("--wall-time={:.3}", wall_time_secs))
+        .arg(format!("--cg-mem={}", MEMORY_LIMIT_KB))
         .arg("--stdin=stdin.txt")
         .arg("--stdout=stdout.txt")
         .arg("--stderr=stderr.txt")
@@ -91,26 +112,55 @@ pub fn exec(request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
     })
 }
 
-fn reserve_box_id() -> Result<u32, String> {
-    let base = id() % 1_000;
+fn isolate_binary() -> PathBuf {
+    PathBuf::from("isolate")
+}
 
-    for _ in 0..1_000 {
-        let offset = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % 1_000;
-        let box_id = (base + offset) % 1_000;
-        let box_id_arg = format!("--box-id={}", box_id);
+fn reserve_box_id() -> Result<BoxReservation, String> {
+    let lock_dir = lock_dir();
+    fs::create_dir_all(&lock_dir)
+        .map_err(|error| format!("failed to create isolate lock dir: {}", error))?;
 
-        let cleanup_output = Command::new("isolate")
-            .arg(&box_id_arg)
-            .arg("--cleanup")
-            .output()
-            .map_err(|error| format!("failed to execute isolate --cleanup: {}", error))?;
+    let mut attempt = 0_u32;
 
-        if cleanup_output.status.success() || cleanup_output.status.code() == Some(1) {
-            return Ok(box_id);
+    loop {
+        let box_id = attempt % MAX_BOX_ID;
+        attempt = attempt.wrapping_add(1);
+        let lock_path = lock_dir.join(format!("{box_id}.lock"));
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|error| {
+                format!(
+                    "failed to open isolate lock file {}: {}",
+                    lock_path.display(),
+                    error
+                )
+            })?;
+
+        match lock_file.try_lock_exclusive() {
+            Ok(()) => {
+                return Ok(BoxReservation {
+                    box_id,
+                    _lock_file: lock_file,
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if attempt % MAX_BOX_ID == 0 {
+                    thread::sleep(Duration::from_millis(BOX_ID_RETRY_INTERVAL_MS));
+                }
+            }
+            Err(error) => {
+                return Err(format!("failed to lock isolate box {}: {}", box_id, error));
+            }
         }
     }
+}
 
-    Err(String::from("failed to reserve isolate box id"))
+fn lock_dir() -> PathBuf {
+    PathBuf::from(LOCK_DIR)
 }
 
 fn read_optional_file(path: &Path) -> Result<String, String> {
@@ -144,21 +194,39 @@ fn parse_runtime_ms(meta: &HashMap<String, String>) -> u128 {
     (seconds * 1_000.0) as u128
 }
 
-struct Cleanup {
+struct BoxReservation {
     box_id: u32,
+    _lock_file: File,
+}
+
+struct Cleanup {
+    reservation: Option<BoxReservation>,
 }
 
 impl Cleanup {
-    fn new(box_id: u32) -> Self {
-        Self { box_id }
+    fn new(reservation: BoxReservation) -> Self {
+        Self {
+            reservation: Some(reservation),
+        }
+    }
+
+    fn box_id(&self) -> u32 {
+        self.reservation
+            .as_ref()
+            .expect("reservation should exist")
+            .box_id
     }
 }
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        let _ = Command::new("isolate")
-            .arg(format!("--box-id={}", self.box_id))
-            .arg("--cleanup")
-            .output();
+        if let Some(reservation) = self.reservation.take() {
+            let _ = Command::new(isolate_binary())
+                .arg("--cg")
+                .arg(format!("--box-id={}", reservation.box_id))
+                .arg("--cleanup")
+                .output();
+            drop(reservation);
+        }
     }
 }
