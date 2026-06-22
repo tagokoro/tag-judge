@@ -87,7 +87,7 @@ LocalStack へ投入する message body は `JudgeJob` の JSON とする。
   "submissionId": "sub_local_001",
   "language": "python",
   "sourceCodeKey": "submissions/sub_local_001/main.py",
-  "testCasesKey": "problems/echo/testcases.json",
+  "testCasesKey": "problems/prob_001/testcases.json",
   "timeLimitMs": 1000
 }
 ```
@@ -103,16 +103,16 @@ LocalStack には `judge-storage` bucket を作成する。
 sample object を put/get する例:
 
 ```sh
-printf 'print("hello")\n' | docker compose exec -T localstack awslocal s3 cp \
+printf 'print("hello")\n' | sudo docker compose exec -T localstack awslocal s3 cp \
   - \
   s3://judge-storage/submissions/sub_local_001/main.py
 
 printf '[{"input":"hello\n","expectedOutput":"hello\n"}]\n' | \
-  docker compose exec -T localstack awslocal s3 cp \
+  sudo docker compose exec -T localstack awslocal s3 cp \
   - \
-  s3://judge-storage/problems/echo/testcases.json
+  s3://judge-storage/problems/prob_001/testcases.json
 
-docker compose exec -T localstack awslocal s3 cp \
+sudo docker compose exec -T localstack awslocal s3 cp \
   s3://judge-storage/submissions/sub_local_001/main.py \
   -
 ```
@@ -120,13 +120,13 @@ docker compose exec -T localstack awslocal s3 cp \
 SQS へメッセージを投入する例:
 
 ```sh
-docker compose exec -T localstack awslocal sqs send-message \
+sudo docker compose exec -T localstack awslocal sqs send-message \
   --queue-url http://localhost:4566/000000000000/judge-submissions \
   --message-body '{
     "submissionId": "sub_local_001",
     "language": "python",
     "sourceCodeKey": "submissions/sub_local_001/main.py",
-    "testCasesKey": "problems/echo/testcases.json",
+    "testCasesKey": "problems/prob_001/testcases.json",
     "timeLimitMs": 1000
   }'
 ```

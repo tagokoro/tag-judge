@@ -78,7 +78,7 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
     let store = MemoryArtifactStore::new(vec![
         ("submissions/sub_ac_001/main.py", "print(input())"),
         (
-            "problems/echo/testcases.json",
+            "problems/prob_001/testcases.json",
             r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
         ),
     ]);
@@ -88,7 +88,7 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
         job(
             "sub_ac_001",
             "submissions/sub_ac_001/main.py",
-            "problems/echo/testcases.json",
+            "problems/prob_001/testcases.json",
             1_000,
         ),
         &store,
@@ -107,11 +107,11 @@ async fn process_next_receives_jobs_in_fifo_order() {
         ("submissions/sub_1/main.py", "print(input())"),
         ("submissions/sub_2/main.py", "print(input())"),
         (
-            "problems/one/testcases.json",
+            "problems/prob_101/testcases.json",
             r#"[{ "input": "one\n", "expectedOutput": "one\n" }]"#,
         ),
         (
-            "problems/two/testcases.json",
+            "problems/prob_102/testcases.json",
             r#"[{ "input": "two\n", "expectedOutput": "TWO\n" }]"#,
         ),
     ]);
@@ -120,13 +120,13 @@ async fn process_next_receives_jobs_in_fifo_order() {
         job(
             "sub_1",
             "submissions/sub_1/main.py",
-            "problems/one/testcases.json",
+            "problems/prob_101/testcases.json",
             1_000,
         ),
         job(
             "sub_2",
             "submissions/sub_2/main.py",
-            "problems/two/testcases.json",
+            "problems/prob_102/testcases.json",
             1_000,
         ),
     ]);
@@ -159,7 +159,7 @@ fn mock_sqs_job_can_be_deserialized_from_json() {
             "submissionId": "sub_json_001",
             "language": "python",
             "sourceCodeKey": "submissions/sub_json_001/main.py",
-            "testCasesKey": "problems/json/testcases.json",
+            "testCasesKey": "problems/prob_201/testcases.json",
             "timeLimitMs": 1000
           }
         ]
@@ -170,13 +170,13 @@ fn mock_sqs_job_can_be_deserialized_from_json() {
 
     assert_eq!(job.submission_id, "sub_json_001");
     assert_eq!(job.source_code_key, "submissions/sub_json_001/main.py");
-    assert_eq!(job.test_cases_key, "problems/json/testcases.json");
+    assert_eq!(job.test_cases_key, "problems/prob_201/testcases.json");
 }
 
 #[tokio::test]
 async fn returns_ie_when_referenced_s3_object_is_missing() {
     let store = MemoryArtifactStore::new(vec![(
-        "problems/echo/testcases.json",
+        "problems/prob_001/testcases.json",
         r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
     )]);
 
@@ -185,7 +185,7 @@ async fn returns_ie_when_referenced_s3_object_is_missing() {
         job(
             "sub_missing_source",
             "submissions/missing/main.py",
-            "problems/echo/testcases.json",
+            "problems/prob_001/testcases.json",
             1_000,
         ),
         &store,
@@ -202,7 +202,7 @@ async fn returns_ie_when_referenced_s3_object_is_missing() {
 async fn returns_ie_when_test_cases_json_is_invalid() {
     let store = MemoryArtifactStore::new(vec![
         ("submissions/sub_invalid/main.py", "print(input())"),
-        ("problems/echo/testcases.json", "{not-json}"),
+        ("problems/prob_001/testcases.json", "{not-json}"),
     ]);
 
     let runner = direct_runner();
@@ -210,7 +210,7 @@ async fn returns_ie_when_test_cases_json_is_invalid() {
         job(
             "sub_invalid",
             "submissions/sub_invalid/main.py",
-            "problems/echo/testcases.json",
+            "problems/prob_001/testcases.json",
             1_000,
         ),
         &store,
