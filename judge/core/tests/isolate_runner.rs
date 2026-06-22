@@ -2,6 +2,7 @@
 mod tests {
     use std::path::Path;
     use std::process::Command;
+    use std::process::id;
 
     use judge_core::{
         judge,
@@ -10,12 +11,44 @@ mod tests {
     };
 
     fn isolate_available() -> bool {
-        Command::new("isolate")
+        if !Command::new("isolate")
             .arg("--version")
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
-            && Path::new("/usr/bin/python3").exists()
+            || !Path::new("/usr/bin/python3").exists()
+        {
+            return false;
+        }
+
+        isolate_cgroups_available()
+    }
+
+    fn isolate_cgroups_available() -> bool {
+        for offset in 0..16 {
+            let box_id = 900 + ((id() + offset) % 100);
+            let box_id_arg = format!("--box-id={}", box_id);
+            let init = Command::new("isolate")
+                .arg("--cg")
+                .arg(&box_id_arg)
+                .arg("--init")
+                .output();
+
+            let Ok(output) = init else {
+                return false;
+            };
+
+            if output.status.success() {
+                let _ = Command::new("isolate")
+                    .arg("--cg")
+                    .arg(&box_id_arg)
+                    .arg("--cleanup")
+                    .output();
+                return true;
+            }
+        }
+
+        false
     }
 
     fn request(source_code: &str, test_cases: Vec<TestCase>) -> JudgeRequest {

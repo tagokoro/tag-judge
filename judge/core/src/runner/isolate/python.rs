@@ -6,8 +6,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use fs2::FileExt;
 use crate::runner::{ExecutionOutput, RunRequest};
+use fs2::FileExt;
 
 const MEMORY_LIMIT_KB: u32 = 262_144;
 const MAX_BOX_ID: u32 = 1_000;
@@ -96,7 +96,10 @@ pub fn exec(request: RunRequest<'_>) -> Result<ExecutionOutput, String> {
     let isolate_stderr = String::from_utf8_lossy(&run_output.stderr)
         .trim()
         .to_string();
-    if !timed_out && !run_output.status.success() && stderr.is_empty() && !isolate_stderr.is_empty()
+    if !timed_out
+        && !run_output.status.success()
+        && stderr.is_empty()
+        && !isolate_stderr.is_empty()
     {
         return Err(format!("isolate --run failed: {}", isolate_stderr));
     }
