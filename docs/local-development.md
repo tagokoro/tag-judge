@@ -21,7 +21,6 @@ S3: LocalStack
 | DB | PostgreSQL 16 | RDS for PostgreSQL | API が管理する永続データ |
 | Queue | LocalStack SQS | Amazon SQS | 判定ジョブの受け渡し |
 | Object Storage | LocalStack S3 | Amazon S3 | 提出コード、テストケース、実行ログなどの保存候補 |
-| Judge Runner | Docker + isolate | 未定 | 未信頼コード実行の sandbox 検証 |
 
 Redis は現時点では導入しない。判定ジョブの受け渡しは SQS を本番前提に設計し、キャッシュやセッション管理が必要になった段階で Redis を検討する。
 
@@ -115,61 +114,7 @@ docker compose exec -T localstack awslocal s3 cp \
 
 将来 S3 を worker に接続する場合は、`JudgeJob` の `sourceCodePath` / `testCasesPath` を直接 S3 key に置き換えるのではなく、local storage と S3 storage を切り替えられる境界を設計してから進める。
 
-## 7. isolate 実行環境の確認
-
-`judge-runner` は、未信頼コードを安全に実行する sandbox 候補として `isolate` を検証するためのローカル Docker 環境である。
-
-```sh
-docker compose build judge-runner
-docker compose up -d judge-runner
-```
-
-`isolate` が入っていることを確認する:
-
-```sh
-docker compose exec judge-runner isolate --version
-docker compose exec judge-runner isolate-check-environment
-```
-
-Docker Desktop 上では `isolate-check-environment` が cgroup root、swap、kernel parameter などの警告を出す場合がある。  
-これは macOS 上の Docker VM 制約によるもので、まずは `isolate --init` と `isolate --run` が動くことを確認する。
-
-簡単な Python 実行を `isolate` 経由で確認する:
-
-```sh
-docker compose exec judge-runner sh -lc 'box=$(isolate --init); cp /workspace/judge/worker/examples/submissions/sub_ac_001/main.py "$box/main.py"; isolate --run --dir=/box="$box" -- /usr/bin/python3 /box/main.py <<EOF
-hello
-EOF
-status=$?; isolate --cleanup; exit $status'
-```
-
-Rust の既存テストを Linux コンテナ内で実行する:
-
-```sh
-docker compose exec judge-runner cargo test --manifest-path /workspace/judge/core/Cargo.toml
-docker compose exec judge-runner cargo test --manifest-path /workspace/judge/worker/Cargo.toml
-```
-
-`judge-runner` は Cargo の dependency cache と build output を Docker volume に保存する。
-
-```text
-CARGO_HOME=/cargo
-CARGO_TARGET_DIR=/cargo-target
-```
-
-そのため、通常の `docker compose up -d judge-runner` や `docker compose restart judge-runner` では毎回フルコンパイルしない。  
-cache を消したい場合だけ、次のように volume ごと削除する。
-
-```sh
-docker compose down -v
-```
-
-現時点では `judge-core` の runner 実装には接続しない。  
-まず Docker 内で `isolate` が使える実行環境を作り、次の段階で `DirectRunner` と `IsolateRunner` を切り替えられる境界を設計する。
-
-`judge-runner` はローカル検証用に `privileged: true` を使う。これは `isolate` が namespace / cgroup / mount まわりの Linux 機能に依存するためであり、本番構成でそのまま採用する前提ではない。
-
-## 8. 設計上の位置づけ
+## 7. 設計上の位置づけ
 
 この段階では DB テーブルを先に作り込まない。  
 `users`, `problems`, `submissions`, `test_cases` などのスキーマは、API Server の責務、認証、認可、提出データの保存場所を設計してから追加する。

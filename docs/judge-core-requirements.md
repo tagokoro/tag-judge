@@ -217,7 +217,12 @@ judge/
       ├─ error.rs
       └─ runner/
          ├─ mod.rs
-         └─ python.rs
+         ├─ direct/
+         │  ├─ mod.rs
+         │  └─ python.rs
+         └─ isolate/
+            ├─ mod.rs
+            └─ python.rs
 ```
 
 ### 各ファイルの責務
@@ -232,7 +237,8 @@ judge/
 | `compare.rs` | 出力比較 |
 | `error.rs` | judge-core 内部エラー |
 | `runner/mod.rs` | 言語 runner の共通インターフェース |
-| `runner/python.rs` | Python の実行処理 |
+| `runner/direct/python.rs` | direct 実行時の Python 実行処理 |
+| `runner/isolate/python.rs` | isolate 実行時の Python 実行処理 |
 
 ## 8. 実装順序
 

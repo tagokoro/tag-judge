@@ -2,6 +2,7 @@ use judge_core::{
     compare::output_matches,
     judge,
     models::{JudgeRequest, Language, TestCase, Verdict},
+    runner::direct::DirectRunner,
 };
 
 fn request(source_code: &str, test_cases: Vec<TestCase>) -> JudgeRequest {
@@ -20,9 +21,14 @@ fn case(input: &str, expected_output: &str) -> TestCase {
     }
 }
 
+fn run_direct(request: JudgeRequest) -> judge_core::models::JudgeResult {
+    let runner = DirectRunner::new();
+    judge::run_with_runner(request, &runner)
+}
+
 #[test]
 fn accepts_all_cases_when_outputs_match() {
-    let result = judge::run(request(
+    let result = run_direct(request(
         "print(input())",
         vec![case("hello\n", "hello\n"), case("world\n", "world\n")],
     ));
@@ -35,7 +41,7 @@ fn accepts_all_cases_when_outputs_match() {
 
 #[test]
 fn returns_wa_and_stops_at_first_failed_case() {
-    let result = judge::run(request(
+    let result = run_direct(request(
         "print(input())",
         vec![
             case("hello\n", "hello\n"),
@@ -52,7 +58,7 @@ fn returns_wa_and_stops_at_first_failed_case() {
 
 #[test]
 fn returns_re_when_python_process_fails() {
-    let result = judge::run(request(
+    let result = run_direct(request(
         "raise RuntimeError('boom')",
         vec![case("\n", "\n")],
     ));
@@ -68,7 +74,7 @@ fn returns_tle_when_time_limit_is_exceeded() {
     let mut judge_request = request("while True:\n    pass", vec![case("\n", "\n")]);
     judge_request.time_limit_ms = 50;
 
-    let result = judge::run(judge_request);
+    let result = run_direct(judge_request);
 
     assert_eq!(result.verdict, Verdict::TLE);
     assert_eq!(result.case_results.len(), 1);
@@ -77,7 +83,7 @@ fn returns_tle_when_time_limit_is_exceeded() {
 
 #[test]
 fn returns_ie_when_test_cases_are_empty() {
-    let result = judge::run(request("print(1)", vec![]));
+    let result = run_direct(request("print(1)", vec![]));
 
     assert_eq!(result.verdict, Verdict::IE);
     assert!(result.case_results.is_empty());

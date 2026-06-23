@@ -1,6 +1,9 @@
 use std::fs;
 
-use judge_core::models::{JudgeRequest, TestCase, Verdict};
+use judge_core::{
+    models::{JudgeRequest, TestCase, Verdict},
+    runner::{Runner, default_runner},
+};
 
 use crate::{
     mock_sqs::MockSqs,
@@ -11,10 +14,30 @@ pub fn process_next(queue: &mut MockSqs) -> Option<WorkerResult> {
     queue.receive_message().map(process_job)
 }
 
+pub fn process_next_with_runner(queue: &mut MockSqs, runner: &dyn Runner) -> Option<WorkerResult> {
+    queue
+        .receive_message()
+        .map(|job| process_job_with_runner(job, runner))
+}
+
 pub fn process_job(job: JudgeJob) -> WorkerResult {
+    match default_runner() {
+        Ok(runner) => process_job_with_runner(job, runner.as_ref()),
+        Err(message) => WorkerResult {
+            submission_id: job.submission_id,
+            result: judge_core::models::JudgeResult {
+                verdict: Verdict::IE,
+                case_results: vec![],
+                message: Some(message),
+            },
+        },
+    }
+}
+
+pub fn process_job_with_runner(job: JudgeJob, runner: &dyn Runner) -> WorkerResult {
     let submission_id = job.submission_id.clone();
     let result = match build_request(job) {
-        Ok(request) => judge_core::judge::run(request),
+        Ok(request) => judge_core::judge::run_with_runner(request, runner),
         Err(message) => judge_core::models::JudgeResult {
             verdict: Verdict::IE,
             case_results: vec![],

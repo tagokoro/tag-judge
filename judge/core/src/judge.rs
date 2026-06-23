@@ -1,8 +1,19 @@
 use crate::compare::output_matches;
-use crate::models::{CaseResult, JudgeRequest, JudgeResult, Language, TestCase, Verdict};
-use crate::runner::python::{ExecutionOutput, exec_py};
+use crate::models::{CaseResult, JudgeRequest, JudgeResult, TestCase, Verdict};
+use crate::runner::{ExecutionOutput, RunRequest, Runner, default_runner};
 
 pub fn run(request: JudgeRequest) -> JudgeResult {
+    match default_runner() {
+        Ok(runner) => run_with_runner(request, runner.as_ref()),
+        Err(message) => JudgeResult {
+            verdict: Verdict::IE,
+            case_results: vec![],
+            message: Some(message),
+        },
+    }
+}
+
+pub fn run_with_runner(request: JudgeRequest, runner: &dyn Runner) -> JudgeResult {
     if request.test_cases.is_empty() {
         return JudgeResult {
             verdict: Verdict::IE,
@@ -14,13 +25,12 @@ pub fn run(request: JudgeRequest) -> JudgeResult {
     let mut case_results = Vec::new();
 
     for (case_index, test_case) in request.test_cases.iter().enumerate() {
-        let execution = match request.language {
-            Language::Python => exec_py(
-                &request.source_code,
-                &test_case.input,
-                request.time_limit_ms,
-            ),
-        };
+        let execution = runner.run(RunRequest {
+            language: request.language,
+            source_code: &request.source_code,
+            input: &test_case.input,
+            time_limit_ms: request.time_limit_ms,
+        });
 
         let case_result = match execution {
             Ok(output) => build_case_result(case_index, test_case, output),
