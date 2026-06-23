@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct JudgeJob {
     pub submission_id: String,
     pub language: Language,
-    pub source_code_path: String,
-    pub test_cases_path: String,
+    pub source_code_key: String,
+    pub test_cases_key: String,
     pub time_limit_ms: u32,
 }
 

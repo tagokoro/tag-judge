@@ -1,5 +1,3 @@
-use std::fs;
-
 use judge_core::{
     models::{JudgeRequest, TestCase, Verdict},
     runner::{Runner, default_runner},
@@ -8,21 +6,30 @@ use judge_core::{
 use crate::{
     mock_sqs::MockSqs,
     models::{JudgeJob, WorkerResult},
+    storage::ArtifactStore,
 };
 
-pub fn process_next(queue: &mut MockSqs) -> Option<WorkerResult> {
-    queue.receive_message().map(process_job)
+pub async fn process_next(queue: &mut MockSqs, store: &dyn ArtifactStore) -> Option<WorkerResult> {
+    match queue.receive_message() {
+        Some(job) => Some(process_job(job, store).await),
+        None => None,
+    }
 }
 
-pub fn process_next_with_runner(queue: &mut MockSqs, runner: &dyn Runner) -> Option<WorkerResult> {
-    queue
-        .receive_message()
-        .map(|job| process_job_with_runner(job, runner))
+pub async fn process_next_with_runner(
+    queue: &mut MockSqs,
+    store: &dyn ArtifactStore,
+    runner: &dyn Runner,
+) -> Option<WorkerResult> {
+    match queue.receive_message() {
+        Some(job) => Some(process_job_with_runner(job, store, runner).await),
+        None => None,
+    }
 }
 
-pub fn process_job(job: JudgeJob) -> WorkerResult {
+pub async fn process_job(job: JudgeJob, store: &dyn ArtifactStore) -> WorkerResult {
     match default_runner() {
-        Ok(runner) => process_job_with_runner(job, runner.as_ref()),
+        Ok(runner) => process_job_with_runner(job, store, runner.as_ref()).await,
         Err(message) => WorkerResult {
             submission_id: job.submission_id,
             result: judge_core::models::JudgeResult {
@@ -34,9 +41,13 @@ pub fn process_job(job: JudgeJob) -> WorkerResult {
     }
 }
 
-pub fn process_job_with_runner(job: JudgeJob, runner: &dyn Runner) -> WorkerResult {
+pub async fn process_job_with_runner(
+    job: JudgeJob,
+    store: &dyn ArtifactStore,
+    runner: &dyn Runner,
+) -> WorkerResult {
     let submission_id = job.submission_id.clone();
-    let result = match build_request(job) {
+    let result = match build_request(&job, store).await {
         Ok(request) => judge_core::judge::run_with_runner(request, runner),
         Err(message) => judge_core::models::JudgeResult {
             verdict: Verdict::IE,
@@ -51,13 +62,17 @@ pub fn process_job_with_runner(job: JudgeJob, runner: &dyn Runner) -> WorkerResu
     }
 }
 
-fn build_request(job: JudgeJob) -> Result<JudgeRequest, String> {
-    let source_code = fs::read_to_string(&job.source_code_path)
-        .map_err(|error| format!("failed to read source code: {}", error))?;
+async fn build_request(job: &JudgeJob, store: &dyn ArtifactStore) -> Result<JudgeRequest, String> {
+    let source_code = store.read_source_code(&job.source_code_key).await?;
+    let test_cases_json = store.read_test_cases(&job.test_cases_key).await?;
+    build_request_from_artifacts(job, source_code, test_cases_json)
+}
 
-    let test_cases_json = fs::read_to_string(&job.test_cases_path)
-        .map_err(|error| format!("failed to read test cases: {}", error))?;
-
+fn build_request_from_artifacts(
+    job: &JudgeJob,
+    source_code: String,
+    test_cases_json: String,
+) -> Result<JudgeRequest, String> {
     let test_cases: Vec<TestCase> = serde_json::from_str(&test_cases_json)
         .map_err(|error| format!("failed to parse test cases JSON: {}", error))?;
 
