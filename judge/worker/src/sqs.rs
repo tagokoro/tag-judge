@@ -1,5 +1,6 @@
 use std::env;
 
+use aws_config::BehaviorVersion;
 use aws_sdk_sqs::{
     Client, Config,
     config::{Credentials, Region},
@@ -10,7 +11,6 @@ use hyper_rustls::HttpsConnectorBuilder;
 use crate::models::JudgeJob;
 
 const DEFAULT_REGION: &str = "ap-northeast-1";
-const DEFAULT_ENDPOINT_URL: &str = "http://localhost:4566";
 const DEFAULT_QUEUE_NAME: &str = "judge-submissions";
 const MAX_MESSAGES_PER_POLL: i32 = 1;
 const WAIT_TIME_SECONDS: i32 = 5;
@@ -30,15 +30,16 @@ pub struct SqsQueue {
 #[derive(Debug)]
 pub struct SqsQueueConfig {
     region: String,
-    endpoint_url: String,
+    endpoint_url: Option<String>,
     queue_name: String,
 }
 
 impl SqsQueueConfig {
     pub fn from_env() -> Self {
         let region = env::var("AWS_DEFAULT_REGION").unwrap_or_else(|_| DEFAULT_REGION.to_string());
-        let endpoint_url =
-            env::var("AWS_ENDPOINT_URL").unwrap_or_else(|_| DEFAULT_ENDPOINT_URL.to_string());
+        let endpoint_url = env::var("AWS_ENDPOINT_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
         let queue_name = env::var("JUDGE_SUBMISSIONS_QUEUE_NAME")
             .unwrap_or_else(|_| DEFAULT_QUEUE_NAME.to_string());
 
@@ -52,24 +53,11 @@ impl SqsQueueConfig {
 
 impl SqsQueue {
     pub async fn connect(queue_config: SqsQueueConfig) -> Result<Self, String> {
-        // Avoid the SDK default HTTPS client because this local worker talks to LocalStack over HTTP.
-        let https_connector = HttpsConnectorBuilder::new()
-            .with_webpki_roots()
-            .https_or_http()
-            .enable_http1()
-            .enable_http2()
-            .build();
-        let http_client = HyperClientBuilder::new().build(https_connector);
+        let client = match queue_config.endpoint_url {
+            Some(endpoint_url) => localstack_client(&queue_config.region, endpoint_url),
+            None => aws_client(&queue_config.region).await,
+        };
 
-        let sdk_config = Config::builder()
-            .behavior_version_latest()
-            .region(Region::new(queue_config.region.clone()))
-            .endpoint_url(queue_config.endpoint_url)
-            .credentials_provider(Credentials::new("test", "test", None, None, "localstack"))
-            .http_client(http_client)
-            .build();
-
-        let client = Client::from_conf(sdk_config);
         let queue_url = client
             .get_queue_url()
             .queue_name(queue_config.queue_name)
@@ -124,4 +112,34 @@ impl SqsQueue {
 
         Ok(())
     }
+}
+
+fn localstack_client(region: &str, endpoint_url: String) -> Client {
+    // LocalStack uses an HTTP endpoint and accepts dummy static credentials.
+    let https_connector = HttpsConnectorBuilder::new()
+        .with_webpki_roots()
+        .https_or_http()
+        .enable_http1()
+        .enable_http2()
+        .build();
+    let http_client = HyperClientBuilder::new().build(https_connector);
+
+    let sdk_config = Config::builder()
+        .behavior_version_latest()
+        .region(Region::new(region.to_string()))
+        .endpoint_url(endpoint_url)
+        .credentials_provider(Credentials::new("test", "test", None, None, "localstack"))
+        .http_client(http_client)
+        .build();
+
+    Client::from_conf(sdk_config)
+}
+
+async fn aws_client(region: &str) -> Client {
+    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(region.to_string()))
+        .load()
+        .await;
+
+    Client::new(&sdk_config)
 }

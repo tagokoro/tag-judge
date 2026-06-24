@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 aws-sdk-sqs = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 aws-smithy-runtime = { version = "1", features = ["connector-hyper-0-14-x", "rt-tokio", "tls-rustls"] }
