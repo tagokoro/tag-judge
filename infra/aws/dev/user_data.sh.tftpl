@@ -1,0 +1,68 @@
+#!/bin/bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y \
+  build-essential \
+  ca-certificates \
+  curl \
+  git \
+  isolate \
+  pkg-config \
+  python3
+
+curl -fsSL \
+  "https://s3.${aws_region}.amazonaws.com/amazon-ssm-${aws_region}/latest/debian_amd64/amazon-ssm-agent.deb" \
+  -o /tmp/amazon-ssm-agent.deb
+dpkg -i /tmp/amazon-ssm-agent.deb
+systemctl enable amazon-ssm-agent
+systemctl restart amazon-ssm-agent
+
+if ! id -u "${worker_user}" >/dev/null 2>&1; then
+  useradd --system --create-home --shell /usr/sbin/nologin "${worker_user}"
+fi
+
+install -d -o "${worker_user}" -g "${worker_user}" /opt/tag-judge
+
+if [ ! -d /opt/tag-judge/.git ]; then
+  git clone "${repository_url}" /opt/tag-judge
+fi
+
+cd /opt/tag-judge
+git fetch --all
+git checkout "${repository_ref}"
+git pull --ff-only || true
+chown -R "${worker_user}:${worker_user}" /opt/tag-judge
+
+curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "${rust_toolchain}"
+. /root/.cargo/env
+
+cd /opt/tag-judge/judge/worker
+cargo build --release
+
+cat >/etc/systemd/system/judge-worker.service <<EOF
+[Unit]
+Description=tag-judge worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tag-judge/judge/worker
+ExecStart=/opt/tag-judge/judge/worker/target/release/judge-worker
+Restart=always
+RestartSec=5
+Environment=AWS_DEFAULT_REGION=${aws_region}
+Environment=JUDGE_SUBMISSIONS_QUEUE_NAME=${queue_name}
+Environment=JUDGE_STORAGE_BUCKET=${bucket_name}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable judge-worker
+systemctl restart judge-worker

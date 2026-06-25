@@ -4,3 +4,9 @@ target/
 **/target/
 judge/core/tmp/
 judge/core/src/tmp/
+
+# Terraform local state and caches
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

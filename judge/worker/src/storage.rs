@@ -1,5 +1,6 @@
 use std::{env, future::Future, pin::Pin};
 
+use aws_config::BehaviorVersion;
 use aws_sdk_s3::{
     Client, Config,
     config::{Credentials, Region},
@@ -8,7 +9,6 @@ use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use hyper_rustls::HttpsConnectorBuilder;
 
 const DEFAULT_REGION: &str = "ap-northeast-1";
-const DEFAULT_ENDPOINT_URL: &str = "http://localhost:4566";
 const DEFAULT_BUCKET_NAME: &str = "judge-storage";
 
 pub trait ArtifactStore {
@@ -32,15 +32,16 @@ pub struct S3Storage {
 #[derive(Debug)]
 pub struct S3StorageConfig {
     region: String,
-    endpoint_url: String,
+    endpoint_url: Option<String>,
     bucket: String,
 }
 
 impl S3StorageConfig {
     pub fn from_env() -> Self {
         let region = env::var("AWS_DEFAULT_REGION").unwrap_or_else(|_| DEFAULT_REGION.to_string());
-        let endpoint_url =
-            env::var("AWS_ENDPOINT_URL").unwrap_or_else(|_| DEFAULT_ENDPOINT_URL.to_string());
+        let endpoint_url = env::var("AWS_ENDPOINT_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
         let bucket =
             env::var("JUDGE_STORAGE_BUCKET").unwrap_or_else(|_| DEFAULT_BUCKET_NAME.to_string());
 
@@ -54,25 +55,13 @@ impl S3StorageConfig {
 
 impl S3Storage {
     pub async fn connect(storage_config: S3StorageConfig) -> Result<Self, String> {
-        let https_connector = HttpsConnectorBuilder::new()
-            .with_webpki_roots()
-            .https_or_http()
-            .enable_http1()
-            .enable_http2()
-            .build();
-        let http_client = HyperClientBuilder::new().build(https_connector);
-
-        let sdk_config = Config::builder()
-            .behavior_version_latest()
-            .region(Region::new(storage_config.region))
-            .endpoint_url(storage_config.endpoint_url)
-            .credentials_provider(Credentials::new("test", "test", None, None, "localstack"))
-            .http_client(http_client)
-            .force_path_style(true)
-            .build();
+        let client = match storage_config.endpoint_url {
+            Some(endpoint_url) => localstack_client(&storage_config.region, endpoint_url),
+            None => aws_client(&storage_config.region).await,
+        };
 
         Ok(Self {
-            client: Client::from_conf(sdk_config),
+            client,
             bucket: storage_config.bucket,
         })
     }
@@ -97,6 +86,37 @@ impl S3Storage {
         String::from_utf8(body.into_bytes().to_vec())
             .map_err(|error| format!("s3://{}/{} is not valid UTF-8: {}", self.bucket, key, error))
     }
+}
+
+fn localstack_client(region: &str, endpoint_url: String) -> Client {
+    // LocalStack uses an HTTP endpoint, path-style S3, and dummy static credentials.
+    let https_connector = HttpsConnectorBuilder::new()
+        .with_webpki_roots()
+        .https_or_http()
+        .enable_http1()
+        .enable_http2()
+        .build();
+    let http_client = HyperClientBuilder::new().build(https_connector);
+
+    let sdk_config = Config::builder()
+        .behavior_version_latest()
+        .region(Region::new(region.to_string()))
+        .endpoint_url(endpoint_url)
+        .credentials_provider(Credentials::new("test", "test", None, None, "localstack"))
+        .http_client(http_client)
+        .force_path_style(true)
+        .build();
+
+    Client::from_conf(sdk_config)
+}
+
+async fn aws_client(region: &str) -> Client {
+    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(region.to_string()))
+        .load()
+        .await;
+
+    Client::new(&sdk_config)
 }
 
 impl ArtifactStore for S3Storage {
