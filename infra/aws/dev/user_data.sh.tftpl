@@ -2,6 +2,7 @@
 set -euxo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+export HOME=/root
 
 apt-get update
 apt-get install -y \
@@ -35,6 +36,11 @@ if ! command -v isolate >/dev/null 2>&1; then
   rm -rf /tmp/isolate
   git clone --depth 1 --branch "${isolate_git_ref}" https://github.com/ioi/isolate.git /tmp/isolate
   make -C /tmp/isolate install
+  if ! id -u isolate >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin isolate
+  fi
+  grep -q '^isolate:' /etc/subuid || echo 'isolate:60000:65536' >>/etc/subuid
+  grep -q '^isolate:' /etc/subgid || echo 'isolate:60000:65536' >>/etc/subgid
   systemctl daemon-reload
   systemctl enable --now isolate.service
 fi
