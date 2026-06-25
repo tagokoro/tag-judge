@@ -195,13 +195,14 @@ resource "aws_instance" "judge_worker" {
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    aws_region     = var.aws_region
-    queue_name     = aws_sqs_queue.submissions.name
-    bucket_name    = aws_s3_bucket.artifacts.bucket
-    repository_url = var.repository_url
-    repository_ref = var.repository_ref
-    worker_user    = var.worker_user
-    rust_toolchain = var.rust_toolchain
+    aws_region      = var.aws_region
+    queue_name      = aws_sqs_queue.submissions.name
+    bucket_name     = aws_s3_bucket.artifacts.bucket
+    repository_url  = var.repository_url
+    repository_ref  = var.repository_ref
+    worker_user     = var.worker_user
+    rust_toolchain  = var.rust_toolchain
+    isolate_git_ref = var.isolate_git_ref
   })
 
   user_data_replace_on_change = true

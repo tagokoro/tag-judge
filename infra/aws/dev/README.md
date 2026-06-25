@@ -10,6 +10,8 @@ This Terraform stack creates the smallest AWS environment needed to verify that 
 - EC2 instance running `judge-worker` as a systemd service
 - Security group with no inbound rules
 
+The worker instance installs build dependencies from apt and builds `ioi/isolate` from the pinned `isolate_git_ref` Terraform variable. Ubuntu's default apt repositories do not provide the `isolate` package used by `judge-core`.
+
 The EC2 instance is intended to be accessed through AWS Systems Manager Session Manager, not SSH.
 
 ## Deploy
