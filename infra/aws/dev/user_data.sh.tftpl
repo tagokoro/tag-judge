@@ -5,12 +5,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y \
-  build-essential \
   ca-certificates \
   curl \
   git \
-  isolate \
-  pkg-config \
   python3
 
 curl -fsSL \
@@ -19,6 +16,21 @@ curl -fsSL \
 dpkg -i /tmp/amazon-ssm-agent.deb
 systemctl enable amazon-ssm-agent
 systemctl restart amazon-ssm-agent
+
+apt-get install -y \
+  build-essential \
+  libcap-dev \
+  libseccomp-dev \
+  libsystemd-dev \
+  pkg-config
+
+if ! command -v isolate >/dev/null 2>&1; then
+  rm -rf /tmp/isolate
+  git clone --depth 1 --branch "${isolate_git_ref}" https://github.com/ioi/isolate.git /tmp/isolate
+  make -C /tmp/isolate install
+  systemctl daemon-reload
+  systemctl enable --now isolate.service
+fi
 
 if ! id -u "${worker_user}" >/dev/null 2>&1; then
   useradd --system --create-home --shell /usr/sbin/nologin "${worker_user}"

@@ -52,6 +52,12 @@ variable "rust_toolchain" {
   default     = "stable"
 }
 
+variable "isolate_git_ref" {
+  description = "Git ref of ioi/isolate built and installed by EC2 user_data."
+  type        = string
+  default     = "v2.6"
+}
+
 variable "force_destroy_artifacts_bucket" {
   description = "Whether Terraform may delete the artifacts bucket even when it contains objects. Useful for early experiments."
   type        = bool
