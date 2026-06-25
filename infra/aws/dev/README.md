@@ -31,8 +31,8 @@ After `terraform apply`, copy sample artifacts to S3:
 BUCKET="$(terraform output -raw artifacts_bucket_name)"
 QUEUE_URL="$(terraform output -raw submissions_queue_url)"
 
-printf 'print(input())\n' | aws s3 cp - "s3://$BUCKET/submissions/sub_aws_001/main.py"
-printf '[{"input":"hello\n","expectedOutput":"hello\n"}]\n' | aws s3 cp - "s3://$BUCKET/problems/prob_001/testcases.json"
+printf '%s\n' 'print(input())' | aws s3 cp - "s3://$BUCKET/submissions/sub_aws_001/main.py"
+printf '%s\n' '[{"input":"hello\n","expectedOutput":"hello\n"}]' | aws s3 cp - "s3://$BUCKET/problems/prob_001/testcases.json"
 ```
 
 Send a judge job:

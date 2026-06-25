@@ -2,6 +2,7 @@
 set -euxo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+export HOME=/root
 
 apt-get update
 apt-get install -y \
@@ -10,12 +11,30 @@ apt-get install -y \
   git \
   python3
 
-curl -fsSL \
-  "https://s3.${aws_region}.amazonaws.com/amazon-ssm-${aws_region}/latest/debian_amd64/amazon-ssm-agent.deb" \
-  -o /tmp/amazon-ssm-agent.deb
-dpkg -i /tmp/amazon-ssm-agent.deb
-systemctl enable amazon-ssm-agent
-systemctl restart amazon-ssm-agent
+swap_file=/swapfile
+if [ ! -f "$swap_file" ]; then
+  fallocate -l 4G "$swap_file" || dd if=/dev/zero of="$swap_file" bs=1M count=4096
+  chmod 600 "$swap_file"
+  mkswap "$swap_file"
+fi
+if ! swapon --show=NAME | grep -q "^$swap_file$"; then
+  swapon "$swap_file"
+fi
+grep -q "^$swap_file " /etc/fstab || echo "$swap_file none swap sw 0 0" >>/etc/fstab
+
+if snap list amazon-ssm-agent >/dev/null 2>&1; then
+  snap start --enable amazon-ssm-agent || snap start amazon-ssm-agent || true
+elif systemctl list-unit-files | grep -q '^amazon-ssm-agent.service'; then
+  systemctl enable amazon-ssm-agent
+  systemctl restart amazon-ssm-agent
+else
+  curl -fsSL \
+    "https://s3.${aws_region}.amazonaws.com/amazon-ssm-${aws_region}/latest/debian_amd64/amazon-ssm-agent.deb" \
+    -o /tmp/amazon-ssm-agent.deb
+  dpkg -i /tmp/amazon-ssm-agent.deb
+  systemctl enable amazon-ssm-agent
+  systemctl restart amazon-ssm-agent
+fi
 
 apt-get install -y \
   build-essential \
@@ -28,6 +47,11 @@ if ! command -v isolate >/dev/null 2>&1; then
   rm -rf /tmp/isolate
   git clone --depth 1 --branch "${isolate_git_ref}" https://github.com/ioi/isolate.git /tmp/isolate
   make -C /tmp/isolate install
+  if ! id -u isolate >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin isolate
+  fi
+  grep -q '^isolate:' /etc/subuid || echo 'isolate:60000:65536' >>/etc/subuid
+  grep -q '^isolate:' /etc/subgid || echo 'isolate:60000:65536' >>/etc/subgid
   systemctl daemon-reload
   systemctl enable --now isolate.service
 fi
@@ -42,6 +66,8 @@ if [ ! -d /opt/tag-judge/.git ]; then
   git clone "${repository_url}" /opt/tag-judge
 fi
 
+git config --system --add safe.directory /opt/tag-judge
+
 cd /opt/tag-judge
 git fetch --all
 git checkout "${repository_ref}"
@@ -52,7 +78,8 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "${rust_toolcha
 . /root/.cargo/env
 
 cd /opt/tag-judge/judge/worker
-cargo build --release
+export CARGO_BUILD_JOBS=1
+cargo build --release --jobs 1
 
 cat >/etc/systemd/system/judge-worker.service <<EOF
 [Unit]
