@@ -49,6 +49,8 @@ if [ ! -d /opt/tag-judge/.git ]; then
   git clone "${repository_url}" /opt/tag-judge
 fi
 
+git config --global --add safe.directory /opt/tag-judge
+
 cd /opt/tag-judge
 git fetch --all
 git checkout "${repository_ref}"
