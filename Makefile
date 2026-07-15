@@ -10,8 +10,9 @@ POSTGRES_PORT ?= 5432
 PORT ?= 8080
 
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
-MIGRATIONS_DIR ?= db/migrations
-SEED_FILE ?= db/seeds/development.sql
+BACKEND_DIR ?= backend
+MIGRATIONS_DIR ?= $(BACKEND_DIR)/db/migrations
+SEED_FILE ?= $(BACKEND_DIR)/db/seeds/development.sql
 
 .PHONY: help
 help: ## Show available commands
@@ -55,15 +56,15 @@ seed: ## Load development seed data
 
 .PHONY: sqlc
 sqlc: ## Generate sqlc code
-	sqlc generate
+	cd $(BACKEND_DIR) && sqlc generate
 
 .PHONY: test
 test: ## Run Go tests
-	go test ./...
+	cd $(BACKEND_DIR) && go test ./...
 
 .PHONY: run-api
 run-api: ## Run the API server
-	PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" go run ./cmd/api
+	cd $(BACKEND_DIR) && PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" go run ./cmd/api
 
 .PHONY: api-smoke
 api-smoke: ## Check API health and public problems
