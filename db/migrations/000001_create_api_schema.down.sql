@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS code_runs;
+DROP TABLE IF EXISTS submission_results;
+DROP TABLE IF EXISTS submissions;
+DROP TABLE IF EXISTS test_cases;
+DROP TABLE IF EXISTS problems;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS pgcrypto;
