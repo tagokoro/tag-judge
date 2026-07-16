@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,6 +24,46 @@ func TestProblemsRoute(t *testing.T) {
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
+func TestProblemsRouteEmptyLimit(t *testing.T) {
+	problemHandler := handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{}))
+	router := New(Handlers{Problems: problemHandler})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems?limit=", nil)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
+func TestProblemsRouteZeroLimit(t *testing.T) {
+	problemHandler := handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{}))
+	router := New(Handlers{Problems: problemHandler})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems?limit=0", nil)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusBadRequest)
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "INVALID_LIMIT" {
+		t.Fatalf("error code = %q, want INVALID_LIMIT", body.Error.Code)
 	}
 }
 

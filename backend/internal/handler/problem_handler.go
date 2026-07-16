@@ -71,7 +71,7 @@ func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
 	}
 	value := values[0]
 	if value == "" {
-		return 0, true, nil
+		return 0, false, nil
 	}
 	parsed, err := strconv.Atoi(value)
 	return parsed, true, err
