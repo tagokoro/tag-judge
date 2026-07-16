@@ -23,12 +23,8 @@ func New(handlers Handlers) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Route("/problems", func(r chi.Router) {
-			r.Get("/", handlers.Problems.List)
-			r.Get("/{problem_id}", handlers.Problems.Get)
-		})
-	})
+	r.Get("/api/v1/problems", handlers.Problems.List)
+	r.Get("/api/v1/problems/{problem_id}", handlers.Problems.Get)
 
 	return r
 }
