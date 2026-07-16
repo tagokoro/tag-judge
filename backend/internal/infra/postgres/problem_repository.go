@@ -7,10 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tagokoro/tag-judge/internal/apperror"
-	"github.com/tagokoro/tag-judge/internal/domain"
-	"github.com/tagokoro/tag-judge/internal/infra/postgres/sqlc"
-	"github.com/tagokoro/tag-judge/internal/repository"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres/sqlc"
+	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
 type ProblemRepository struct {

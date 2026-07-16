@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/tagokoro/tag-judge/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
 )
 
 type ListProblemsParams struct {

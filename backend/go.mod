@@ -1,4 +1,4 @@
-module github.com/tagokoro/tag-judge
+module github.com/tagokoro/tag-judge/backend
 
 go 1.26
 

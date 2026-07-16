@@ -3,9 +3,9 @@ package usecase
 import (
 	"context"
 
-	"github.com/tagokoro/tag-judge/internal/apperror"
-	"github.com/tagokoro/tag-judge/internal/domain"
-	"github.com/tagokoro/tag-judge/internal/repository"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
 const (
@@ -22,16 +22,17 @@ func NewProblemUsecase(problems repository.ProblemRepository) *ProblemUsecase {
 }
 
 type ListProblemsInput struct {
-	Limit  int
-	Offset int
+	Limit         int
+	LimitProvided bool
+	Offset        int
 }
 
 func (u *ProblemUsecase) ListPublicProblems(ctx context.Context, input ListProblemsInput) ([]domain.Problem, error) {
 	limit := input.Limit
-	if limit == 0 {
+	if !input.LimitProvided {
 		limit = defaultProblemLimit
 	}
-	if limit < 0 || limit > maxProblemLimit {
+	if limit <= 0 || limit > maxProblemLimit {
 		return nil, apperror.InvalidInput("INVALID_LIMIT", "limit must be between 1 and 100")
 	}
 	if input.Offset < 0 {

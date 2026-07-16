@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tagokoro/tag-judge/internal/apperror"
-	"github.com/tagokoro/tag-judge/internal/domain"
-	"github.com/tagokoro/tag-judge/internal/usecase"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 type ProblemHandler struct {
@@ -20,20 +20,21 @@ func NewProblemHandler(problems *usecase.ProblemUsecase) *ProblemHandler {
 }
 
 func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
-	limit, err := parseOptionalInt(r, "limit")
+	limit, limitProvided, err := parseOptionalInt(r, "limit")
 	if err != nil {
 		writeError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
 		return
 	}
-	offset, err := parseOptionalInt(r, "offset")
+	offset, _, err := parseOptionalInt(r, "offset")
 	if err != nil {
 		writeError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
 		return
 	}
 
 	problems, err := h.problems.ListPublicProblems(r.Context(), usecase.ListProblemsInput{
-		Limit:  limit,
-		Offset: offset,
+		Limit:         limit,
+		LimitProvided: limitProvided,
+		Offset:        offset,
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -63,12 +64,17 @@ func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
 }
 
-func parseOptionalInt(r *http.Request, key string) (int, error) {
-	value := r.URL.Query().Get(key)
-	if value == "" {
-		return 0, nil
+func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
+	values, ok := r.URL.Query()[key]
+	if !ok {
+		return 0, false, nil
 	}
-	return strconv.Atoi(value)
+	value := values[0]
+	if value == "" {
+		return 0, true, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	return parsed, true, err
 }
 
 type problemResponse struct {

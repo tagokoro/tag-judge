@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tagokoro/tag-judge/internal/config"
-	"github.com/tagokoro/tag-judge/internal/handler"
-	"github.com/tagokoro/tag-judge/internal/infra/postgres"
-	"github.com/tagokoro/tag-judge/internal/router"
-	"github.com/tagokoro/tag-judge/internal/usecase"
+	"github.com/tagokoro/tag-judge/backend/internal/config"
+	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
+	"github.com/tagokoro/tag-judge/backend/internal/router"
+	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 func main() {

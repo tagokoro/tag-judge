@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/tagokoro/tag-judge/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 )
 
 type successResponse struct {

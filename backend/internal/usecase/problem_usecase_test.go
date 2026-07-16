@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tagokoro/tag-judge/internal/apperror"
-	"github.com/tagokoro/tag-judge/internal/domain"
-	"github.com/tagokoro/tag-judge/internal/repository"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
 func TestListPublicProblemsDefaultLimit(t *testing.T) {
@@ -31,7 +31,20 @@ func TestListPublicProblemsInvalidLimit(t *testing.T) {
 	repo := &fakeProblemRepository{}
 	uc := NewProblemUsecase(repo)
 
-	_, err := uc.ListPublicProblems(context.Background(), ListProblemsInput{Limit: maxProblemLimit + 1})
+	_, err := uc.ListPublicProblems(context.Background(), ListProblemsInput{Limit: maxProblemLimit + 1, LimitProvided: true})
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+	if repo.listCalled {
+		t.Fatal("repository should not be called")
+	}
+}
+
+func TestListPublicProblemsZeroLimit(t *testing.T) {
+	repo := &fakeProblemRepository{}
+	uc := NewProblemUsecase(repo)
+
+	_, err := uc.ListPublicProblems(context.Background(), ListProblemsInput{Limit: 0, LimitProvided: true})
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
