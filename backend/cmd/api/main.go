@@ -11,7 +11,6 @@ import (
 
 	"github.com/tagokoro/tag-judge/backend/internal/config"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/infra/oauth"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/router"
@@ -41,27 +40,16 @@ func run() error {
 	defer db.Close()
 
 	problemRepo := postgres.NewProblemRepository(db)
-	authRepo := postgres.NewAuthRepository(db)
-	googleProvider := oauth.NewGoogleProvider(
-		cfg.GoogleOAuthClientID,
-		cfg.GoogleOAuthSecret,
-		cfg.GoogleOAuthRedirectURL,
-	)
-
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
-	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
-
 	problemHandler := handler.NewProblemHandler(problemUsecase)
 	meHandler := handler.NewMeHandler()
-	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
-	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
+	authMiddleware := appmiddleware.NewAuthMiddleware()
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems: problemHandler,
 			Me:       meHandler,
-			AuthHTTP: authHandler,
 			Auth:     authMiddleware,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,

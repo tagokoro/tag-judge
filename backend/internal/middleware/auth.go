@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -15,41 +14,14 @@ const (
 	userRoleHeader = "X-User-Role"
 )
 
-type SessionStore interface {
-	FindActorBySessionTokenHash(ctx context.Context, tokenHash string) (auth.Actor, error)
-}
+type AuthMiddleware struct{}
 
-type AuthMiddleware struct {
-	sessions      SessionStore
-	devHeaderAuth bool
-}
-
-func NewAuthMiddleware(sessions SessionStore, devHeaderAuth bool) *AuthMiddleware {
-	return &AuthMiddleware{
-		sessions:      sessions,
-		devHeaderAuth: devHeaderAuth,
-	}
+func NewAuthMiddleware() *AuthMiddleware {
+	return &AuthMiddleware{}
 }
 
 func (m *AuthMiddleware) InjectActor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m.sessions != nil {
-			cookie, err := r.Cookie(auth.SessionCookieName)
-			if err == nil && cookie.Value != "" {
-				actor, err := m.sessions.FindActorBySessionTokenHash(r.Context(), auth.HashToken(cookie.Value))
-				if err == nil {
-					ctx := auth.ContextWithActor(r.Context(), actor)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-		}
-
-		if !m.devHeaderAuth {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		userID := r.Header.Get(userIDHeader)
 		role := domain.UserRole(r.Header.Get(userRoleHeader))
 		if userID == "" && role == "" {
