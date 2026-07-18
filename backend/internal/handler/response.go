@@ -28,7 +28,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(successResponse{Data: data})
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, err error) {
+func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
 	body := errorBody{Code: "INTERNAL_ERROR", Message: "internal server error"}
 

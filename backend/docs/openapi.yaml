@@ -5,6 +5,22 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /me:
+    get:
+      summary: Get current authenticated actor
+      description: Uses development header authentication until Google OAuth session support is implemented.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      responses:
+        "200":
+          description: Current actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Error"
   /problems:
     get:
       summary: List public problems
@@ -54,6 +70,21 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 components:
+  parameters:
+    UserIDHeader:
+      name: X-User-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserRoleHeader:
+      name: X-User-Role
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [user, author, admin]
   responses:
     Error:
       description: Error response
@@ -104,6 +135,24 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/Problem"
+    Me:
+      type: object
+      required:
+        - user_id
+        - role
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, author, admin]
+    MeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Me"
     ProblemListResponse:
       type: object
       required: [data]
