@@ -12,6 +12,7 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/config"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
+	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/router"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
@@ -41,10 +42,16 @@ func run() error {
 	problemRepo := postgres.NewProblemRepository(db)
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	meHandler := handler.NewMeHandler()
+	authMiddleware := appmiddleware.NewAuthMiddleware()
 
 	server := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      router.New(router.Handlers{Problems: problemHandler}),
+		Addr: ":" + cfg.Port,
+		Handler: router.New(router.Handlers{
+			Problems: problemHandler,
+			Me:       meHandler,
+			Auth:     authMiddleware,
+		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,

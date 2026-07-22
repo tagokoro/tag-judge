@@ -7,3 +7,16 @@ const (
 	UserRoleAuthor UserRole = "author"
 	UserRoleAdmin  UserRole = "admin"
 )
+
+func (r UserRole) Valid() bool {
+	switch r {
+	case UserRoleUser, UserRoleAuthor, UserRoleAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r UserRole) CanCreateProblem() bool {
+	return r == UserRoleAuthor || r == UserRoleAdmin
+}

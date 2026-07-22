@@ -28,6 +28,14 @@ func InvalidInput(code, message string) *AppError {
 	return &AppError{Code: code, Message: message, Err: ErrInvalidInput}
 }
 
+func Unauthorized(code, message string) *AppError {
+	return &AppError{Code: code, Message: message, Err: ErrUnauthorized}
+}
+
+func Forbidden(code, message string) *AppError {
+	return &AppError{Code: code, Message: message, Err: ErrForbidden}
+}
+
 func NotFound(code, message string) *AppError {
 	return &AppError{Code: code, Message: message, Err: ErrNotFound}
 }

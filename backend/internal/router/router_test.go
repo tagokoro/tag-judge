@@ -9,13 +9,13 @@ import (
 
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 func TestProblemsRoute(t *testing.T) {
-	problemHandler := handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{}))
-	router := New(Handlers{Problems: problemHandler})
+	router := newTestRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems", nil)
 	res := httptest.NewRecorder()
@@ -28,8 +28,7 @@ func TestProblemsRoute(t *testing.T) {
 }
 
 func TestProblemsRouteEmptyLimit(t *testing.T) {
-	problemHandler := handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{}))
-	router := New(Handlers{Problems: problemHandler})
+	router := newTestRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems?limit=", nil)
 	res := httptest.NewRecorder()
@@ -42,8 +41,7 @@ func TestProblemsRouteEmptyLimit(t *testing.T) {
 }
 
 func TestProblemsRouteZeroLimit(t *testing.T) {
-	problemHandler := handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{}))
-	router := New(Handlers{Problems: problemHandler})
+	router := newTestRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems?limit=0", nil)
 	res := httptest.NewRecorder()
@@ -65,6 +63,85 @@ func TestProblemsRouteZeroLimit(t *testing.T) {
 	if body.Error.Code != "INVALID_LIMIT" {
 		t.Fatalf("error code = %q, want INVALID_LIMIT", body.Error.Code)
 	}
+}
+
+func TestMeRoute(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-User-Role", "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Data struct {
+			UserID string `json:"user_id"`
+			Role   string `json:"role"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.UserID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("user_id = %q", body.Data.UserID)
+	}
+	if body.Data.Role != "author" {
+		t.Fatalf("role = %q, want author", body.Data.Role)
+	}
+}
+
+func TestMeRouteUnauthorized(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "UNAUTHORIZED" {
+		t.Fatalf("error code = %q, want UNAUTHORIZED", body.Error.Code)
+	}
+}
+
+func TestMeRouteInvalidAuthHeader(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-User-Role", "invalid")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+}
+
+func newTestRouter() http.Handler {
+	return New(Handlers{
+		Problems: handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{})),
+		Me:       handler.NewMeHandler(),
+		Auth:     appmiddleware.NewAuthMiddleware(),
+	})
 }
 
 type fakeProblemRepository struct{}

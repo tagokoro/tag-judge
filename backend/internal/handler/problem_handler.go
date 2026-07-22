@@ -22,12 +22,12 @@ func NewProblemHandler(problems *usecase.ProblemUsecase) *ProblemHandler {
 func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, limitProvided, err := parseOptionalInt(r, "limit")
 	if err != nil {
-		writeError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
+		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
 		return
 	}
 	offset, _, err := parseOptionalInt(r, "offset")
 	if err != nil {
-		writeError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
+		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
 		return
 	}
 
@@ -37,7 +37,7 @@ func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 		Offset:        offset,
 	})
 	if err != nil {
-		writeError(w, r, err)
+		WriteError(w, r, err)
 		return
 	}
 
@@ -51,13 +51,13 @@ func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "problem_id"), 10, 64)
 	if err != nil {
-		writeError(w, r, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer"))
+		WriteError(w, r, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer"))
 		return
 	}
 
 	problem, err := h.problems.GetPublicProblem(r.Context(), id)
 	if err != nil {
-		writeError(w, r, err)
+		WriteError(w, r, err)
 		return
 	}
 
