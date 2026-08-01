@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
@@ -94,6 +95,20 @@ func TestMeRoute(t *testing.T) {
 	}
 	if body.Data.Role != "author" {
 		t.Fatalf("role = %q, want author", body.Data.Role)
+	}
+}
+
+func TestMeRouteSessionCookie(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req.AddCookie(&http.Cookie{Name: "tag_judge_session", Value: "valid-session"})
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
 	}
 }
 
@@ -296,11 +311,14 @@ func newTestRouter() http.Handler {
 }
 
 func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
+	authRepo := &fakeAuthRepository{}
+	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
 	return New(Handlers{
 		Problems: handler.NewProblemHandler(usecase.NewProblemUsecase(&fakeProblemRepository{})),
 		Groups:   handler.NewGroupHandler(usecase.NewGroupUsecase(groups)),
 		Me:       handler.NewMeHandler(),
-		Auth:     appmiddleware.NewAuthMiddleware(),
+		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
+		Auth:     appmiddleware.NewAuthMiddleware(authRepo, true),
 	})
 }
 
@@ -356,4 +374,25 @@ func (r *routerGroupRepository) FindMember(_ context.Context, _ int64, _ string)
 func (r *routerGroupRepository) AddMember(_ context.Context, params repository.AddGroupMemberParams) (*domain.GroupMember, error) {
 	r.addParams = params
 	return &domain.GroupMember{GroupID: params.GroupID, UserID: params.UserID, Role: params.Role}, nil
+}
+
+type fakeAuthRepository struct{}
+
+func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, _ repository.GoogleUser) (auth.Actor, error) {
+	return auth.Actor{}, nil
+}
+
+func (r *fakeAuthRepository) CreateSession(_ context.Context, _ repository.CreateSessionParams) error {
+	return nil
+}
+
+func (r *fakeAuthRepository) FindActorBySessionTokenHash(_ context.Context, _ string) (auth.Actor, error) {
+	return auth.Actor{
+		UserID: "00000000-0000-4000-8000-000000000001",
+		Role:   domain.UserRoleAuthor,
+	}, nil
+}
+
+func (r *fakeAuthRepository) RevokeSessionByTokenHash(_ context.Context, _ string) error {
+	return nil
 }

@@ -50,6 +50,16 @@ type Problem struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Session struct {
+	ID         pgtype.UUID        `json:"id"`
+	UserID     pgtype.UUID        `json:"user_id"`
+	TokenHash  string             `json:"token_hash"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type Submission struct {
 	ID         int64              `json:"id"`
 	UserID     pgtype.UUID        `json:"user_id"`

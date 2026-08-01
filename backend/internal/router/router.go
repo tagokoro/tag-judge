@@ -13,6 +13,7 @@ type Handlers struct {
 	Problems *handler.ProblemHandler
 	Groups   *handler.GroupHandler
 	Me       *handler.MeHandler
+	AuthHTTP *handler.AuthHandler
 	Auth     *appmiddleware.AuthMiddleware
 }
 
@@ -35,6 +36,9 @@ func New(handlers Handlers) http.Handler {
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/groups", handlers.Groups.List)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/groups/{group_id}", handlers.Groups.Get)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/groups/{group_id}/members", handlers.Groups.AddMember)
+	r.Get("/api/v1/auth/google/login", handlers.AuthHTTP.GoogleLogin)
+	r.Get("/api/v1/auth/google/callback", handlers.AuthHTTP.GoogleCallback)
+	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
 
 	return r
 }

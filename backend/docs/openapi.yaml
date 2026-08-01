@@ -5,10 +5,53 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /auth/google/login:
+    get:
+      summary: Start Google OAuth login
+      responses:
+        "302":
+          description: Redirects to Google's OAuth consent screen.
+        "500":
+          $ref: "#/components/responses/Error"
+  /auth/google/callback:
+    get:
+      summary: Complete Google OAuth login
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Creates a session cookie and redirects to the configured success URL.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /auth/logout:
+    post:
+      summary: Revoke current session
+      security:
+        - CookieAuth: []
+      responses:
+        "204":
+          description: Session revoked.
   /me:
     get:
       summary: Get current authenticated actor
-      description: Uses development header authentication until Google OAuth session support is implemented.
+      description: Uses the session cookie. During local development, X-User-ID and X-User-Role are also accepted when DEV_HEADER_AUTH=true.
+      security:
+        - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -168,14 +211,16 @@ components:
     UserIDHeader:
       name: X-User-ID
       in: header
-      required: true
+      required: false
+      description: Development-only authentication header enabled by DEV_HEADER_AUTH=true.
       schema:
         type: string
         format: uuid
     UserRoleHeader:
       name: X-User-Role
       in: header
-      required: true
+      required: false
+      description: Development-only authentication header enabled by DEV_HEADER_AUTH=true.
       schema:
         type: string
         enum: [user, author, admin]
@@ -187,6 +232,11 @@ components:
         type: integer
         format: int64
         minimum: 1
+  securitySchemes:
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: tag_judge_session
   responses:
     Error:
       description: Error response
