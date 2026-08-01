@@ -14,11 +14,58 @@ import (
 )
 
 type ProblemRepository struct {
+	db      *pgxpool.Pool
 	queries *sqlc.Queries
 }
 
 func NewProblemRepository(db *pgxpool.Pool) *ProblemRepository {
-	return &ProblemRepository{queries: sqlc.New(db)}
+	return &ProblemRepository{db: db, queries: sqlc.New(db)}
+}
+
+func (r *ProblemRepository) Create(ctx context.Context, params repository.CreateProblemParams) (*domain.Problem, error) {
+	var createdBy pgtype.UUID
+	if err := createdBy.Scan(params.CreatedBy); err != nil {
+		return nil, err
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	queries := r.queries.WithTx(tx)
+	row, err := queries.CreateProblem(ctx, sqlc.CreateProblemParams{
+		Title:         params.Title,
+		Statement:     params.Statement,
+		TimeLimitMs:   int32(params.TimeLimitMS),
+		MemoryLimitKb: int32(params.MemoryLimitKB),
+		Visibility:    string(params.Visibility),
+		CreatedBy:     createdBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, testCase := range params.TestCases {
+		err = queries.CreateTestCase(ctx, sqlc.CreateTestCaseParams{
+			ProblemID:      row.ID,
+			Input:          testCase.Input,
+			ExpectedOutput: testCase.ExpectedOutput,
+			IsSample:       testCase.IsSample,
+			Score:          int32(testCase.Score),
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	return &problem, nil
 }
 
 func (r *ProblemRepository) ListPublic(ctx context.Context, params repository.ListProblemsParams) ([]domain.Problem, error) {

@@ -28,6 +28,7 @@ func New(handlers Handlers) http.Handler {
 	})
 
 	r.Get("/api/v1/problems", handlers.Problems.List)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems", handlers.Problems.Create)
 	r.Get("/api/v1/problems/{problem_id}", handlers.Problems.Get)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me", handlers.Me.Get)
 

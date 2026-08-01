@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
@@ -17,6 +20,55 @@ type ProblemHandler struct {
 
 func NewProblemHandler(problems *usecase.ProblemUsecase) *ProblemHandler {
 	return &ProblemHandler{problems: problems}
+}
+
+func (h *ProblemHandler) Create(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+
+	var request createProblemRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must be valid JSON"))
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must contain a single JSON object"))
+		return
+	}
+
+	testCases := make([]usecase.CreateTestCaseInput, 0, len(request.TestCases))
+	for _, testCase := range request.TestCases {
+		if testCase.Input == nil || testCase.ExpectedOutput == nil || testCase.IsSample == nil {
+			WriteError(w, r, apperror.InvalidInput("INVALID_TEST_CASE", "each test case must include input, expected_output, and is_sample"))
+			return
+		}
+		testCases = append(testCases, usecase.CreateTestCaseInput{
+			Input:          *testCase.Input,
+			ExpectedOutput: *testCase.ExpectedOutput,
+			IsSample:       *testCase.IsSample,
+		})
+	}
+
+	problem, err := h.problems.CreateProblem(r.Context(), actor, usecase.CreateProblemInput{
+		Title:         request.Title,
+		Statement:     request.Statement,
+		TimeLimitMS:   request.TimeLimitMS,
+		MemoryLimitKB: request.MemoryLimitKB,
+		Visibility:    domain.ProblemVisibility(request.Visibility),
+		TestCases:     testCases,
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newProblemResponse(*problem))
 }
 
 func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +127,21 @@ func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
 	}
 	parsed, err := strconv.Atoi(value)
 	return parsed, true, err
+}
+
+type createProblemRequest struct {
+	Title         string                  `json:"title"`
+	Statement     string                  `json:"statement"`
+	TimeLimitMS   int                     `json:"time_limit_ms"`
+	MemoryLimitKB int                     `json:"memory_limit_kb"`
+	Visibility    string                  `json:"visibility"`
+	TestCases     []createTestCaseRequest `json:"test_cases"`
+}
+
+type createTestCaseRequest struct {
+	Input          *string `json:"input"`
+	ExpectedOutput *string `json:"expected_output"`
+	IsSample       *bool   `json:"is_sample"`
 }
 
 type problemResponse struct {
