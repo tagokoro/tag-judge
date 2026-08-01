@@ -20,3 +20,7 @@ func (r UserRole) Valid() bool {
 func (r UserRole) CanCreateProblem() bool {
 	return r == UserRoleAuthor || r == UserRoleAdmin
 }
+
+func (r UserRole) CanViewAnySubmission() bool {
+	return r == UserRoleAdmin
+}

@@ -40,17 +40,21 @@ func run() error {
 	defer db.Close()
 
 	problemRepo := postgres.NewProblemRepository(db)
+	submissionRepo := postgres.NewSubmissionRepository(db)
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo)
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	meHandler := handler.NewMeHandler()
 	authMiddleware := appmiddleware.NewAuthMiddleware()
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
-			Problems: problemHandler,
-			Me:       meHandler,
-			Auth:     authMiddleware,
+			Problems:    problemHandler,
+			Submissions: submissionHandler,
+			Me:          meHandler,
+			Auth:        authMiddleware,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,

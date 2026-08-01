@@ -69,6 +69,97 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /problems/{problem_id}/submissions:
+    post:
+      summary: Create a submission for a public problem
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: problem_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubmissionRequest"
+      responses:
+        "201":
+          description: Submission created in pending state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /submissions:
+    get:
+      summary: List the current user's submissions
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Current user's submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /submissions/{submission_id}:
+    get:
+      summary: Get a submission
+      description: The owner and administrators can view a submission.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 components:
   parameters:
     UserIDHeader:
@@ -161,6 +252,72 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Problem"
+    CreateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - language
+        - source_code
+      properties:
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+          minLength: 1
+    Submission:
+      type: object
+      required:
+        - id
+        - user_id
+        - problem_id
+        - language
+        - source_code
+        - status
+        - score
+        - created_at
+        - judged_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        problem_id:
+          type: integer
+          format: int64
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, ac, wa, tle, mle, re, ce, ie]
+        score:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        judged_at:
+          type: [string, "null"]
+          format: date-time
+    SubmissionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Submission"
+    SubmissionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Submission"
     ErrorResponse:
       type: object
       required: [error]
