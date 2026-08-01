@@ -40,6 +40,10 @@ func NotFound(code, message string) *AppError {
 	return &AppError{Code: code, Message: message, Err: ErrNotFound}
 }
 
+func Conflict(code, message string) *AppError {
+	return &AppError{Code: code, Message: message, Err: ErrConflict}
+}
+
 func Internal(message string) *AppError {
 	return &AppError{Code: "INTERNAL_ERROR", Message: message}
 }

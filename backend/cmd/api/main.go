@@ -42,6 +42,9 @@ func run() error {
 	problemRepo := postgres.NewProblemRepository(db)
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	groupRepo := postgres.NewGroupRepository(db)
+	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler()
 	authMiddleware := appmiddleware.NewAuthMiddleware()
 
@@ -49,6 +52,7 @@ func run() error {
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems: problemHandler,
+			Groups:   groupHandler,
 			Me:       meHandler,
 			Auth:     authMiddleware,
 		}),
