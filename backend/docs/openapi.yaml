@@ -69,6 +69,88 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /code-runs:
+    post:
+      summary: Create a code run
+      description: Stores a Python code run with pending status. Execution is handled separately.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCodeRunRequest"
+      responses:
+        "201":
+          description: Created code run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodeRunResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List the current user's code runs
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Current user's code runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodeRunListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /code-runs/{code_run_id}:
+    get:
+      summary: Get a code run
+      description: The owner can view the code run. An admin can view any code run.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: code_run_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Code run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodeRunResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 components:
   parameters:
     UserIDHeader:
@@ -161,6 +243,80 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Problem"
+    CreateCodeRunRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - language
+        - source_code
+      properties:
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+          minLength: 1
+        stdin:
+          type: string
+          default: ""
+    CodeRun:
+      type: object
+      required:
+        - id
+        - user_id
+        - language
+        - source_code
+        - stdin
+        - stdout
+        - stderr
+        - status
+        - execution_time_ms
+        - memory_kb
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+        stdin:
+          type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, ac, tle, re, ie]
+        execution_time_ms:
+          type: [integer, "null"]
+          minimum: 0
+        memory_kb:
+          type: [integer, "null"]
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+    CodeRunResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/CodeRun"
+    CodeRunListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeRun"
     ErrorResponse:
       type: object
       required: [error]

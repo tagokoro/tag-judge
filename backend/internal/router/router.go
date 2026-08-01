@@ -11,6 +11,7 @@ import (
 
 type Handlers struct {
 	Problems *handler.ProblemHandler
+	CodeRuns *handler.CodeRunHandler
 	Me       *handler.MeHandler
 	Auth     *appmiddleware.AuthMiddleware
 }
@@ -29,6 +30,9 @@ func New(handlers Handlers) http.Handler {
 
 	r.Get("/api/v1/problems", handlers.Problems.List)
 	r.Get("/api/v1/problems/{problem_id}", handlers.Problems.Get)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/code-runs", handlers.CodeRuns.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs", handlers.CodeRuns.List)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs/{code_run_id}", handlers.CodeRuns.Get)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me", handlers.Me.Get)
 
 	return r
