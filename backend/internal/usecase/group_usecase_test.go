@@ -103,8 +103,18 @@ func TestGetGroupForbidden(t *testing.T) {
 	if !errors.Is(err, apperror.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden", err)
 	}
-	if repo.findCalled {
-		t.Fatal("group should not be fetched")
+	if !repo.findCalled {
+		t.Fatal("group should be fetched")
+	}
+}
+
+func TestGetGroupNotFound(t *testing.T) {
+	repo := &fakeGroupRepository{groupErr: apperror.NotFound("GROUP_NOT_FOUND", "group not found")}
+	uc := NewGroupUsecase(repo)
+
+	_, err := uc.Get(context.Background(), testActor(domain.UserRoleUser), 1)
+	if !errors.Is(err, apperror.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 
@@ -166,6 +176,41 @@ func TestAddMemberForbidden(t *testing.T) {
 	}
 }
 
+func TestAddMemberNoMembership(t *testing.T) {
+	repo := &fakeGroupRepository{}
+	uc := NewGroupUsecase(repo)
+
+	_, err := uc.AddMember(context.Background(), testActor(domain.UserRoleAuthor), 1, AddGroupMemberInput{
+		UserID: testMemberID,
+		Role:   domain.GroupRoleMember,
+	})
+	if !errors.Is(err, apperror.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if !repo.findCalled {
+		t.Fatal("group should be fetched")
+	}
+	if repo.addCalled {
+		t.Fatal("member should not be added")
+	}
+}
+
+func TestAddMemberGroupNotFound(t *testing.T) {
+	repo := &fakeGroupRepository{groupErr: apperror.NotFound("GROUP_NOT_FOUND", "group not found")}
+	uc := NewGroupUsecase(repo)
+
+	_, err := uc.AddMember(context.Background(), testActor(domain.UserRoleAuthor), 1, AddGroupMemberInput{
+		UserID: testMemberID,
+		Role:   domain.GroupRoleMember,
+	})
+	if !errors.Is(err, apperror.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	if repo.addCalled {
+		t.Fatal("member should not be added")
+	}
+}
+
 func TestAddMemberAdmin(t *testing.T) {
 	repo := &fakeGroupRepository{}
 	uc := NewGroupUsecase(repo)
@@ -213,6 +258,7 @@ type fakeGroupRepository struct {
 	createCalled     bool
 	createParams     repository.CreateGroupParams
 	findCalled       bool
+	groupErr         error
 	listUserID       string
 	findMemberCalled bool
 	member           *domain.GroupMember
@@ -228,6 +274,9 @@ func (r *fakeGroupRepository) CreateWithOwner(_ context.Context, params reposito
 
 func (r *fakeGroupRepository) FindByID(_ context.Context, id int64) (*domain.Group, error) {
 	r.findCalled = true
+	if r.groupErr != nil {
+		return nil, r.groupErr
+	}
 	return &domain.Group{ID: id, Name: "Team"}, nil
 }
 

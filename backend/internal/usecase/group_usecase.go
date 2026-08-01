@@ -60,6 +60,9 @@ func (u *GroupUsecase) Get(ctx context.Context, actor auth.Actor, groupID int64)
 			return nil, err
 		}
 		if member == nil {
+			if _, err := u.groups.FindByID(ctx, groupID); err != nil {
+				return nil, err
+			}
 			return nil, apperror.Forbidden("GROUP_ACCESS_DENIED", "group membership required")
 		}
 	}
@@ -92,7 +95,13 @@ func (u *GroupUsecase) AddMember(ctx context.Context, actor auth.Actor, groupID 
 		if err != nil {
 			return nil, err
 		}
-		if member == nil || member.Role != domain.GroupRoleOwner {
+		if member == nil {
+			if _, err := u.groups.FindByID(ctx, groupID); err != nil {
+				return nil, err
+			}
+			return nil, apperror.Forbidden("MEMBER_MANAGE_FORBIDDEN", "group owner or admin role required")
+		}
+		if member.Role != domain.GroupRoleOwner {
 			return nil, apperror.Forbidden("MEMBER_MANAGE_FORBIDDEN", "group owner or admin role required")
 		}
 	}
