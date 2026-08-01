@@ -112,6 +112,100 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /groups:
+    post:
+      summary: Create a group
+      description: Creates a group and registers the authenticated author or admin as its owner.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List groups for the authenticated user
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      responses:
+        "200":
+          description: Groups where the authenticated user is a member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupListResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+  /groups/{group_id}:
+    get:
+      summary: Get a group
+      description: Requires group membership. Admins may access any group.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/GroupIDPath"
+      responses:
+        "200":
+          description: Group details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /groups/{group_id}/members:
+    post:
+      summary: Add a group member
+      description: Requires group owner membership. Admins may add members to any group.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/GroupIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMemberRequest"
+      responses:
+        "201":
+          description: Group member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
 components:
   parameters:
     UserIDHeader:
@@ -130,6 +224,14 @@ components:
       schema:
         type: string
         enum: [user, author, admin]
+    GroupIDPath:
+      name: group_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   securitySchemes:
     CookieAuth:
       type: apiKey
@@ -143,6 +245,99 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    CreateGroupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+          default: ""
+    AddGroupMemberRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - user_id
+        - role
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [member, owner]
+    Group:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GroupMember:
+      type: object
+      required:
+        - group_id
+        - user_id
+        - role
+        - created_at
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [member, owner]
+        created_at:
+          type: string
+          format: date-time
+    GroupResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Group"
+    GroupListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Group"
+    GroupMemberResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/GroupMember"
     Problem:
       type: object
       required:

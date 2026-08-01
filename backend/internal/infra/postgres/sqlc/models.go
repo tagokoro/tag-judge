@@ -22,6 +22,22 @@ type CodeRun struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type Group struct {
+	ID          int64              `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GroupMember struct {
+	GroupID   int64              `json:"group_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Problem struct {
 	ID            int64              `json:"id"`
 	Title         string             `json:"title"`

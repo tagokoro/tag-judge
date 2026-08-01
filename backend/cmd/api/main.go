@@ -52,6 +52,9 @@ func run() error {
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	groupRepo := postgres.NewGroupRepository(db)
+	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler()
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
 	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
@@ -60,6 +63,7 @@ func run() error {
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems: problemHandler,
+			Groups:   groupHandler,
 			Me:       meHandler,
 			AuthHTTP: authHandler,
 			Auth:     authMiddleware,
