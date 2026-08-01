@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,10 @@ type Config struct {
 	CookieSecure           bool
 	DevHeaderAuth          bool
 	SubmissionSourceRoot   string
+	AWSRegion              string
+	AWSEndpointURL         string
+	JudgeStorageBucket     string
+	JudgeSubmissionsQueue  string
 }
 
 func Load() (Config, error) {
@@ -38,6 +43,10 @@ func Load() (Config, error) {
 		CookieSecure:           getBoolEnv("COOKIE_SECURE", false),
 		DevHeaderAuth:          getBoolEnv("DEV_HEADER_AUTH", false),
 		SubmissionSourceRoot:   getEnv("SUBMISSION_SOURCE_ROOT", os.TempDir()+"/tag-judge-submissions"),
+		AWSRegion:              getFirstEnv([]string{"AWS_DEFAULT_REGION", "AWS_REGION"}, "ap-northeast-1"),
+		AWSEndpointURL:         os.Getenv("AWS_ENDPOINT_URL"),
+		JudgeStorageBucket:     os.Getenv("JUDGE_STORAGE_BUCKET"),
+		JudgeSubmissionsQueue:  os.Getenv("JUDGE_SUBMISSIONS_QUEUE_NAME"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -53,12 +62,25 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+func (c Config) AWSJudgeInfraEnabled() bool {
+	return strings.TrimSpace(c.JudgeStorageBucket) != "" && strings.TrimSpace(c.JudgeSubmissionsQueue) != ""
+}
+
 func getEnv(key, fallback string) string {
 	value := os.Getenv(key)
 	if value == "" {
 		return fallback
 	}
 	return value
+}
+
+func getFirstEnv(keys []string, fallback string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+	}
+	return fallback
 }
 
 func getDurationEnv(key string, fallback time.Duration) time.Duration {
