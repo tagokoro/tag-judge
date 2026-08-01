@@ -20,10 +20,7 @@ type Config struct {
 	SessionTTL             time.Duration
 	CookieSecure           bool
 	DevHeaderAuth          bool
-	AWSDefaultRegion       string
-	AWSEndpointURL         string
-	JudgeStorageBucket     string
-	JudgeSubmissionsQueue  string
+	SubmissionSourceRoot   string
 }
 
 func Load() (Config, error) {
@@ -40,10 +37,7 @@ func Load() (Config, error) {
 		SessionTTL:             getDurationEnv("SESSION_TTL_SECONDS", 7*24*time.Hour),
 		CookieSecure:           getBoolEnv("COOKIE_SECURE", false),
 		DevHeaderAuth:          getBoolEnv("DEV_HEADER_AUTH", false),
-		AWSDefaultRegion:       getEnv("AWS_DEFAULT_REGION", "ap-northeast-1"),
-		AWSEndpointURL:         os.Getenv("AWS_ENDPOINT_URL"),
-		JudgeStorageBucket:     getEnv("JUDGE_STORAGE_BUCKET", "judge-storage"),
-		JudgeSubmissionsQueue:  getEnv("JUDGE_SUBMISSIONS_QUEUE_NAME", "judge-submissions"),
+		SubmissionSourceRoot:   getEnv("SUBMISSION_SOURCE_ROOT", os.TempDir()+"/tag-judge-submissions"),
 	}
 
 	if cfg.DatabaseURL == "" {

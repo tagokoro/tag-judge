@@ -11,7 +11,7 @@ import (
 
 	"github.com/tagokoro/tag-judge/backend/internal/config"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	awsinfra "github.com/tagokoro/tag-judge/backend/internal/infra/aws"
+	judgeinfra "github.com/tagokoro/tag-judge/backend/internal/infra/judge"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/oauth"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
@@ -45,14 +45,8 @@ func run() error {
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
-	sourceCodeStorage, err := awsinfra.NewSourceCodeStorage(ctx, cfg.AWSDefaultRegion, cfg.AWSEndpointURL, cfg.JudgeStorageBucket)
-	if err != nil {
-		return err
-	}
-	judgeDispatcher, err := awsinfra.NewJudgeDispatcher(ctx, cfg.AWSDefaultRegion, cfg.AWSEndpointURL, cfg.JudgeSubmissionsQueue)
-	if err != nil {
-		return err
-	}
+	sourceCodeStorage := judgeinfra.NewFileSourceCodeStorage(cfg.SubmissionSourceRoot)
+	judgeDispatcher := judgeinfra.NewLoggingDispatcher(slog.Default())
 	googleProvider := oauth.NewGoogleProvider(
 		cfg.GoogleOAuthClientID,
 		cfg.GoogleOAuthSecret,
