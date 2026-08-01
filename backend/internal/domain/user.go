@@ -24,3 +24,7 @@ func (r UserRole) CanCreateProblem() bool {
 func (r UserRole) CanViewAnySubmission() bool {
 	return r == UserRoleAdmin
 }
+
+func (r UserRole) CanCreateGroup() bool {
+	return r == UserRoleAuthor || r == UserRoleAdmin
+}

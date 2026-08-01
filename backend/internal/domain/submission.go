@@ -27,13 +27,13 @@ const (
 )
 
 type Submission struct {
-	ID         int64
-	UserID     string
-	ProblemID  int64
-	Language   SubmissionLanguage
-	SourceCode string
-	Status     SubmissionStatus
-	Score      int
-	CreatedAt  time.Time
-	JudgedAt   *time.Time
+	ID            int64
+	UserID        string
+	ProblemID     int64
+	Language      SubmissionLanguage
+	SourceCodeKey string
+	Status        SubmissionStatus
+	Score         int
+	CreatedAt     time.Time
+	JudgedAt      *time.Time
 }

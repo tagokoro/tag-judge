@@ -16,7 +16,7 @@ INSERT INTO submissions (
     user_id,
     problem_id,
     language,
-    source_code,
+    source_code_key,
     status,
     score
 )
@@ -28,28 +28,28 @@ VALUES (
     $5,
     $6
 )
-RETURNING id, user_id::text AS user_id, problem_id, language, source_code, status, score, created_at, judged_at
+RETURNING id, user_id::text AS user_id, problem_id, language, source_code_key, status, score, created_at, judged_at
 `
 
 type CreateSubmissionParams struct {
-	UserID     string `json:"user_id"`
-	ProblemID  int64  `json:"problem_id"`
-	Language   string `json:"language"`
-	SourceCode string `json:"source_code"`
-	Status     string `json:"status"`
-	Score      int32  `json:"score"`
+	UserID        string `json:"user_id"`
+	ProblemID     int64  `json:"problem_id"`
+	Language      string `json:"language"`
+	SourceCodeKey string `json:"source_code_key"`
+	Status        string `json:"status"`
+	Score         int32  `json:"score"`
 }
 
 type CreateSubmissionRow struct {
-	ID         int64              `json:"id"`
-	UserID     string             `json:"user_id"`
-	ProblemID  int64              `json:"problem_id"`
-	Language   string             `json:"language"`
-	SourceCode string             `json:"source_code"`
-	Status     string             `json:"status"`
-	Score      int32              `json:"score"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	JudgedAt   pgtype.Timestamptz `json:"judged_at"`
+	ID            int64              `json:"id"`
+	UserID        string             `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionParams) (CreateSubmissionRow, error) {
@@ -57,7 +57,7 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 		arg.UserID,
 		arg.ProblemID,
 		arg.Language,
-		arg.SourceCode,
+		arg.SourceCodeKey,
 		arg.Status,
 		arg.Score,
 	)
@@ -67,7 +67,7 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 		&i.UserID,
 		&i.ProblemID,
 		&i.Language,
-		&i.SourceCode,
+		&i.SourceCodeKey,
 		&i.Status,
 		&i.Score,
 		&i.CreatedAt,
@@ -77,21 +77,21 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 }
 
 const getSubmission = `-- name: GetSubmission :one
-SELECT id, user_id::text AS user_id, problem_id, language, source_code, status, score, created_at, judged_at
+SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, status, score, created_at, judged_at
 FROM submissions
 WHERE id = $1
 `
 
 type GetSubmissionRow struct {
-	ID         int64              `json:"id"`
-	UserID     string             `json:"user_id"`
-	ProblemID  int64              `json:"problem_id"`
-	Language   string             `json:"language"`
-	SourceCode string             `json:"source_code"`
-	Status     string             `json:"status"`
-	Score      int32              `json:"score"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	JudgedAt   pgtype.Timestamptz `json:"judged_at"`
+	ID            int64              `json:"id"`
+	UserID        string             `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow, error) {
@@ -102,7 +102,7 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 		&i.UserID,
 		&i.ProblemID,
 		&i.Language,
-		&i.SourceCode,
+		&i.SourceCodeKey,
 		&i.Status,
 		&i.Score,
 		&i.CreatedAt,
@@ -112,7 +112,7 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 }
 
 const listUserSubmissions = `-- name: ListUserSubmissions :many
-SELECT id, user_id::text AS user_id, problem_id, language, source_code, status, score, created_at, judged_at
+SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, status, score, created_at, judged_at
 FROM submissions
 WHERE user_id = (($1::text)::uuid)
 ORDER BY created_at DESC, id DESC
@@ -126,15 +126,15 @@ type ListUserSubmissionsParams struct {
 }
 
 type ListUserSubmissionsRow struct {
-	ID         int64              `json:"id"`
-	UserID     string             `json:"user_id"`
-	ProblemID  int64              `json:"problem_id"`
-	Language   string             `json:"language"`
-	SourceCode string             `json:"source_code"`
-	Status     string             `json:"status"`
-	Score      int32              `json:"score"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	JudgedAt   pgtype.Timestamptz `json:"judged_at"`
+	ID            int64              `json:"id"`
+	UserID        string             `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 func (q *Queries) ListUserSubmissions(ctx context.Context, arg ListUserSubmissionsParams) ([]ListUserSubmissionsRow, error) {
@@ -151,7 +151,7 @@ func (q *Queries) ListUserSubmissions(ctx context.Context, arg ListUserSubmissio
 			&i.UserID,
 			&i.ProblemID,
 			&i.Language,
-			&i.SourceCode,
+			&i.SourceCodeKey,
 			&i.Status,
 			&i.Score,
 			&i.CreatedAt,

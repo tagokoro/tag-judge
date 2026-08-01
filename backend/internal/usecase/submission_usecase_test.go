@@ -16,10 +16,12 @@ const testUserID = "00000000-0000-4000-8000-000000000001"
 func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
-	uc := NewSubmissionUsecase(submissions, problems)
+	storage := &fakeSubmissionSourceCodeStorage{}
+	dispatcher := &fakeSubmissionJudgeDispatcher{}
+	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
-		Actor:      testActor(domain.UserRoleUser),
+		Actor:      submissionTestActor(domain.UserRoleUser),
 		ProblemID:  42,
 		Language:   domain.SubmissionLanguagePython,
 		SourceCode: "print(42)",
@@ -33,8 +35,23 @@ func TestCreateSubmission(t *testing.T) {
 	if submissions.createParams.UserID != testUserID || submissions.createParams.ProblemID != 42 {
 		t.Fatalf("create params = %+v", submissions.createParams)
 	}
+	if submissions.createParams.SourceCodeKey == "" {
+		t.Fatalf("source code key is empty")
+	}
 	if submissions.createParams.Status != domain.SubmissionStatusPending || submissions.createParams.Score != 0 {
 		t.Fatalf("create params = %+v", submissions.createParams)
+	}
+	if !storage.putCalled || storage.putParams.SourceCode != "print(42)" {
+		t.Fatalf("storage params = %+v", storage.putParams)
+	}
+	if !dispatcher.dispatchCalled {
+		t.Fatal("judge dispatcher should be called")
+	}
+	if dispatcher.job.SubmissionID != "1" || dispatcher.job.SourceCodeKey != submissions.createParams.SourceCodeKey {
+		t.Fatalf("judge job = %+v", dispatcher.job)
+	}
+	if dispatcher.job.TestCasesKey != "problems/42/testcases.json" || dispatcher.job.TimeLimitMS != 1000 {
+		t.Fatalf("judge job = %+v", dispatcher.job)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
 		t.Fatalf("submission = %+v", got)
@@ -44,10 +61,10 @@ func TestCreateSubmission(t *testing.T) {
 func TestCreateSubmissionLanguage(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
-	uc := NewSubmissionUsecase(submissions, problems)
+	uc := newSubmissionUsecaseForTest(submissions, problems)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
-		Actor:      testActor(domain.UserRoleUser),
+		Actor:      submissionTestActor(domain.UserRoleUser),
 		ProblemID:  1,
 		Language:   "ruby",
 		SourceCode: "puts 1",
@@ -63,10 +80,10 @@ func TestCreateSubmissionLanguage(t *testing.T) {
 func TestCreateSubmissionProblem(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{findErr: apperror.NotFound("PROBLEM_NOT_FOUND", "problem not found")}
-	uc := NewSubmissionUsecase(submissions, problems)
+	uc := newSubmissionUsecaseForTest(submissions, problems)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
-		Actor:      testActor(domain.UserRoleUser),
+		Actor:      submissionTestActor(domain.UserRoleUser),
 		ProblemID:  99,
 		Language:   domain.SubmissionLanguagePython,
 		SourceCode: "print(1)",
@@ -81,10 +98,10 @@ func TestCreateSubmissionProblem(t *testing.T) {
 
 func TestGetSubmissionOwner(t *testing.T) {
 	submissions := &fakeSubmissionRepository{submission: domain.Submission{ID: 7, UserID: testUserID}}
-	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
 
 	got, err := uc.Get(context.Background(), GetSubmissionInput{
-		Actor:        testActor(domain.UserRoleAuthor),
+		Actor:        submissionTestActor(domain.UserRoleAuthor),
 		SubmissionID: 7,
 	})
 	if err != nil {
@@ -97,10 +114,10 @@ func TestGetSubmissionOwner(t *testing.T) {
 
 func TestGetSubmissionAdmin(t *testing.T) {
 	submissions := &fakeSubmissionRepository{submission: domain.Submission{ID: 7, UserID: "another-user"}}
-	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
 
 	_, err := uc.Get(context.Background(), GetSubmissionInput{
-		Actor:        testActor(domain.UserRoleAdmin),
+		Actor:        submissionTestActor(domain.UserRoleAdmin),
 		SubmissionID: 7,
 	})
 	if err != nil {
@@ -110,10 +127,10 @@ func TestGetSubmissionAdmin(t *testing.T) {
 
 func TestGetSubmissionForbidden(t *testing.T) {
 	submissions := &fakeSubmissionRepository{submission: domain.Submission{ID: 7, UserID: "another-user"}}
-	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
 
 	_, err := uc.Get(context.Background(), GetSubmissionInput{
-		Actor:        testActor(domain.UserRoleAuthor),
+		Actor:        submissionTestActor(domain.UserRoleAuthor),
 		SubmissionID: 7,
 	})
 	if !errors.Is(err, apperror.ErrForbidden) {
@@ -123,9 +140,9 @@ func TestGetSubmissionForbidden(t *testing.T) {
 
 func TestListSubmissionsDefaults(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
-	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
 
-	_, err := uc.List(context.Background(), ListSubmissionsInput{Actor: testActor(domain.UserRoleUser)})
+	_, err := uc.List(context.Background(), ListSubmissionsInput{Actor: submissionTestActor(domain.UserRoleUser)})
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -139,10 +156,10 @@ func TestListSubmissionsDefaults(t *testing.T) {
 
 func TestListSubmissionsLimit(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
-	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
 
 	_, err := uc.List(context.Background(), ListSubmissionsInput{
-		Actor:         testActor(domain.UserRoleUser),
+		Actor:         submissionTestActor(domain.UserRoleUser),
 		Limit:         0,
 		LimitProvided: true,
 	})
@@ -155,7 +172,7 @@ func TestListSubmissionsLimit(t *testing.T) {
 }
 
 func TestSubmissionAuthentication(t *testing.T) {
-	uc := NewSubmissionUsecase(&fakeSubmissionRepository{}, &submissionProblemRepository{})
+	uc := newSubmissionUsecaseForTest(&fakeSubmissionRepository{}, &submissionProblemRepository{})
 
 	_, err := uc.List(context.Background(), ListSubmissionsInput{})
 	if !errors.Is(err, apperror.ErrUnauthorized) {
@@ -163,8 +180,17 @@ func TestSubmissionAuthentication(t *testing.T) {
 	}
 }
 
-func testActor(role domain.UserRole) auth.Actor {
+func submissionTestActor(role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: testUserID, Role: role}
+}
+
+func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, problems repository.ProblemRepository) *SubmissionUsecase {
+	return NewSubmissionUsecase(
+		submissions,
+		problems,
+		&fakeSubmissionSourceCodeStorage{},
+		&fakeSubmissionJudgeDispatcher{},
+	)
 }
 
 type fakeSubmissionRepository struct {
@@ -181,13 +207,13 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 	r.createCalled = true
 	r.createParams = params
 	return &domain.Submission{
-		ID:         1,
-		UserID:     params.UserID,
-		ProblemID:  params.ProblemID,
-		Language:   params.Language,
-		SourceCode: params.SourceCode,
-		Status:     params.Status,
-		Score:      params.Score,
+		ID:            1,
+		UserID:        params.UserID,
+		ProblemID:     params.ProblemID,
+		Language:      params.Language,
+		SourceCodeKey: params.SourceCodeKey,
+		Status:        params.Status,
+		Score:         params.Score,
 	}, nil
 }
 
@@ -207,6 +233,30 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 	return []domain.Submission{}, nil
 }
 
+type fakeSubmissionSourceCodeStorage struct {
+	putCalled bool
+	putParams repository.PutSourceCodeParams
+	putErr    error
+}
+
+func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
+	s.putCalled = true
+	s.putParams = params
+	return s.putErr
+}
+
+type fakeSubmissionJudgeDispatcher struct {
+	dispatchCalled bool
+	job            repository.JudgeJob
+	dispatchErr    error
+}
+
+func (d *fakeSubmissionJudgeDispatcher) Dispatch(_ context.Context, job repository.JudgeJob) error {
+	d.dispatchCalled = true
+	d.job = job
+	return d.dispatchErr
+}
+
 type submissionProblemRepository struct {
 	findCalled bool
 	findID     int64
@@ -223,5 +273,5 @@ func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
-	return &domain.Problem{ID: id}, nil
+	return &domain.Problem{ID: id, TimeLimitMS: 1000}, nil
 }

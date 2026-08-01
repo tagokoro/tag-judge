@@ -123,27 +123,27 @@ type createSubmissionRequest struct {
 }
 
 type submissionResponse struct {
-	ID         int64      `json:"id"`
-	UserID     string     `json:"user_id"`
-	ProblemID  int64      `json:"problem_id"`
-	Language   string     `json:"language"`
-	SourceCode string     `json:"source_code"`
-	Status     string     `json:"status"`
-	Score      int        `json:"score"`
-	CreatedAt  time.Time  `json:"created_at"`
-	JudgedAt   *time.Time `json:"judged_at"`
+	ID            int64      `json:"id"`
+	UserID        string     `json:"user_id"`
+	ProblemID     int64      `json:"problem_id"`
+	Language      string     `json:"language"`
+	SourceCodeKey string     `json:"source_code_key"`
+	Status        string     `json:"status"`
+	Score         int        `json:"score"`
+	CreatedAt     time.Time  `json:"created_at"`
+	JudgedAt      *time.Time `json:"judged_at"`
 }
 
 func newSubmissionResponse(submission domain.Submission) submissionResponse {
 	return submissionResponse{
-		ID:         submission.ID,
-		UserID:     submission.UserID,
-		ProblemID:  submission.ProblemID,
-		Language:   string(submission.Language),
-		SourceCode: submission.SourceCode,
-		Status:     string(submission.Status),
-		Score:      submission.Score,
-		CreatedAt:  submission.CreatedAt,
-		JudgedAt:   submission.JudgedAt,
+		ID:            submission.ID,
+		UserID:        submission.UserID,
+		ProblemID:     submission.ProblemID,
+		Language:      string(submission.Language),
+		SourceCodeKey: submission.SourceCodeKey,
+		Status:        string(submission.Status),
+		Score:         submission.Score,
+		CreatedAt:     submission.CreatedAt,
+		JudgedAt:      submission.JudgedAt,
 	}
 }

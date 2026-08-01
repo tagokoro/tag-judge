@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"strings"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -18,10 +21,22 @@ const (
 type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.ProblemRepository
+	storage     repository.SourceCodeStorage
+	dispatcher  repository.JudgeDispatcher
 }
 
-func NewSubmissionUsecase(submissions repository.SubmissionRepository, problems repository.ProblemRepository) *SubmissionUsecase {
-	return &SubmissionUsecase{submissions: submissions, problems: problems}
+func NewSubmissionUsecase(
+	submissions repository.SubmissionRepository,
+	problems repository.ProblemRepository,
+	storage repository.SourceCodeStorage,
+	dispatcher repository.JudgeDispatcher,
+) *SubmissionUsecase {
+	return &SubmissionUsecase{
+		submissions: submissions,
+		problems:    problems,
+		storage:     storage,
+		dispatcher:  dispatcher,
+	}
 }
 
 type CreateSubmissionInput struct {
@@ -47,18 +62,46 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 
 	// Problem access policy belongs here so private/group access can be added
 	// without coupling the handler or persistence adapter to authorization.
-	if _, err := u.problems.FindPublicByID(ctx, input.ProblemID); err != nil {
+	problem, err := u.problems.FindPublicByID(ctx, input.ProblemID)
+	if err != nil {
 		return nil, err
 	}
 
-	return u.submissions.Create(ctx, repository.CreateSubmissionParams{
-		UserID:     input.Actor.UserID,
-		ProblemID:  input.ProblemID,
+	sourceCodeKey, err := newSourceCodeKey(input.Actor.UserID, input.ProblemID, input.Language)
+	if err != nil {
+		return nil, err
+	}
+	if err := u.storage.PutSourceCode(ctx, repository.PutSourceCodeParams{
+		Key:        sourceCodeKey,
 		Language:   input.Language,
 		SourceCode: input.SourceCode,
-		Status:     domain.SubmissionStatusPending,
-		Score:      0,
+	}); err != nil {
+		return nil, err
+	}
+
+	submission, err := u.submissions.Create(ctx, repository.CreateSubmissionParams{
+		UserID:        input.Actor.UserID,
+		ProblemID:     input.ProblemID,
+		Language:      input.Language,
+		SourceCodeKey: sourceCodeKey,
+		Status:        domain.SubmissionStatusPending,
+		Score:         0,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := u.dispatcher.Dispatch(ctx, repository.JudgeJob{
+		SubmissionID:  fmt.Sprintf("%d", submission.ID),
+		Language:      input.Language,
+		SourceCodeKey: sourceCodeKey,
+		TestCasesKey:  testCasesKey(problem.ID),
+		TimeLimitMS:   problem.TimeLimitMS,
+	}); err != nil {
+		return nil, err
+	}
+
+	return submission, nil
 }
 
 type GetSubmissionInput struct {
@@ -120,4 +163,33 @@ func validateActor(actor auth.Actor) error {
 		return apperror.Unauthorized("UNAUTHORIZED", "authentication required")
 	}
 	return nil
+}
+
+func newSourceCodeKey(userID string, problemID int64, language domain.SubmissionLanguage) (string, error) {
+	token, err := randomHex(16)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("submissions/%s/problems/%d/%s%s", userID, problemID, token, sourceExtension(language)), nil
+}
+
+func testCasesKey(problemID int64) string {
+	return fmt.Sprintf("problems/%d/testcases.json", problemID)
+}
+
+func randomHex(size int) (string, error) {
+	bytes := make([]byte, size)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func sourceExtension(language domain.SubmissionLanguage) string {
+	switch language {
+	case domain.SubmissionLanguagePython:
+		return ".py"
+	default:
+		return ".txt"
+	}
 }

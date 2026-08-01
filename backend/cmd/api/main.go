@@ -11,6 +11,8 @@ import (
 
 	"github.com/tagokoro/tag-judge/backend/internal/config"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	awsinfra "github.com/tagokoro/tag-judge/backend/internal/infra/aws"
+	"github.com/tagokoro/tag-judge/backend/internal/infra/oauth"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/router"
@@ -41,19 +43,42 @@ func run() error {
 
 	problemRepo := postgres.NewProblemRepository(db)
 	submissionRepo := postgres.NewSubmissionRepository(db)
+	authRepo := postgres.NewAuthRepository(db)
+	groupRepo := postgres.NewGroupRepository(db)
+	sourceCodeStorage, err := awsinfra.NewSourceCodeStorage(ctx, cfg.AWSDefaultRegion, cfg.AWSEndpointURL, cfg.JudgeStorageBucket)
+	if err != nil {
+		return err
+	}
+	judgeDispatcher, err := awsinfra.NewJudgeDispatcher(ctx, cfg.AWSDefaultRegion, cfg.AWSEndpointURL, cfg.JudgeSubmissionsQueue)
+	if err != nil {
+		return err
+	}
+	googleProvider := oauth.NewGoogleProvider(
+		cfg.GoogleOAuthClientID,
+		cfg.GoogleOAuthSecret,
+		cfg.GoogleOAuthRedirectURL,
+	)
+
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
-	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, judgeDispatcher)
+	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
+	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+
 	problemHandler := handler.NewProblemHandler(problemUsecase)
 	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
+	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler()
-	authMiddleware := appmiddleware.NewAuthMiddleware()
+	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
+	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems:    problemHandler,
+			Groups:      groupHandler,
 			Submissions: submissionHandler,
 			Me:          meHandler,
+			AuthHTTP:    authHandler,
 			Auth:        authMiddleware,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
