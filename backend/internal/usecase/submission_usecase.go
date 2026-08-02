@@ -159,7 +159,7 @@ func (u *SubmissionUsecase) List(ctx context.Context, input ListSubmissionsInput
 }
 
 func validateActor(actor auth.Actor) error {
-	if actor.UserID == "" || !actor.Role.Valid() {
+	if !validUUID(actor.UserID) || !actor.Role.Valid() {
 		return apperror.Unauthorized("UNAUTHORIZED", "authentication required")
 	}
 	return nil

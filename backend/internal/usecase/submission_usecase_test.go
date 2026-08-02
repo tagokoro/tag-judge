@@ -180,6 +180,27 @@ func TestSubmissionAuthentication(t *testing.T) {
 	}
 }
 
+func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
+	submissions := &fakeSubmissionRepository{}
+	problems := &submissionProblemRepository{}
+	storage := &fakeSubmissionSourceCodeStorage{}
+	dispatcher := &fakeSubmissionJudgeDispatcher{}
+	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      auth.Actor{UserID: "not-a-uuid", Role: domain.UserRoleUser},
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, apperror.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+	if problems.findCalled || storage.putCalled || submissions.createCalled || dispatcher.dispatchCalled {
+		t.Fatalf("dependencies should not be called: problem=%v storage=%v repo=%v dispatch=%v", problems.findCalled, storage.putCalled, submissions.createCalled, dispatcher.dispatchCalled)
+	}
+}
+
 func submissionTestActor(role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: testUserID, Role: role}
 }
