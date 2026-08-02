@@ -61,15 +61,15 @@ type Session struct {
 }
 
 type Submission struct {
-	ID         int64              `json:"id"`
-	UserID     pgtype.UUID        `json:"user_id"`
-	ProblemID  int64              `json:"problem_id"`
-	Language   string             `json:"language"`
-	SourceCode string             `json:"source_code"`
-	Status     string             `json:"status"`
-	Score      int32              `json:"score"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	JudgedAt   pgtype.Timestamptz `json:"judged_at"`
+	ID            int64              `json:"id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 type SubmissionResult struct {

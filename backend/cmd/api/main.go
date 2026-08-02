@@ -11,9 +11,11 @@ import (
 
 	"github.com/tagokoro/tag-judge/backend/internal/config"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	judgeinfra "github.com/tagokoro/tag-judge/backend/internal/infra/judge"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/oauth"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
+	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/router"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
@@ -41,7 +43,13 @@ func run() error {
 	defer db.Close()
 
 	problemRepo := postgres.NewProblemRepository(db)
+	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
+	groupRepo := postgres.NewGroupRepository(db)
+	sourceCodeStorage, judgeDispatcher, err := buildJudgeInfra(ctx, cfg)
+	if err != nil {
+		return err
+	}
 	googleProvider := oauth.NewGoogleProvider(
 		cfg.GoogleOAuthClientID,
 		cfg.GoogleOAuthSecret,
@@ -49,11 +57,12 @@ func run() error {
 	)
 
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, judgeDispatcher)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
+	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
-	groupRepo := postgres.NewGroupRepository(db)
-	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler()
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
@@ -62,11 +71,12 @@ func run() error {
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
-			Problems: problemHandler,
-			Groups:   groupHandler,
-			Me:       meHandler,
-			AuthHTTP: authHandler,
-			Auth:     authMiddleware,
+			Problems:    problemHandler,
+			Groups:      groupHandler,
+			Submissions: submissionHandler,
+			Me:          meHandler,
+			AuthHTTP:    authHandler,
+			Auth:        authMiddleware,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
@@ -90,4 +100,36 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func buildJudgeInfra(ctx context.Context, cfg config.Config) (repository.SourceCodeStorage, repository.JudgeDispatcher, error) {
+	if !cfg.AWSJudgeInfraEnabled() {
+		if cfg.JudgeStorageBucket != "" || cfg.JudgeSubmissionsQueue != "" {
+			slog.Warn(
+				"AWS judge infra is partially configured; using local judge adapters",
+				"bucket_configured", cfg.JudgeStorageBucket != "",
+				"queue_configured", cfg.JudgeSubmissionsQueue != "",
+			)
+		}
+		return judgeinfra.NewFileSourceCodeStorage(cfg.SubmissionSourceRoot),
+			judgeinfra.NewLoggingDispatcher(slog.Default()),
+			nil
+	}
+
+	awsConfig, err := judgeinfra.LoadAWSConfig(ctx, cfg.AWSRegion, cfg.AWSEndpointURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	dispatcher, err := judgeinfra.NewSQSDispatcher(ctx, awsConfig, cfg.JudgeSubmissionsQueue, cfg.AWSEndpointURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	slog.Info(
+		"using AWS judge infra adapters",
+		"region", cfg.AWSRegion,
+		"endpoint_configured", cfg.AWSEndpointURL != "",
+		"bucket", cfg.JudgeStorageBucket,
+		"queue", cfg.JudgeSubmissionsQueue,
+	)
+	return judgeinfra.NewS3SourceCodeStorage(awsConfig, cfg.JudgeStorageBucket, cfg.AWSEndpointURL), dispatcher, nil
 }
