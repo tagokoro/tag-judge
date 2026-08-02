@@ -73,6 +73,18 @@ bucket: judge-storage
 
 ## 5. Judge Worker の実行
 
+API Server は `JUDGE_STORAGE_BUCKET` と `JUDGE_SUBMISSIONS_QUEUE_NAME` が両方設定されている場合、提出コードを S3 に保存し、判定ジョブを SQS に送信する。
+どちらかが未設定の場合は、ローカルファイル保存とログ出力 dispatcher を使うため、AWS / LocalStack なしでも API Server は起動できる。
+
+LocalStack に接続する場合は、API Server と Worker の両方で同じ設定を使う。
+
+```sh
+export AWS_DEFAULT_REGION=ap-northeast-1
+export AWS_ENDPOINT_URL=http://localhost:4566
+export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
+export JUDGE_STORAGE_BUCKET=judge-storage
+```
+
 `judge-worker` は LocalStack SQS の `judge-submissions` から `JudgeJob` を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。
 
 ローカルで LocalStack に接続する場合は、`AWS_ENDPOINT_URL` を明示する。  
