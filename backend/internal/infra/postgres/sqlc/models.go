@@ -22,6 +22,22 @@ type CodeRun struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type Group struct {
+	ID          int64              `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GroupMember struct {
+	GroupID   int64              `json:"group_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Role      string             `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Problem struct {
 	ID            int64              `json:"id"`
 	Title         string             `json:"title"`
@@ -34,16 +50,26 @@ type Problem struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
-type Submission struct {
-	ID         int64              `json:"id"`
+type Session struct {
+	ID         pgtype.UUID        `json:"id"`
 	UserID     pgtype.UUID        `json:"user_id"`
-	ProblemID  int64              `json:"problem_id"`
-	Language   string             `json:"language"`
-	SourceCode string             `json:"source_code"`
-	Status     string             `json:"status"`
-	Score      int32              `json:"score"`
+	TokenHash  string             `json:"token_hash"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	JudgedAt   pgtype.Timestamptz `json:"judged_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type Submission struct {
+	ID            int64              `json:"id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 type SubmissionResult struct {

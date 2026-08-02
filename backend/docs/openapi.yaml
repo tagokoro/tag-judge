@@ -5,10 +5,53 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /auth/google/login:
+    get:
+      summary: Start Google OAuth login
+      responses:
+        "302":
+          description: Redirects to Google's OAuth consent screen.
+        "500":
+          $ref: "#/components/responses/Error"
+  /auth/google/callback:
+    get:
+      summary: Complete Google OAuth login
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Creates a session cookie and redirects to the configured success URL.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /auth/logout:
+    post:
+      summary: Revoke current session
+      security:
+        - CookieAuth: []
+      responses:
+        "204":
+          description: Session revoked.
   /me:
     get:
       summary: Get current authenticated actor
-      description: Uses development header authentication until Google OAuth session support is implemented.
+      description: Uses the session cookie. During local development, X-User-ID and X-User-Role are also accepted when DEV_HEADER_AUTH=true.
+      security:
+        - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -69,10 +112,103 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /problems/{problem_id}/submissions:
+    post:
+      summary: Create a submission for a public problem
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: problem_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubmissionRequest"
+      responses:
+        "201":
+          description: Submission created in pending state and queued for judging
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /submissions:
+    get:
+      summary: List the current user's submissions
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Current user's submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /submissions/{submission_id}:
+    get:
+      summary: Get a submission
+      description: The owner and administrators can view a submission.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /code-runs:
     post:
       summary: Create a code run
       description: Stores a Python code run with pending status. Execution is handled separately.
+      security:
+        - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -95,6 +231,8 @@ paths:
           $ref: "#/components/responses/Error"
     get:
       summary: List the current user's code runs
+      security:
+        - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -126,6 +264,8 @@ paths:
     get:
       summary: Get a code run
       description: The owner can view the code run. An admin can view any code run.
+      security:
+        - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -151,22 +291,131 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /groups:
+    post:
+      summary: Create a group
+      description: Creates a group and registers the authenticated author or admin as its owner.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "201":
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List groups for the authenticated user
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+      responses:
+        "200":
+          description: Groups where the authenticated user is a member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupListResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+  /groups/{group_id}:
+    get:
+      summary: Get a group
+      description: Requires group membership. Admins may access any group.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/GroupIDPath"
+      responses:
+        "200":
+          description: Group details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /groups/{group_id}/members:
+    post:
+      summary: Add a group member
+      description: Requires group owner membership. Admins may add members to any group.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/GroupIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMemberRequest"
+      responses:
+        "201":
+          description: Group member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupMemberResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
 components:
   parameters:
     UserIDHeader:
       name: X-User-ID
       in: header
-      required: true
+      required: false
+      description: Development-only authentication header enabled by DEV_HEADER_AUTH=true.
       schema:
         type: string
         format: uuid
     UserRoleHeader:
       name: X-User-Role
       in: header
-      required: true
+      required: false
+      description: Development-only authentication header enabled by DEV_HEADER_AUTH=true.
       schema:
         type: string
         enum: [user, author, admin]
+    GroupIDPath:
+      name: group_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  securitySchemes:
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: tag_judge_session
   responses:
     Error:
       description: Error response
@@ -175,6 +424,99 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    CreateGroupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+          default: ""
+    AddGroupMemberRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - user_id
+        - role
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [member, owner]
+    Group:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GroupMember:
+      type: object
+      required:
+        - group_id
+        - user_id
+        - role
+        - created_at
+      properties:
+        group_id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [member, owner]
+        created_at:
+          type: string
+          format: date-time
+    GroupResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Group"
+    GroupListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Group"
+    GroupMemberResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/GroupMember"
     Problem:
       type: object
       required:
@@ -317,6 +659,72 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CodeRun"
+    CreateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - language
+        - source_code
+      properties:
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+          minLength: 1
+    Submission:
+      type: object
+      required:
+        - id
+        - user_id
+        - problem_id
+        - language
+        - source_code_key
+        - status
+        - score
+        - created_at
+        - judged_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        problem_id:
+          type: integer
+          format: int64
+        language:
+          type: string
+          enum: [python]
+        source_code_key:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, ac, wa, tle, mle, re, ce, ie]
+        score:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        judged_at:
+          type: [string, "null"]
+          format: date-time
+    SubmissionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Submission"
+    SubmissionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Submission"
     ErrorResponse:
       type: object
       required: [error]

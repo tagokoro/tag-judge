@@ -151,6 +151,8 @@ JudgeRequest
 
 本番構成では、提出コードそのものは S3 に保存し、Queue には `sourceCodeKey` のような参照情報を積む。ただし、`judge-core` は S3 を知らない。`judge-worker` が S3 から取得した実際の `sourceCode` を `judge-core` に渡す。
 
+API Server も同じ境界を守る。提出 API は usecase では `SourceCodeStorage` と `JudgeDispatcher` interface だけに依存し、AWS SDK / S3 / SQS の具体 adapter は infra 層で組み立てる。LocalStack では `AWS_ENDPOINT_URL`, `JUDGE_STORAGE_BUCKET`, `JUDGE_SUBMISSIONS_QUEUE_NAME` を設定すると S3 / SQS adapter を使い、未設定時はローカル開発用 adapter に戻す。
+
 ```text
 SQS job
   ↓

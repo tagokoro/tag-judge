@@ -77,14 +77,6 @@ func (r *CodeRunRepository) ListByUserID(ctx context.Context, params repository.
 	return codeRuns, nil
 }
 
-func parseUUID(value string) (pgtype.UUID, error) {
-	var uuid pgtype.UUID
-	if err := uuid.Scan(value); err != nil {
-		return pgtype.UUID{}, err
-	}
-	return uuid, nil
-}
-
 func newCodeRun(
 	id int64,
 	userID string,
