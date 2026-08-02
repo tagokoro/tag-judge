@@ -434,7 +434,7 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 			&fakeSubmissionRepository{},
 			problemRepo,
 			&fakeSourceCodeStorage{},
-			&fakeJudgeDispatcher{},
+			&fakeExecutionDispatcher{},
 		)),
 		Me:       handler.NewMeHandler(),
 		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
@@ -488,9 +488,9 @@ func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.Pu
 	return nil
 }
 
-type fakeJudgeDispatcher struct{}
+type fakeExecutionDispatcher struct{}
 
-func (d *fakeJudgeDispatcher) Dispatch(_ context.Context, _ repository.JudgeJob) error {
+func (d *fakeExecutionDispatcher) Dispatch(_ context.Context, _ repository.ExecutionJob) error {
 	return nil
 }
 

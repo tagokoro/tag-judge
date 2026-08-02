@@ -17,7 +17,7 @@ func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	dispatcher := &fakeSubmissionJudgeDispatcher{}
+	dispatcher := &fakeSubmissionExecutionDispatcher{}
 	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
@@ -47,11 +47,16 @@ func TestCreateSubmission(t *testing.T) {
 	if !dispatcher.dispatchCalled {
 		t.Fatal("judge dispatcher should be called")
 	}
-	if dispatcher.job.SubmissionID != "1" || dispatcher.job.SourceCodeKey != submissions.createParams.SourceCodeKey {
-		t.Fatalf("judge job = %+v", dispatcher.job)
+	reference := dispatcher.job.Reference()
+	if reference.Kind() != repository.ExecutionReferenceSubmission || reference.ID() != "1" || dispatcher.job.SourceCodeKey() != submissions.createParams.SourceCodeKey {
+		t.Fatalf("execution job reference = %+v, sourceCodeKey = %q", reference, dispatcher.job.SourceCodeKey())
 	}
-	if dispatcher.job.TestCasesKey != "problems/42/testcases.json" || dispatcher.job.TimeLimitMS != 1000 {
-		t.Fatalf("judge job = %+v", dispatcher.job)
+	if dispatcher.job.Mode().Kind() != repository.ExecutionModeProblem {
+		t.Fatalf("execution mode = %s, want problem", dispatcher.job.Mode().Kind())
+	}
+	problemExecution, ok := dispatcher.job.Mode().Problem()
+	if !ok || problemExecution.TestCasesKey != "problems/42/testcases.json" || problemExecution.TimeLimitMS != 1000 {
+		t.Fatalf("problem execution = %+v", problemExecution)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
 		t.Fatalf("submission = %+v", got)
@@ -184,7 +189,7 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	dispatcher := &fakeSubmissionJudgeDispatcher{}
+	dispatcher := &fakeSubmissionExecutionDispatcher{}
 	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
@@ -201,6 +206,35 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	}
 }
 
+func TestCreateSubmissionReturnsDispatchFailureAfterPendingCreate(t *testing.T) {
+	dispatchErr := errors.New("queue unavailable")
+	submissions := &fakeSubmissionRepository{}
+	problems := &submissionProblemRepository{}
+	storage := &fakeSubmissionSourceCodeStorage{}
+	dispatcher := &fakeSubmissionExecutionDispatcher{dispatchErr: dispatchErr}
+	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      submissionTestActor(domain.UserRoleUser),
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, dispatchErr) {
+		t.Fatalf("err = %v, want dispatch error", err)
+	}
+	if !storage.putCalled || !submissions.createCalled || !dispatcher.dispatchCalled {
+		t.Fatalf("storage=%v create=%v dispatch=%v, want all called", storage.putCalled, submissions.createCalled, dispatcher.dispatchCalled)
+	}
+	if submissions.createParams.Status != domain.SubmissionStatusPending {
+		t.Fatalf("status = %s, want pending", submissions.createParams.Status)
+	}
+	reference := dispatcher.job.Reference()
+	if reference.Kind() != repository.ExecutionReferenceSubmission || reference.ID() != "1" {
+		t.Fatalf("reference = %+v, want submission 1", reference)
+	}
+}
+
 func submissionTestActor(role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: testUserID, Role: role}
 }
@@ -210,7 +244,7 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 		submissions,
 		problems,
 		&fakeSubmissionSourceCodeStorage{},
-		&fakeSubmissionJudgeDispatcher{},
+		&fakeSubmissionExecutionDispatcher{},
 	)
 }
 
@@ -266,13 +300,13 @@ func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, param
 	return s.putErr
 }
 
-type fakeSubmissionJudgeDispatcher struct {
+type fakeSubmissionExecutionDispatcher struct {
 	dispatchCalled bool
-	job            repository.JudgeJob
+	job            repository.ExecutionJob
 	dispatchErr    error
 }
 
-func (d *fakeSubmissionJudgeDispatcher) Dispatch(_ context.Context, job repository.JudgeJob) error {
+func (d *fakeSubmissionExecutionDispatcher) Dispatch(_ context.Context, job repository.ExecutionJob) error {
 	d.dispatchCalled = true
 	d.job = job
 	return d.dispatchErr
