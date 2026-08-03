@@ -164,13 +164,6 @@ func (u *SubmissionUsecase) List(ctx context.Context, input ListSubmissionsInput
 	})
 }
 
-func validateActor(actor auth.Actor) error {
-	if !validUUID(actor.UserID) || !actor.Role.Valid() {
-		return apperror.Unauthorized("UNAUTHORIZED", "authentication required")
-	}
-	return nil
-}
-
 func newSourceCodeKey(userID string, problemID int64, language domain.SubmissionLanguage) (string, error) {
 	token, err := randomHex(16)
 	if err != nil {
@@ -189,13 +182,4 @@ func randomHex(size int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-func sourceExtension(language domain.SubmissionLanguage) string {
-	switch language {
-	case domain.SubmissionLanguagePython:
-		return ".py"
-	default:
-		return ".txt"
-	}
 }

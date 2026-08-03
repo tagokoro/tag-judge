@@ -43,6 +43,7 @@ func run() error {
 	defer db.Close()
 
 	problemRepo := postgres.NewProblemRepository(db)
+	codeRunRepo := postgres.NewCodeRunRepository(db)
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
@@ -57,11 +58,13 @@ func run() error {
 	)
 
 	problemUsecase := usecase.NewProblemUsecase(problemRepo)
+	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, executionDispatcher, cfg.CodeRunTimeLimitMS)
 	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, executionDispatcher)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	codeRunHandler := handler.NewCodeRunHandler(codeRunUsecase)
 	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler()
@@ -72,6 +75,7 @@ func run() error {
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems:    problemHandler,
+			CodeRuns:    codeRunHandler,
 			Groups:      groupHandler,
 			Submissions: submissionHandler,
 			Me:          meHandler,
@@ -111,7 +115,7 @@ func buildJudgeInfra(ctx context.Context, cfg config.Config) (repository.SourceC
 				"queue_configured", cfg.JudgeSubmissionsQueue != "",
 			)
 		}
-		return judgeinfra.NewFileSourceCodeStorage(cfg.SubmissionSourceRoot),
+		return judgeinfra.NewFileSourceCodeStorage(cfg.SourceCodeRoot),
 			judgeinfra.NewLoggingDispatcher(slog.Default()),
 			nil
 	}

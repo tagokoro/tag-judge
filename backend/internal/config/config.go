@@ -21,7 +21,8 @@ type Config struct {
 	SessionTTL             time.Duration
 	CookieSecure           bool
 	DevHeaderAuth          bool
-	SubmissionSourceRoot   string
+	SourceCodeRoot         string
+	CodeRunTimeLimitMS     int
 	AWSRegion              string
 	AWSEndpointURL         string
 	JudgeStorageBucket     string
@@ -42,7 +43,8 @@ func Load() (Config, error) {
 		SessionTTL:             getDurationEnv("SESSION_TTL_SECONDS", 7*24*time.Hour),
 		CookieSecure:           getBoolEnv("COOKIE_SECURE", false),
 		DevHeaderAuth:          getBoolEnv("DEV_HEADER_AUTH", false),
-		SubmissionSourceRoot:   getEnv("SUBMISSION_SOURCE_ROOT", os.TempDir()+"/tag-judge-submissions"),
+		SourceCodeRoot:         getFirstEnv([]string{"SOURCE_CODE_ROOT", "SUBMISSION_SOURCE_ROOT"}, os.TempDir()+"/tag-judge-sources"),
+		CodeRunTimeLimitMS:     getPositiveIntEnv("CODE_RUN_TIME_LIMIT_MS", 5000),
 		AWSRegion:              getFirstEnv([]string{"AWS_DEFAULT_REGION", "AWS_REGION"}, "ap-northeast-1"),
 		AWSEndpointURL:         os.Getenv("AWS_ENDPOINT_URL"),
 		JudgeStorageBucket:     os.Getenv("JUDGE_STORAGE_BUCKET"),
@@ -104,6 +106,19 @@ func getBoolEnv(key string, fallback bool) bool {
 
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getPositiveIntEnv(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
 		return fallback
 	}
 	return parsed

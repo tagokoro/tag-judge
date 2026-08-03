@@ -10,7 +10,7 @@ import (
 
 func TestBuildJudgeInfraUsesLocalAdaptersWhenAWSIsUnset(t *testing.T) {
 	storage, dispatcher, err := buildJudgeInfra(context.Background(), config.Config{
-		SubmissionSourceRoot: t.TempDir(),
+		SourceCodeRoot: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("buildJudgeInfra returned error: %v", err)
@@ -25,7 +25,7 @@ func TestBuildJudgeInfraUsesLocalAdaptersWhenAWSIsUnset(t *testing.T) {
 
 func TestBuildJudgeInfraUsesLocalAdaptersWhenAWSIsPartial(t *testing.T) {
 	storage, dispatcher, err := buildJudgeInfra(context.Background(), config.Config{
-		SubmissionSourceRoot:  t.TempDir(),
+		SourceCodeRoot:        t.TempDir(),
 		JudgeStorageBucket:    "judge-storage",
 		JudgeSubmissionsQueue: "",
 	})
