@@ -62,28 +62,52 @@ func (q *Queries) CreateProblem(ctx context.Context, arg CreateProblemParams) (C
 	return i, err
 }
 
-const createTestCase = `-- name: CreateTestCase :exec
-INSERT INTO test_cases (problem_id, input, expected_output, is_sample, score)
-VALUES ($1, $2, $3, $4, $5)
+const deleteProblem = `-- name: DeleteProblem :execrows
+DELETE FROM problems
+WHERE id = $1
 `
 
-type CreateTestCaseParams struct {
-	ProblemID      int64  `json:"problem_id"`
-	Input          string `json:"input"`
-	ExpectedOutput string `json:"expected_output"`
-	IsSample       bool   `json:"is_sample"`
-	Score          int32  `json:"score"`
+func (q *Queries) DeleteProblem(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProblem, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-func (q *Queries) CreateTestCase(ctx context.Context, arg CreateTestCaseParams) error {
-	_, err := q.db.Exec(ctx, createTestCase,
-		arg.ProblemID,
-		arg.Input,
-		arg.ExpectedOutput,
-		arg.IsSample,
-		arg.Score,
+const getProblem = `-- name: GetProblem :one
+SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
+FROM problems
+WHERE id = $1
+`
+
+type GetProblemRow struct {
+	ID            int64              `json:"id"`
+	Title         string             `json:"title"`
+	Statement     string             `json:"statement"`
+	TimeLimitMs   int32              `json:"time_limit_ms"`
+	MemoryLimitKb int32              `json:"memory_limit_kb"`
+	Visibility    string             `json:"visibility"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetProblem(ctx context.Context, id int64) (GetProblemRow, error) {
+	row := q.db.QueryRow(ctx, getProblem, id)
+	var i GetProblemRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Statement,
+		&i.TimeLimitMs,
+		&i.MemoryLimitKb,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
-	return err
+	return i, err
 }
 
 const getPublicProblem = `-- name: GetPublicProblem :one
@@ -174,4 +198,61 @@ func (q *Queries) ListPublicProblems(ctx context.Context, arg ListPublicProblems
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProblem = `-- name: UpdateProblem :one
+UPDATE problems
+SET title = $1,
+    statement = $2,
+    time_limit_ms = $3,
+    memory_limit_kb = $4,
+    visibility = $5,
+    updated_at = now()
+WHERE id = $6
+RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
+`
+
+type UpdateProblemParams struct {
+	Title         string `json:"title"`
+	Statement     string `json:"statement"`
+	TimeLimitMs   int32  `json:"time_limit_ms"`
+	MemoryLimitKb int32  `json:"memory_limit_kb"`
+	Visibility    string `json:"visibility"`
+	ID            int64  `json:"id"`
+}
+
+type UpdateProblemRow struct {
+	ID            int64              `json:"id"`
+	Title         string             `json:"title"`
+	Statement     string             `json:"statement"`
+	TimeLimitMs   int32              `json:"time_limit_ms"`
+	MemoryLimitKb int32              `json:"memory_limit_kb"`
+	Visibility    string             `json:"visibility"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateProblem(ctx context.Context, arg UpdateProblemParams) (UpdateProblemRow, error) {
+	row := q.db.QueryRow(ctx, updateProblem,
+		arg.Title,
+		arg.Statement,
+		arg.TimeLimitMs,
+		arg.MemoryLimitKb,
+		arg.Visibility,
+		arg.ID,
+	)
+	var i UpdateProblemRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Statement,
+		&i.TimeLimitMs,
+		&i.MemoryLimitKb,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

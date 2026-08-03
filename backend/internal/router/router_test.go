@@ -128,8 +128,7 @@ func TestCreateProblemInvalid(t *testing.T) {
 		"statement":"Compute $A+B$.",
 		"time_limit_ms":1000,
 		"memory_limit_kb":262144,
-		"visibility":"private",
-		"test_cases":[{"input":"","expected_output":"","is_sample":false}]
+		"visibility":"private"
 	}`)
 	res := httptest.NewRecorder()
 
@@ -153,14 +152,8 @@ func TestCreateProblemInvalid(t *testing.T) {
 
 func TestCreateProblemInvalidCase(t *testing.T) {
 	router := newTestRouter()
-	req := newCreateProblemRequest(domain.UserRoleAuthor, `{
-		"title":"A + B",
-		"statement":"Compute $A+B$.",
-		"time_limit_ms":1000,
-		"memory_limit_kb":262144,
-		"visibility":"private",
-		"test_cases":[{"input":"","expected_output":""}]
-	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/problems/42/test-cases", bytes.NewBufferString(`{"input":"","expected_output":""}`))
+	setAuth(req, "author")
 	res := httptest.NewRecorder()
 
 	router.ServeHTTP(res, req)
@@ -184,12 +177,56 @@ func validProblemJSON() string {
 		"statement":"Compute $A+B$.",
 		"time_limit_ms":1000,
 		"memory_limit_kb":262144,
-		"visibility":"private",
-		"test_cases":[
-			{"input":"1 2\\n","expected_output":"3\\n","is_sample":true},
-			{"input":"2 3\\n","expected_output":"5\\n","is_sample":false}
-		]
+		"visibility":"private"
 	}`
+}
+
+func TestTestCaseRoutes(t *testing.T) {
+	router := newTestRouter()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/problems/42/test-cases", bytes.NewBufferString(`{"input":"1 2\n","expected_output":"3\n","is_sample":true}`))
+	setAuth(create, "author")
+	createRes := httptest.NewRecorder()
+	router.ServeHTTP(createRes, create)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", createRes.Code, createRes.Body.String())
+	}
+
+	update := httptest.NewRequest(http.MethodPatch, "/api/v1/problems/42/test-cases/7", bytes.NewBufferString(`{"is_sample":false}`))
+	setAuth(update, "author")
+	updateRes := httptest.NewRecorder()
+	router.ServeHTTP(updateRes, update)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("update status = %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/problems/42/test-cases/7", nil)
+	setAuth(deleteRequest, "author")
+	deleteRes := httptest.NewRecorder()
+	router.ServeHTTP(deleteRes, deleteRequest)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
+}
+
+func TestProblemManageRoutes(t *testing.T) {
+	router := newTestRouter()
+
+	update := httptest.NewRequest(http.MethodPatch, "/api/v1/problems/42", bytes.NewBufferString(`{"title":"Updated"}`))
+	setAuth(update, "author")
+	updateRes := httptest.NewRecorder()
+	router.ServeHTTP(updateRes, update)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("update status = %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/problems/42", nil)
+	setAuth(deleteRequest, "author")
+	deleteRes := httptest.NewRecorder()
+	router.ServeHTTP(deleteRes, deleteRequest)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
 }
 
 func TestMeRoute(t *testing.T) {
@@ -660,8 +697,10 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 	authRepo := &fakeAuthRepository{}
 	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
 	problemRepo := &fakeProblemRepository{}
+	testCaseRepo := &fakeRouterTestCaseRepository{}
 	return New(Handlers{
-		Problems: handler.NewProblemHandler(usecase.NewProblemUsecase(problemRepo)),
+		Problems:  handler.NewProblemHandler(usecase.NewProblemUsecase(problemRepo, testCaseRepo)),
+		TestCases: handler.NewTestCaseHandler(usecase.NewTestCaseUsecase(problemRepo, testCaseRepo)),
 		CodeRuns: handler.NewCodeRunHandler(usecase.NewCodeRunUsecase(
 			&fakeCodeRunRepository{},
 			&fakeSourceCodeStorage{},
@@ -696,7 +735,14 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, _ repository.ListP
 }
 
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
-	return &domain.Problem{ID: id, TimeLimitMS: 1000}, nil
+	return &domain.Problem{ID: id, TimeLimitMS: 1000, CreatedBy: routerUserID}, nil
+}
+
+func (r *fakeProblemRepository) FindByID(_ context.Context, id int64) (*domain.Problem, error) {
+	return &domain.Problem{
+		ID: id, Title: "A + B", Statement: "Compute.", TimeLimitMS: 1000, MemoryLimitKB: 262144,
+		Visibility: domain.ProblemVisibilityPrivate, CreatedBy: routerUserID,
+	}, nil
 }
 
 type fakeCodeRunRepository struct{}
@@ -821,4 +867,41 @@ func (r *fakeProblemRepository) Create(_ context.Context, params repository.Crea
 		Visibility:    params.Visibility,
 		CreatedBy:     params.CreatedBy,
 	}, nil
+}
+
+func (r *fakeProblemRepository) Update(_ context.Context, params repository.UpdateProblemParams) (*domain.Problem, error) {
+	return &domain.Problem{
+		ID: params.ID, Title: params.Title, Statement: params.Statement, TimeLimitMS: params.TimeLimitMS,
+		MemoryLimitKB: params.MemoryLimitKB, Visibility: params.Visibility, CreatedBy: routerUserID,
+	}, nil
+}
+
+func (r *fakeProblemRepository) Delete(_ context.Context, _ int64) error {
+	return nil
+}
+
+type fakeRouterTestCaseRepository struct{}
+
+func (r *fakeRouterTestCaseRepository) CountByProblemID(_ context.Context, _ int64) (int, error) {
+	return 2, nil
+}
+
+func (r *fakeRouterTestCaseRepository) ListByProblemID(_ context.Context, problemID int64) ([]domain.TestCase, error) {
+	return []domain.TestCase{{ID: 7, ProblemID: problemID, Score: 1}}, nil
+}
+
+func (r *fakeRouterTestCaseRepository) FindByID(_ context.Context, problemID, id int64) (*domain.TestCase, error) {
+	return &domain.TestCase{ID: id, ProblemID: problemID, Input: "1 2\n", ExpectedOutput: "3\n", IsSample: true, Score: 1}, nil
+}
+
+func (r *fakeRouterTestCaseRepository) Create(_ context.Context, params repository.CreateTestCaseParams) (*domain.TestCase, error) {
+	return &domain.TestCase{ID: 7, ProblemID: params.ProblemID, Input: params.Input, ExpectedOutput: params.ExpectedOutput, IsSample: params.IsSample, Score: params.Score}, nil
+}
+
+func (r *fakeRouterTestCaseRepository) Update(_ context.Context, params repository.UpdateTestCaseParams) (*domain.TestCase, error) {
+	return &domain.TestCase{ID: params.ID, ProblemID: params.ProblemID, Input: params.Input, ExpectedOutput: params.ExpectedOutput, IsSample: params.IsSample, Score: 1}, nil
+}
+
+func (r *fakeRouterTestCaseRepository) Delete(_ context.Context, _, _ int64) error {
+	return nil
 }

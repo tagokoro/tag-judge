@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,29 +28,9 @@ func (h *ProblemHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request createProblemRequest
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
+	if err := decodeJSONBody(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must be valid JSON"))
 		return
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must contain a single JSON object"))
-		return
-	}
-
-	testCases := make([]usecase.CreateTestCaseInput, 0, len(request.TestCases))
-	for _, testCase := range request.TestCases {
-		if testCase.Input == nil || testCase.ExpectedOutput == nil || testCase.IsSample == nil {
-			WriteError(w, r, apperror.InvalidInput("INVALID_TEST_CASE", "each test case must include input, expected_output, and is_sample"))
-			return
-		}
-		testCases = append(testCases, usecase.CreateTestCaseInput{
-			Input:          *testCase.Input,
-			ExpectedOutput: *testCase.ExpectedOutput,
-			IsSample:       *testCase.IsSample,
-		})
 	}
 
 	problem, err := h.problems.CreateProblem(r.Context(), actor, usecase.CreateProblemInput{
@@ -61,7 +39,6 @@ func (h *ProblemHandler) Create(w http.ResponseWriter, r *http.Request) {
 		TimeLimitMS:   request.TimeLimitMS,
 		MemoryLimitKB: request.MemoryLimitKB,
 		Visibility:    domain.ProblemVisibility(request.Visibility),
-		TestCases:     testCases,
 	})
 	if err != nil {
 		WriteError(w, r, err)
@@ -69,6 +46,59 @@ func (h *ProblemHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, newProblemResponse(*problem))
+}
+
+func (h *ProblemHandler) Update(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+	id, err := parseProblemID(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	var request updateProblemRequest
+	if err := decodeJSONBody(r, &request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must be valid JSON"))
+		return
+	}
+	var visibility *domain.ProblemVisibility
+	if request.Visibility != nil {
+		value := domain.ProblemVisibility(*request.Visibility)
+		visibility = &value
+	}
+	problem, err := h.problems.UpdateProblem(r.Context(), actor, id, usecase.UpdateProblemInput{
+		Title:         request.Title,
+		Statement:     request.Statement,
+		TimeLimitMS:   request.TimeLimitMS,
+		MemoryLimitKB: request.MemoryLimitKB,
+		Visibility:    visibility,
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
+}
+
+func (h *ProblemHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+	id, err := parseProblemID(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	if err := h.problems.DeleteProblem(r.Context(), actor, id); err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -101,9 +131,9 @@ func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "problem_id"), 10, 64)
+	id, err := parseProblemID(r)
 	if err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer"))
+		WriteError(w, r, err)
 		return
 	}
 
@@ -114,6 +144,14 @@ func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
+}
+
+func parseProblemID(r *http.Request) (int64, error) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "problem_id"), 10, 64)
+	if err != nil {
+		return 0, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer")
+	}
+	return id, nil
 }
 
 func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
@@ -130,18 +168,19 @@ func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
 }
 
 type createProblemRequest struct {
-	Title         string                  `json:"title"`
-	Statement     string                  `json:"statement"`
-	TimeLimitMS   int                     `json:"time_limit_ms"`
-	MemoryLimitKB int                     `json:"memory_limit_kb"`
-	Visibility    string                  `json:"visibility"`
-	TestCases     []createTestCaseRequest `json:"test_cases"`
+	Title         string `json:"title"`
+	Statement     string `json:"statement"`
+	TimeLimitMS   int    `json:"time_limit_ms"`
+	MemoryLimitKB int    `json:"memory_limit_kb"`
+	Visibility    string `json:"visibility"`
 }
 
-type createTestCaseRequest struct {
-	Input          *string `json:"input"`
-	ExpectedOutput *string `json:"expected_output"`
-	IsSample       *bool   `json:"is_sample"`
+type updateProblemRequest struct {
+	Title         *string `json:"title"`
+	Statement     *string `json:"statement"`
+	TimeLimitMS   *int    `json:"time_limit_ms"`
+	MemoryLimitKB *int    `json:"memory_limit_kb"`
+	Visibility    *string `json:"visibility"`
 }
 
 type problemResponse struct {

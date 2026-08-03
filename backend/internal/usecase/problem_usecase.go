@@ -17,11 +17,12 @@ const (
 )
 
 type ProblemUsecase struct {
-	problems repository.ProblemRepository
+	problems  repository.ProblemRepository
+	testCases repository.TestCaseCounter
 }
 
-func NewProblemUsecase(problems repository.ProblemRepository) *ProblemUsecase {
-	return &ProblemUsecase{problems: problems}
+func NewProblemUsecase(problems repository.ProblemRepository, testCases repository.TestCaseCounter) *ProblemUsecase {
+	return &ProblemUsecase{problems: problems, testCases: testCases}
 }
 
 type ListProblemsInput struct {
@@ -36,13 +37,14 @@ type CreateProblemInput struct {
 	TimeLimitMS   int
 	MemoryLimitKB int
 	Visibility    domain.ProblemVisibility
-	TestCases     []CreateTestCaseInput
 }
 
-type CreateTestCaseInput struct {
-	Input          string
-	ExpectedOutput string
-	IsSample       bool
+type UpdateProblemInput struct {
+	Title         *string
+	Statement     *string
+	TimeLimitMS   *int
+	MemoryLimitKB *int
+	Visibility    *domain.ProblemVisibility
 }
 
 func (u *ProblemUsecase) CreateProblem(ctx context.Context, actor auth.Actor, input CreateProblemInput) (*domain.Problem, error) {
@@ -52,33 +54,11 @@ func (u *ProblemUsecase) CreateProblem(ctx context.Context, actor auth.Actor, in
 	if !actor.Role.CanCreateProblem() {
 		return nil, apperror.Forbidden("FORBIDDEN", "author or admin role required")
 	}
-	if strings.TrimSpace(input.Title) == "" {
-		return nil, apperror.InvalidInput("INVALID_TITLE", "title is required")
+	if err := validateProblem(input.Title, input.Statement, input.TimeLimitMS, input.MemoryLimitKB, input.Visibility); err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(input.Statement) == "" {
-		return nil, apperror.InvalidInput("INVALID_STATEMENT", "statement is required")
-	}
-	if input.TimeLimitMS <= 0 || input.TimeLimitMS > math.MaxInt32 {
-		return nil, apperror.InvalidInput("INVALID_TIME_LIMIT", "time_limit_ms must be between 1 and 2147483647")
-	}
-	if input.MemoryLimitKB <= 0 || input.MemoryLimitKB > math.MaxInt32 {
-		return nil, apperror.InvalidInput("INVALID_MEMORY_LIMIT", "memory_limit_kb must be between 1 and 2147483647")
-	}
-	if !input.Visibility.Valid() {
-		return nil, apperror.InvalidInput("INVALID_VISIBILITY", "visibility must be public, private, or group")
-	}
-	if len(input.TestCases) == 0 {
-		return nil, apperror.InvalidInput("INVALID_TEST_CASES", "at least one test case is required")
-	}
-
-	testCases := make([]domain.TestCase, 0, len(input.TestCases))
-	for _, testCase := range input.TestCases {
-		testCases = append(testCases, domain.TestCase{
-			Input:          testCase.Input,
-			ExpectedOutput: testCase.ExpectedOutput,
-			IsSample:       testCase.IsSample,
-			Score:          1,
-		})
+	if input.Visibility == domain.ProblemVisibilityPublic {
+		return nil, apperror.InvalidInput("PUBLIC_PROBLEM_REQUIRES_TEST_CASE", "create the problem as private or group, add a test case, then make it public")
 	}
 
 	return u.problems.Create(ctx, repository.CreateProblemParams{
@@ -88,8 +68,122 @@ func (u *ProblemUsecase) CreateProblem(ctx context.Context, actor auth.Actor, in
 		MemoryLimitKB: input.MemoryLimitKB,
 		Visibility:    input.Visibility,
 		CreatedBy:     actor.UserID,
-		TestCases:     testCases,
 	})
+}
+
+func (u *ProblemUsecase) UpdateProblem(ctx context.Context, actor auth.Actor, id int64, input UpdateProblemInput) (*domain.Problem, error) {
+	if err := validateProblemManager(actor); err != nil {
+		return nil, err
+	}
+	if id <= 0 {
+		return nil, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")
+	}
+	if input.Title == nil && input.Statement == nil && input.TimeLimitMS == nil && input.MemoryLimitKB == nil && input.Visibility == nil {
+		return nil, apperror.InvalidInput("EMPTY_UPDATE", "at least one field is required")
+	}
+
+	problem, err := u.problems.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := authorizeProblemManager(actor, *problem); err != nil {
+		return nil, err
+	}
+
+	title := problem.Title
+	statement := problem.Statement
+	timeLimitMS := problem.TimeLimitMS
+	memoryLimitKB := problem.MemoryLimitKB
+	visibility := problem.Visibility
+	if input.Title != nil {
+		title = *input.Title
+	}
+	if input.Statement != nil {
+		statement = *input.Statement
+	}
+	if input.TimeLimitMS != nil {
+		timeLimitMS = *input.TimeLimitMS
+	}
+	if input.MemoryLimitKB != nil {
+		memoryLimitKB = *input.MemoryLimitKB
+	}
+	if input.Visibility != nil {
+		visibility = *input.Visibility
+	}
+	if err := validateProblem(title, statement, timeLimitMS, memoryLimitKB, visibility); err != nil {
+		return nil, err
+	}
+	if visibility == domain.ProblemVisibilityPublic {
+		count, err := u.testCases.CountByProblemID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			return nil, apperror.InvalidInput("PUBLIC_PROBLEM_REQUIRES_TEST_CASE", "public problem requires at least one test case")
+		}
+	}
+
+	return u.problems.Update(ctx, repository.UpdateProblemParams{
+		ID:            id,
+		Title:         title,
+		Statement:     statement,
+		TimeLimitMS:   timeLimitMS,
+		MemoryLimitKB: memoryLimitKB,
+		Visibility:    visibility,
+	})
+}
+
+func (u *ProblemUsecase) DeleteProblem(ctx context.Context, actor auth.Actor, id int64) error {
+	if err := validateProblemManager(actor); err != nil {
+		return err
+	}
+	if id <= 0 {
+		return apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")
+	}
+	problem, err := u.problems.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := authorizeProblemManager(actor, *problem); err != nil {
+		return err
+	}
+	return u.problems.Delete(ctx, id)
+}
+
+func validateProblem(title, statement string, timeLimitMS, memoryLimitKB int, visibility domain.ProblemVisibility) error {
+	if strings.TrimSpace(title) == "" {
+		return apperror.InvalidInput("INVALID_TITLE", "title is required")
+	}
+	if strings.TrimSpace(statement) == "" {
+		return apperror.InvalidInput("INVALID_STATEMENT", "statement is required")
+	}
+	if timeLimitMS <= 0 || timeLimitMS > math.MaxInt32 {
+		return apperror.InvalidInput("INVALID_TIME_LIMIT", "time_limit_ms must be between 1 and 2147483647")
+	}
+	if memoryLimitKB <= 0 || memoryLimitKB > math.MaxInt32 {
+		return apperror.InvalidInput("INVALID_MEMORY_LIMIT", "memory_limit_kb must be between 1 and 2147483647")
+	}
+	if !visibility.Valid() {
+		return apperror.InvalidInput("INVALID_VISIBILITY", "visibility must be public, private, or group")
+	}
+	return nil
+}
+
+func validateProblemManager(actor auth.Actor) error {
+	if err := validateActor(actor); err != nil {
+		return err
+	}
+	if !actor.Role.CanCreateProblem() {
+		return apperror.Forbidden("FORBIDDEN", "author or admin role required")
+	}
+	return nil
+}
+
+func authorizeProblemManager(actor auth.Actor, problem domain.Problem) error {
+	if actor.Role != domain.UserRoleAdmin && problem.CreatedBy != actor.UserID {
+		return apperror.Forbidden("PROBLEM_MANAGE_FORBIDDEN", "problem owner or admin role required")
+	}
+	return nil
 }
 
 func (u *ProblemUsecase) ListPublicProblems(ctx context.Context, input ListProblemsInput) ([]domain.Problem, error) {

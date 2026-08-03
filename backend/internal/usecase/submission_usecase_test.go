@@ -239,7 +239,7 @@ func submissionTestActor(role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: testUserID, Role: role}
 }
 
-func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, problems repository.ProblemRepository) *SubmissionUsecase {
+func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, problems repository.PublicProblemReader) *SubmissionUsecase {
 	return NewSubmissionUsecase(
 		submissions,
 		problems,
@@ -318,10 +318,6 @@ type submissionProblemRepository struct {
 	findErr    error
 }
 
-func (r *submissionProblemRepository) ListPublic(_ context.Context, _ repository.ListProblemsParams) ([]domain.Problem, error) {
-	return nil, nil
-}
-
 func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
 	r.findCalled = true
 	r.findID = id
@@ -329,8 +325,4 @@ func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64
 		return nil, r.findErr
 	}
 	return &domain.Problem{ID: id, TimeLimitMS: 1000}, nil
-}
-
-func (r *submissionProblemRepository) Create(_ context.Context, _ repository.CreateProblemParams) (*domain.Problem, error) {
-	return nil, nil
 }

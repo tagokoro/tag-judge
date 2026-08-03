@@ -92,7 +92,7 @@ paths:
           $ref: "#/components/responses/Error"
     post:
       summary: Create a problem
-      description: Authors and admins can create a problem with its test cases. Group visibility does not associate a group in this API version.
+      description: Authors and admins create problem metadata separately from test cases. New problems must be private or group; group association is not handled in this API version.
       security:
         - CookieAuth: []
       parameters:
@@ -138,6 +138,162 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update a problem
+      description: The owning author or an administrator can update a problem. A problem requires at least one test case before it can be public.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProblemRequest"
+      responses:
+        "200":
+          description: Updated problem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a problem
+      description: The owning author or an administrator can delete a problem. Its test cases are deleted automatically.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+      responses:
+        "204":
+          description: Problem deleted
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /problems/{problem_id}/test-cases:
+    get:
+      summary: List test cases
+      description: Expected outputs are available only to the owning author or an administrator.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+      responses:
+        "200":
+          description: Test cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseListResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create a test case
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTestCaseRequest"
+      responses:
+        "201":
+          description: Test case created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /problems/{problem_id}/test-cases/{test_case_id}:
+    patch:
+      summary: Update a test case
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+        - $ref: "#/components/parameters/TestCaseIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTestCaseRequest"
+      responses:
+        "200":
+          description: Updated test case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a test case
+      description: The last test case of a public problem cannot be deleted.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/ProblemIDPath"
+        - $ref: "#/components/parameters/TestCaseIDPath"
+      responses:
+        "204":
+          description: Test case deleted
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /problems/{problem_id}/submissions:
     post:
@@ -440,6 +596,22 @@ components:
         type: integer
         format: int64
         minimum: 1
+    ProblemIDPath:
+      name: problem_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    TestCaseIDPath:
+      name: test_case_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   securitySchemes:
     CookieAuth:
       type: apiKey
@@ -462,7 +634,6 @@ components:
         - time_limit_ms
         - memory_limit_kb
         - visibility
-        - test_cases
       properties:
         title:
           type: string
@@ -481,12 +652,30 @@ components:
           maximum: 2147483647
         visibility:
           type: string
+          enum: [private, group]
+          description: Add at least one test case before changing visibility to public.
+    UpdateProblemRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+        statement:
+          type: string
+          minLength: 1
+        time_limit_ms:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        memory_limit_kb:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        visibility:
+          type: string
           enum: [public, private, group]
-        test_cases:
-          type: array
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/CreateTestCaseRequest"
     CreateTestCaseRequest:
       type: object
       additionalProperties: false
@@ -498,6 +687,53 @@ components:
           type: string
         is_sample:
           type: boolean
+    UpdateTestCaseRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        input:
+          type: string
+        expected_output:
+          type: string
+        is_sample:
+          type: boolean
+    TestCase:
+      type: object
+      required: [id, problem_id, input, expected_output, is_sample, score, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        problem_id:
+          type: integer
+          format: int64
+        input:
+          type: string
+        expected_output:
+          type: string
+        is_sample:
+          type: boolean
+        score:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+    TestCaseResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/TestCase"
+    TestCaseListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestCase"
     CreateGroupRequest:
       type: object
       additionalProperties: false

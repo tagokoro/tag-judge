@@ -32,8 +32,11 @@ type Problem struct {
 }
 
 type TestCase struct {
+	ID             int64
+	ProblemID      int64
 	Input          string
 	ExpectedOutput string
 	IsSample       bool
 	Score          int
+	CreatedAt      time.Time
 }

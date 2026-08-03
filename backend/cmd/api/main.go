@@ -43,6 +43,7 @@ func run() error {
 	defer db.Close()
 
 	problemRepo := postgres.NewProblemRepository(db)
+	testCaseRepo := postgres.NewTestCaseRepository(db)
 	codeRunRepo := postgres.NewCodeRunRepository(db)
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
@@ -57,13 +58,15 @@ func run() error {
 		cfg.GoogleOAuthRedirectURL,
 	)
 
-	problemUsecase := usecase.NewProblemUsecase(problemRepo)
+	problemUsecase := usecase.NewProblemUsecase(problemRepo, testCaseRepo)
+	testCaseUsecase := usecase.NewTestCaseUsecase(problemRepo, testCaseRepo)
 	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, executionDispatcher, cfg.CodeRunTimeLimitMS)
 	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, executionDispatcher)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
+	testCaseHandler := handler.NewTestCaseHandler(testCaseUsecase)
 	codeRunHandler := handler.NewCodeRunHandler(codeRunUsecase)
 	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	groupHandler := handler.NewGroupHandler(groupUsecase)
@@ -75,6 +78,7 @@ func run() error {
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
 			Problems:    problemHandler,
+			TestCases:   testCaseHandler,
 			CodeRuns:    codeRunHandler,
 			Groups:      groupHandler,
 			Submissions: submissionHandler,
