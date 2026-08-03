@@ -26,25 +26,3 @@ type SubmissionRepository interface {
 	FindByID(ctx context.Context, id int64) (*domain.Submission, error)
 	ListByUserID(ctx context.Context, params ListSubmissionsParams) ([]domain.Submission, error)
 }
-
-type PutSourceCodeParams struct {
-	Key        string
-	Language   domain.SubmissionLanguage
-	SourceCode string
-}
-
-type SourceCodeStorage interface {
-	PutSourceCode(ctx context.Context, params PutSourceCodeParams) error
-}
-
-type JudgeJob struct {
-	SubmissionID  string
-	Language      domain.SubmissionLanguage
-	SourceCodeKey string
-	TestCasesKey  string
-	TimeLimitMS   int
-}
-
-type JudgeDispatcher interface {
-	Dispatch(ctx context.Context, job JudgeJob) error
-}

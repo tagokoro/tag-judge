@@ -46,9 +46,9 @@ func (s *S3SourceCodeStorage) PutSourceCode(ctx context.Context, params reposito
 	return nil
 }
 
-func sourceContentType(language domain.SubmissionLanguage) string {
+func sourceContentType(language domain.ExecutionLanguage) string {
 	switch language {
-	case domain.SubmissionLanguagePython:
+	case domain.ExecutionLanguagePython:
 		return "text/x-python; charset=utf-8"
 	default:
 		return "text/plain; charset=utf-8"

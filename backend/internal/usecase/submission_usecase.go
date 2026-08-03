@@ -22,14 +22,14 @@ type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.ProblemRepository
 	storage     repository.SourceCodeStorage
-	dispatcher  repository.JudgeDispatcher
+	dispatcher  repository.ExecutionDispatcher
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.ProblemRepository,
 	storage repository.SourceCodeStorage,
-	dispatcher repository.JudgeDispatcher,
+	dispatcher repository.ExecutionDispatcher,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
 		submissions: submissions,
@@ -91,13 +91,19 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		return nil, err
 	}
 
-	if err := u.dispatcher.Dispatch(ctx, repository.JudgeJob{
-		SubmissionID:  fmt.Sprintf("%d", submission.ID),
-		Language:      input.Language,
-		SourceCodeKey: sourceCodeKey,
-		TestCasesKey:  testCasesKey(problem.ID),
-		TimeLimitMS:   problem.TimeLimitMS,
-	}); err != nil {
+	reference, err := repository.NewSubmissionExecutionReference(fmt.Sprintf("%d", submission.ID))
+	if err != nil {
+		return nil, err
+	}
+	mode, err := repository.NewProblemExecution(testCasesKey(problem.ID), problem.TimeLimitMS)
+	if err != nil {
+		return nil, err
+	}
+	job, err := repository.NewExecutionJob(reference, input.Language, sourceCodeKey, mode)
+	if err != nil {
+		return nil, err
+	}
+	if err := u.dispatcher.Dispatch(ctx, job); err != nil {
 		return nil, err
 	}
 
