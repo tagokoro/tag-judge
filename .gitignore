@@ -5,6 +5,13 @@ target/
 judge/core/tmp/
 judge/core/src/tmp/
 
+# Frontend dependencies and build output
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
 # Terraform local state and caches
 .terraform/
 *.tfstate

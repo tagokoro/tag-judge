@@ -140,7 +140,19 @@ sudo docker compose exec -T localstack awslocal sqs send-message \
 
 `cargo run` した `judge-worker` が上記メッセージを受信すると、標準出力に判定結果 JSON を出す。
 
-## 7. 設計上の位置づけ
+## 7. Frontend の実行
+
+Next.js App Router と Tailwind CSS のフロントエンドは `frontend/` に置く。API server は既定で `http://localhost:8080` を参照し、Next.js の rewrite で `/api/backend/*` から `/api/v1/*` へ proxy する。
+
+```sh
+make run-api
+make frontend-install
+make frontend-dev
+```
+
+backend の `DEV_HEADER_AUTH=true` が有効なローカル環境では、画面右上の Auth から seed author/admin の開発用 header 認証を切り替えられる。Google OAuth を使う場合は backend の OAuth 環境変数と callback URL を設定する。
+
+## 8. 設計上の位置づけ
 
 この段階では DB テーブルを先に作り込まない。  
 `users`, `problems`, `submissions`, `test_cases` などのスキーマは、API Server の責務、認証、認可、提出データの保存場所を設計してから追加する。

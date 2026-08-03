@@ -66,7 +66,8 @@ paths:
           $ref: "#/components/responses/Error"
   /problems:
     get:
-      summary: List public problems
+      summary: List visible problems
+      description: Anonymous users see public problems. Authenticated authors see public and owned problems; admins see all problems.
       parameters:
         - name: limit
           in: query
@@ -90,9 +91,32 @@ paths:
                 $ref: "#/components/schemas/ProblemListResponse"
         "400":
           $ref: "#/components/responses/Error"
+    post:
+      summary: Create a problem
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProblemRequest"
+      responses:
+        "201":
+          description: Created problem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /problems/{problem_id}:
     get:
-      summary: Get a public problem
+      summary: Get a visible problem
       parameters:
         - name: problem_id
           in: path
@@ -112,8 +136,231 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+    put:
+      summary: Update a problem
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: problem_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProblemRequest"
+      responses:
+        "200":
+          description: Updated problem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a problem
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: problem_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /problems/{problem_id}/test-cases:
+    get:
+      summary: List test cases for managed problem
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+      responses:
+        "200":
+          description: Test cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseListResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create a test case
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestCaseRequest"
+      responses:
+        "201":
+          description: Created test case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /problems/{problem_id}/test-cases/{test_case_id}:
+    put:
+      summary: Update a test case
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+        - $ref: "#/components/parameters/TestCaseID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestCaseRequest"
+      responses:
+        "200":
+          description: Updated test case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a test case
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+        - $ref: "#/components/parameters/TestCaseID"
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /problems/{problem_id}/submissions:
+    get:
+      summary: List submissions for a problem
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+      responses:
+        "200":
+          description: Submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionListResponse"
+    post:
+      summary: Create a submission
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProblemID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmissionRequest"
+      responses:
+        "201":
+          description: Created submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /submissions/{submission_id}:
+    get:
+      summary: Get a submission and result rows
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 components:
   parameters:
+    ProblemID:
+      name: problem_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    TestCaseID:
+      name: test_case_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     UserIDHeader:
       name: X-User-ID
       in: header
@@ -179,12 +426,167 @@ components:
         updated_at:
           type: string
           format: date-time
+    ProblemRequest:
+      type: object
+      required: [title, statement, time_limit_ms, memory_limit_kb, visibility]
+      properties:
+        title:
+          type: string
+        statement:
+          type: string
+        time_limit_ms:
+          type: integer
+          minimum: 1
+        memory_limit_kb:
+          type: integer
+          minimum: 1
+        visibility:
+          type: string
+          enum: [public, private, group]
     ProblemResponse:
       type: object
       required: [data]
       properties:
         data:
           $ref: "#/components/schemas/Problem"
+    TestCase:
+      type: object
+      required: [id, problem_id, input, expected_output, is_sample, score, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        problem_id:
+          type: integer
+          format: int64
+        input:
+          type: string
+        expected_output:
+          type: string
+        is_sample:
+          type: boolean
+        score:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+    TestCaseRequest:
+      type: object
+      required: [input, expected_output, is_sample, score]
+      properties:
+        input:
+          type: string
+        expected_output:
+          type: string
+        is_sample:
+          type: boolean
+        score:
+          type: integer
+          minimum: 1
+    TestCaseResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/TestCase"
+    TestCaseListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestCase"
+    Submission:
+      type: object
+      required: [id, user_id, problem_id, language, source_code, status, score, created_at, judged_at, results]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        problem_id:
+          type: integer
+          format: int64
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, ac, wa, tle, mle, re, ce, ie]
+        score:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        judged_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionResult"
+    SubmissionResult:
+      type: object
+      required: [id, submission_id, test_case_id, status, execution_time_ms, memory_kb, stdout, stderr, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        submission_id:
+          type: integer
+          format: int64
+        test_case_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ac, wa, tle, mle, re, ce, ie]
+        execution_time_ms:
+          type:
+            - integer
+            - "null"
+        memory_kb:
+          type:
+            - integer
+            - "null"
+        stdout:
+          type: string
+        stderr:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    SubmissionRequest:
+      type: object
+      required: [language, source_code]
+      properties:
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+    SubmissionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Submission"
+    SubmissionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Submission"
     Me:
       type: object
       required:

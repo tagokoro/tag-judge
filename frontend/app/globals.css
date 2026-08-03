@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f7f8f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f7f8f6;
+  color: #17201d;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+pre,
+code,
+textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+@layer components {
+  .field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .label {
+    @apply text-xs font-semibold uppercase tracking-normal text-ink/60;
+  }
+
+  .input {
+    @apply min-h-10 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-soft outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15;
+  }
+
+  .textarea {
+    @apply min-h-32 w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm leading-6 text-ink shadow-soft outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15;
+  }
+
+  .button {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-transparent px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  .button-primary {
+    @apply button bg-accent text-white hover:bg-accent/90;
+  }
+
+  .button-secondary {
+    @apply button border-line bg-white text-ink hover:bg-panel;
+  }
+
+  .button-danger {
+    @apply button border-danger/20 bg-danger/10 text-danger hover:bg-danger/15;
+  }
+
+  .panel {
+    @apply rounded-md border border-line bg-white shadow-soft;
+  }
+}

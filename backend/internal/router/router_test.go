@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
@@ -151,6 +152,50 @@ func TestMeRouteInvalidAuthHeader(t *testing.T) {
 	}
 }
 
+func TestCreateProblemRoute(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/problems", strings.NewReader(`{
+		"title": "New Problem",
+		"statement": "Solve it.",
+		"time_limit_ms": 1000,
+		"memory_limit_kb": 262144,
+		"visibility": "public"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-User-Role", "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusCreated)
+	}
+}
+
+func TestCreateProblemRouteRequiresAuthor(t *testing.T) {
+	router := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/problems", strings.NewReader(`{
+		"title": "New Problem",
+		"statement": "Solve it.",
+		"time_limit_ms": 1000,
+		"memory_limit_kb": 262144,
+		"visibility": "public"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000003")
+	req.Header.Set("X-User-Role", "user")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusForbidden)
+	}
+}
+
 func newTestRouter() http.Handler {
 	authRepo := &fakeAuthRepository{}
 	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
@@ -168,8 +213,64 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, _ repository.ListP
 	return []domain.Problem{}, nil
 }
 
+func (r *fakeProblemRepository) ListVisible(_ context.Context, _ repository.ListProblemsParams, _ string, _ bool) ([]domain.Problem, error) {
+	return []domain.Problem{}, nil
+}
+
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
 	return &domain.Problem{ID: id}, nil
+}
+
+func (r *fakeProblemRepository) FindVisibleByID(_ context.Context, id int64, actorUserID string, _ bool) (*domain.Problem, error) {
+	return &domain.Problem{ID: id, CreatedBy: actorUserID}, nil
+}
+
+func (r *fakeProblemRepository) Create(_ context.Context, params repository.ProblemMutationParams) (*domain.Problem, error) {
+	return &domain.Problem{
+		ID:            1,
+		Title:         params.Title,
+		Statement:     params.Statement,
+		TimeLimitMS:   params.TimeLimitMS,
+		MemoryLimitKB: params.MemoryLimitKB,
+		Visibility:    params.Visibility,
+		CreatedBy:     params.CreatedBy,
+	}, nil
+}
+
+func (r *fakeProblemRepository) Update(_ context.Context, id int64, params repository.ProblemMutationParams) (*domain.Problem, error) {
+	return &domain.Problem{ID: id, Title: params.Title, CreatedBy: params.CreatedBy}, nil
+}
+
+func (r *fakeProblemRepository) Delete(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (r *fakeProblemRepository) ListTestCases(_ context.Context, problemID int64) ([]domain.TestCase, error) {
+	return []domain.TestCase{{ID: 1, ProblemID: problemID, Score: 1}}, nil
+}
+
+func (r *fakeProblemRepository) CreateTestCase(_ context.Context, params repository.TestCaseMutationParams) (*domain.TestCase, error) {
+	return &domain.TestCase{ID: 1, ProblemID: params.ProblemID, Score: params.Score}, nil
+}
+
+func (r *fakeProblemRepository) UpdateTestCase(_ context.Context, id int64, params repository.TestCaseMutationParams) (*domain.TestCase, error) {
+	return &domain.TestCase{ID: id, ProblemID: params.ProblemID, Score: params.Score}, nil
+}
+
+func (r *fakeProblemRepository) DeleteTestCase(_ context.Context, _ int64, _ int64) error {
+	return nil
+}
+
+func (r *fakeProblemRepository) CreateSubmission(_ context.Context, params repository.CreateSubmissionParams) (*domain.Submission, error) {
+	return &domain.Submission{ID: 1, UserID: params.UserID, ProblemID: params.ProblemID, Language: params.Language}, nil
+}
+
+func (r *fakeProblemRepository) ListSubmissionsByProblem(_ context.Context, problemID int64, userID string, _ bool) ([]domain.Submission, error) {
+	return []domain.Submission{{ID: 1, UserID: userID, ProblemID: problemID}}, nil
+}
+
+func (r *fakeProblemRepository) FindSubmissionByID(_ context.Context, id int64) (*domain.Submission, error) {
+	return &domain.Submission{ID: id, UserID: "00000000-0000-4000-8000-000000000001", ProblemID: 1}, nil
 }
 
 type fakeAuthRepository struct{}

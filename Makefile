@@ -11,6 +11,7 @@ PORT ?= 8080
 
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 BACKEND_DIR ?= backend
+FRONTEND_DIR ?= frontend
 MIGRATIONS_DIR ?= $(BACKEND_DIR)/db/migrations
 SEED_FILE ?= $(BACKEND_DIR)/db/seeds/development.sql
 
@@ -65,6 +66,18 @@ test: ## Run Go tests
 .PHONY: run-api
 run-api: ## Run the API server
 	cd $(BACKEND_DIR) && PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" go run ./cmd/api
+
+.PHONY: frontend-install
+frontend-install: ## Install frontend dependencies
+	cd $(FRONTEND_DIR) && npm install
+
+.PHONY: frontend-dev
+frontend-dev: ## Run the frontend dev server
+	cd $(FRONTEND_DIR) && npm run dev
+
+.PHONY: frontend-test
+frontend-test: ## Run frontend lint, typecheck, unit tests, and build
+	cd $(FRONTEND_DIR) && npm run lint && npm run typecheck && npm run test && npm run build
 
 .PHONY: api-smoke
 api-smoke: ## Check API health and public problems
