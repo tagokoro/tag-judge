@@ -5,6 +5,7 @@ import { Edit, RefreshCcw, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorMessage } from "@/components/error-message";
+import { ProblemStatement } from "@/components/problem-statement";
 import { StatusBadge, VisibilityBadge } from "@/components/status-badge";
 import { SubmissionPanel } from "@/components/submission-panel";
 import { TestCaseManager } from "@/components/test-case-manager";
@@ -97,9 +98,7 @@ export default function ProblemDetailPage() {
               </button>
             </div>
           </div>
-          <article className="panel p-4">
-            <pre className="whitespace-pre-wrap text-sm leading-7 text-ink">{problem.statement}</pre>
-          </article>
+          <ProblemStatement>{problem.statement}</ProblemStatement>
         </section>
         <aside className="grid content-start gap-3">
           <div className="panel p-4">

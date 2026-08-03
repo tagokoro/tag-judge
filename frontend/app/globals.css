@@ -66,4 +66,69 @@ textarea {
   .panel {
     @apply rounded-md border border-line bg-white shadow-soft;
   }
+
+  .problem-statement {
+    @apply text-sm leading-7 text-ink;
+  }
+
+  .problem-statement h1 {
+    @apply mb-4 mt-7 text-2xl font-bold first:mt-0;
+  }
+
+  .problem-statement h2 {
+    @apply mb-3 mt-6 text-xl font-bold first:mt-0;
+  }
+
+  .problem-statement h3 {
+    @apply mb-2 mt-5 text-base font-bold first:mt-0;
+  }
+
+  .problem-statement p,
+  .problem-statement ul,
+  .problem-statement ol,
+  .problem-statement pre,
+  .problem-statement blockquote {
+    @apply my-3;
+  }
+
+  .problem-statement ul {
+    @apply list-disc pl-6;
+  }
+
+  .problem-statement ol {
+    @apply list-decimal pl-6;
+  }
+
+  .problem-statement a {
+    @apply text-accent underline underline-offset-2;
+  }
+
+  .problem-statement code {
+    @apply rounded bg-panel px-1.5 py-0.5 text-[0.9em];
+  }
+
+  .problem-statement pre {
+    @apply overflow-x-auto rounded-md bg-ink p-4 text-white;
+  }
+
+  .problem-statement pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .problem-statement blockquote {
+    @apply border-l-4 border-line pl-4 text-ink/70;
+  }
+
+  .problem-statement table {
+    @apply my-4 w-full border-collapse text-left;
+  }
+
+  .problem-statement th,
+  .problem-statement td {
+    @apply border border-line px-3 py-2;
+  }
+
+  .problem-statement .katex-display {
+    @apply overflow-x-auto overflow-y-hidden py-2;
+  }
 }
