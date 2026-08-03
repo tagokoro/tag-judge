@@ -151,7 +151,7 @@ JudgeRequest
 
 本番構成では、提出コードそのものは S3 に保存し、Queue には `sourceCodeKey` のような参照情報を積む。ただし、`judge-core` は S3 を知らない。`judge-worker` が S3 から取得した実際の `sourceCode` を `judge-core` に渡す。
 
-API Server も同じ境界を守る。提出 API は usecase では `SourceCodeStorage` と `JudgeDispatcher` interface だけに依存し、AWS SDK / S3 / SQS の具体 adapter は infra 層で組み立てる。LocalStack では `AWS_ENDPOINT_URL`, `JUDGE_STORAGE_BUCKET`, `JUDGE_SUBMISSIONS_QUEUE_NAME` を設定すると S3 / SQS adapter を使い、未設定時はローカル開発用 adapter に戻す。
+API Server も同じ境界を守る。Submission / CodeRun API は usecase では `SourceCodeStorage` と `ExecutionDispatcher` interface だけに依存し、AWS SDK / S3 / SQS の具体 adapter は infra 層で組み立てる。LocalStack では `AWS_ENDPOINT_URL`, `JUDGE_STORAGE_BUCKET`, `JUDGE_SUBMISSIONS_QUEUE_NAME` を設定すると S3 / SQS adapter を使い、未設定時はローカル開発用 adapter に戻す。
 
 ```text
 SQS job
@@ -161,6 +161,39 @@ judge-worker
   ├─ S3 または DB から testCases を取得
   └─ judge-core に実データを渡す
 ```
+
+Queue に積むジョブは Submission 専用の `JudgeJob` ではなく、API Server 側では `ExecutionJob` として扱う。
+
+```text
+ExecutionJob
+- reference
+  - kind: submission | code_run
+  - id
+- executionMode: problem | stdin
+- language
+- sourceCodeKey
+- problemExecution
+  - testCasesKey
+  - timeLimitMs
+- stdinExecution
+  - stdin
+  - timeLimitMs
+```
+
+`problem` mode は Submission reference と test cases を必須にする。`stdin` mode は CodeRun reference と stdin を必須にする。API Server の constructor validation で、`code_run + problem` や `submission + stdin` のような不正な組み合わせを拒否する。
+
+CodeRun API は `pending` レコードを作成した後、`code-runs/{user_id}/{code_run_id}/main.{ext}` へソースコードを保存し、stdin execution job を dispatch する。実行時間制限は `CODE_RUN_TIME_LIMIT_MS` で設定し、未指定時は 5000ms とする。source storage または dispatch が失敗した場合はエラーを返すが、作成済みの `pending` CodeRun は rollback しない。source key は CodeRun ID から決定的に生成できるため、同じ reference の再送時にも同じartifactを参照できる。
+
+既存の Rust worker は当面 `submissionId`, `sourceCodeKey`, `testCasesKey`, `timeLimitMs` を読むため、Problem execution の SQS payload にはこれらのフィールドも維持する。追加された `reference` と `executionMode` は、worker 側を拡張するときの移行用 envelope とする。
+
+Dispatch の責務境界:
+
+- Submission usecase は source code 保存、`pending` Submission 永続化、dispatch の順に実行する
+- CodeRun usecase は `pending` CodeRun 永続化、source code 保存、dispatch の順に実行する
+- dispatch 失敗時はエラーを返すが、保存済み source code と `pending` record を usecase 内で rollback しない
+- queue は少なくとも1回配送を前提にし、同じ `ExecutionJob.reference` の再送を許容する
+- runner / result consumer は reference id を冪等キーとして、同じ実行結果の重複反映で状態を壊さない責務を持つ
+- 現時点では Submission 作成API自体の冪等キーは提供しないため、HTTP retry は新しい Submission を作る可能性がある
 
 ### TestCase
 

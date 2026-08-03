@@ -29,7 +29,7 @@ func (r *CodeRunRepository) Create(ctx context.Context, params repository.Create
 
 	row, err := r.queries.CreateCodeRun(ctx, sqlc.CreateCodeRunParams{
 		UserID:     userID,
-		Language:   params.Language,
+		Language:   string(params.Language),
 		SourceCode: params.SourceCode,
 		Stdin:      params.Stdin,
 	})
@@ -93,7 +93,7 @@ func newCodeRun(
 	return domain.CodeRun{
 		ID:              id,
 		UserID:          userID,
-		Language:        language,
+		Language:        domain.ExecutionLanguage(language),
 		SourceCode:      sourceCode,
 		Stdin:           stdin,
 		Stdout:          stdout,

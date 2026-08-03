@@ -1,9 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,19 +34,13 @@ func (h *CodeRunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request createCodeRunRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST", "request body must be valid JSON"))
-		return
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST", "request body must contain one JSON object"))
+	if err := decodeJSON(r, &request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
 
 	codeRun, err := h.codeRuns.Create(r.Context(), actor, usecase.CreateCodeRunInput{
-		Language:   request.Language,
+		Language:   domain.ExecutionLanguage(request.Language),
 		SourceCode: request.SourceCode,
 		Stdin:      request.Stdin,
 	})
@@ -136,7 +127,7 @@ func newCodeRunResponse(codeRun domain.CodeRun) codeRunResponse {
 	return codeRunResponse{
 		ID:              codeRun.ID,
 		UserID:          codeRun.UserID,
-		Language:        codeRun.Language,
+		Language:        string(codeRun.Language),
 		SourceCode:      codeRun.SourceCode,
 		Stdin:           codeRun.Stdin,
 		Stdout:          codeRun.Stdout,

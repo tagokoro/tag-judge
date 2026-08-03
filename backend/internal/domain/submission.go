@@ -2,21 +2,17 @@ package domain
 
 import "time"
 
-type SubmissionLanguage string
+type SubmissionLanguage = ExecutionLanguage
 
 const (
-	SubmissionLanguagePython SubmissionLanguage = "python"
+	SubmissionLanguagePython = ExecutionLanguagePython
 )
-
-func (l SubmissionLanguage) Valid() bool {
-	return l == SubmissionLanguagePython
-}
 
 type SubmissionStatus string
 
 const (
-	SubmissionStatusPending SubmissionStatus = "pending"
-	SubmissionStatusRunning SubmissionStatus = "running"
+	SubmissionStatusPending SubmissionStatus = SubmissionStatus(ExecutionStatusPending)
+	SubmissionStatusRunning SubmissionStatus = SubmissionStatus(ExecutionStatusRunning)
 	SubmissionStatusAC      SubmissionStatus = "ac"
 	SubmissionStatusWA      SubmissionStatus = "wa"
 	SubmissionStatusTLE     SubmissionStatus = "tle"

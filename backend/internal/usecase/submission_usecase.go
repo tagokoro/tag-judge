@@ -22,14 +22,14 @@ type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.ProblemRepository
 	storage     repository.SourceCodeStorage
-	dispatcher  repository.JudgeDispatcher
+	dispatcher  repository.ExecutionDispatcher
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.ProblemRepository,
 	storage repository.SourceCodeStorage,
-	dispatcher repository.JudgeDispatcher,
+	dispatcher repository.ExecutionDispatcher,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
 		submissions: submissions,
@@ -91,13 +91,19 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		return nil, err
 	}
 
-	if err := u.dispatcher.Dispatch(ctx, repository.JudgeJob{
-		SubmissionID:  fmt.Sprintf("%d", submission.ID),
-		Language:      input.Language,
-		SourceCodeKey: sourceCodeKey,
-		TestCasesKey:  testCasesKey(problem.ID),
-		TimeLimitMS:   problem.TimeLimitMS,
-	}); err != nil {
+	reference, err := repository.NewSubmissionExecutionReference(fmt.Sprintf("%d", submission.ID))
+	if err != nil {
+		return nil, err
+	}
+	mode, err := repository.NewProblemExecution(testCasesKey(problem.ID), problem.TimeLimitMS)
+	if err != nil {
+		return nil, err
+	}
+	job, err := repository.NewExecutionJob(reference, input.Language, sourceCodeKey, mode)
+	if err != nil {
+		return nil, err
+	}
+	if err := u.dispatcher.Dispatch(ctx, job); err != nil {
 		return nil, err
 	}
 
@@ -158,13 +164,6 @@ func (u *SubmissionUsecase) List(ctx context.Context, input ListSubmissionsInput
 	})
 }
 
-func validateActor(actor auth.Actor) error {
-	if !validUUID(actor.UserID) || !actor.Role.Valid() {
-		return apperror.Unauthorized("UNAUTHORIZED", "authentication required")
-	}
-	return nil
-}
-
 func newSourceCodeKey(userID string, problemID int64, language domain.SubmissionLanguage) (string, error) {
 	token, err := randomHex(16)
 	if err != nil {
@@ -183,13 +182,4 @@ func randomHex(size int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-func sourceExtension(language domain.SubmissionLanguage) string {
-	switch language {
-	case domain.SubmissionLanguagePython:
-		return ".py"
-	default:
-		return ".txt"
-	}
 }

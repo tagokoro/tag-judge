@@ -8,7 +8,7 @@ import (
 
 type CreateCodeRunParams struct {
 	UserID     string
-	Language   string
+	Language   domain.ExecutionLanguage
 	SourceCode string
 	Stdin      string
 }

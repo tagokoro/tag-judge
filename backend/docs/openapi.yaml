@@ -206,7 +206,7 @@ paths:
   /code-runs:
     post:
       summary: Create a code run
-      description: Stores a Python code run with pending status. Execution is handled separately.
+      description: Stores a Python code run with pending status and dispatches a stdin execution job.
       security:
         - CookieAuth: []
       parameters:
@@ -228,6 +228,8 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+        "500":
           $ref: "#/components/responses/Error"
     get:
       summary: List the current user's code runs

@@ -73,7 +73,7 @@ bucket: judge-storage
 
 ## 5. Judge Worker の実行
 
-API Server は `JUDGE_STORAGE_BUCKET` と `JUDGE_SUBMISSIONS_QUEUE_NAME` が両方設定されている場合、提出コードを S3 に保存し、判定ジョブを SQS に送信する。
+API Server は `JUDGE_STORAGE_BUCKET` と `JUDGE_SUBMISSIONS_QUEUE_NAME` が両方設定されている場合、Submission / CodeRun のソースコードを S3 に保存し、実行ジョブを SQS に送信する。
 どちらかが未設定の場合は、ローカルファイル保存とログ出力 dispatcher を使うため、AWS / LocalStack なしでも API Server は起動できる。
 
 LocalStack に接続する場合は、API Server と Worker の両方で同じ設定を使う。
@@ -85,7 +85,7 @@ export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
 export JUDGE_STORAGE_BUCKET=judge-storage
 ```
 
-`judge-worker` は LocalStack SQS の `judge-submissions` から `JudgeJob` を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。
+`judge-worker` は LocalStack SQS の `judge-submissions` から problem execution job を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。API Server は CodeRun 用の stdin execution job も生成するが、Rust worker の stdin mode処理と結果反映は後続実装とする。
 
 ローカルで LocalStack に接続する場合は、`AWS_ENDPOINT_URL` を明示する。  
 `AWS_ENDPOINT_URL` が未設定の場合、worker は AWS 本番の SQS / S3 endpoint に接続する。
@@ -99,15 +99,24 @@ export JUDGE_STORAGE_BUCKET=judge-storage
 cargo run
 ```
 
-LocalStack へ投入する message body は `JudgeJob` の JSON とする。
+LocalStack へ投入する message body は `ExecutionJob` の JSON とする。problem mode は既存workerとの互換フィールドも含める。
 
 ```json
 {
+  "reference": {
+    "kind": "submission",
+    "id": "sub_local_001"
+  },
+  "executionMode": "problem",
   "submissionId": "sub_local_001",
   "language": "python",
   "sourceCodeKey": "submissions/sub_local_001/main.py",
   "testCasesKey": "problems/prob_001/testcases.json",
-  "timeLimitMs": 1000
+  "timeLimitMs": 1000,
+  "problemExecution": {
+    "testCasesKey": "problems/prob_001/testcases.json",
+    "timeLimitMs": 1000
+  }
 }
 ```
 
