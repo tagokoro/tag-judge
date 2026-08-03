@@ -26,9 +26,13 @@ type TestCaseCounter interface {
 	CountByProblemID(ctx context.Context, problemID int64) (int, error)
 }
 
+type TestCaseLister interface {
+	ListByProblemID(ctx context.Context, problemID int64) ([]domain.TestCase, error)
+}
+
 type TestCaseRepository interface {
 	TestCaseCounter
-	ListByProblemID(ctx context.Context, problemID int64) ([]domain.TestCase, error)
+	TestCaseLister
 	FindByID(ctx context.Context, problemID, id int64) (*domain.TestCase, error)
 	Create(ctx context.Context, params CreateTestCaseParams) (*domain.TestCase, error)
 	Update(ctx context.Context, params UpdateTestCaseParams) (*domain.TestCase, error)

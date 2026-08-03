@@ -12,13 +12,15 @@ import (
 )
 
 const testUserID = "00000000-0000-4000-8000-000000000001"
+const testCasesArtifactKey = "problems/42/testcases/content-hash.json"
 
 func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
+	testCases := &submissionTestCaseRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	uc := NewSubmissionUsecase(submissions, problems, testCases, storage, dispatcher)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -44,6 +46,9 @@ func TestCreateSubmission(t *testing.T) {
 	if !storage.putCalled || storage.putParams.SourceCode != "print(42)" {
 		t.Fatalf("storage params = %+v", storage.putParams)
 	}
+	if !storage.testCasesCalled || storage.testCasesParams.ProblemID != 42 || len(storage.testCasesParams.TestCases) != 2 {
+		t.Fatalf("test case artifact params = %+v", storage.testCasesParams)
+	}
 	if !dispatcher.dispatchCalled {
 		t.Fatal("judge dispatcher should be called")
 	}
@@ -55,7 +60,7 @@ func TestCreateSubmission(t *testing.T) {
 		t.Fatalf("execution mode = %s, want problem", dispatcher.job.Mode().Kind())
 	}
 	problemExecution, ok := dispatcher.job.Mode().Problem()
-	if !ok || problemExecution.TestCasesKey != "problems/42/testcases.json" || problemExecution.TimeLimitMS != 1000 {
+	if !ok || problemExecution.TestCasesKey != testCasesArtifactKey || problemExecution.TimeLimitMS != 1000 {
 		t.Fatalf("problem execution = %+v", problemExecution)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
@@ -98,6 +103,59 @@ func TestCreateSubmissionProblem(t *testing.T) {
 	}
 	if submissions.createCalled {
 		t.Fatal("submission repository should not be called")
+	}
+}
+
+func TestCreateSubmissionWithoutTestCases(t *testing.T) {
+	submissions := &fakeSubmissionRepository{}
+	storage := &fakeSubmissionSourceCodeStorage{}
+	dispatcher := &fakeSubmissionExecutionDispatcher{}
+	uc := NewSubmissionUsecase(
+		submissions,
+		&submissionProblemRepository{},
+		&submissionTestCaseRepository{testCases: []domain.TestCase{}},
+		storage,
+		dispatcher,
+	)
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      submissionTestActor(domain.UserRoleUser),
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, apperror.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
+	}
+	if storage.testCasesCalled || storage.putCalled || submissions.createCalled || dispatcher.dispatchCalled {
+		t.Fatal("artifact, source, submission, and dispatch should not be created")
+	}
+}
+
+func TestCreateSubmissionArtifactFailure(t *testing.T) {
+	artifactErr := errors.New("artifact unavailable")
+	submissions := &fakeSubmissionRepository{}
+	storage := &fakeSubmissionSourceCodeStorage{testCasesErr: artifactErr}
+	dispatcher := &fakeSubmissionExecutionDispatcher{}
+	uc := NewSubmissionUsecase(
+		submissions,
+		&submissionProblemRepository{},
+		&submissionTestCaseRepository{},
+		storage,
+		dispatcher,
+	)
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      submissionTestActor(domain.UserRoleUser),
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, artifactErr) {
+		t.Fatalf("err = %v, want artifact error", err)
+	}
+	if !storage.testCasesCalled || storage.putCalled || submissions.createCalled || dispatcher.dispatchCalled {
+		t.Fatal("only test case artifact storage should be called")
 	}
 }
 
@@ -188,9 +246,10 @@ func TestSubmissionAuthentication(t *testing.T) {
 func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
+	testCases := &submissionTestCaseRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	uc := NewSubmissionUsecase(submissions, problems, testCases, storage, dispatcher)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      auth.Actor{UserID: "not-a-uuid", Role: domain.UserRoleUser},
@@ -210,9 +269,10 @@ func TestCreateSubmissionReturnsDispatchFailureAfterPendingCreate(t *testing.T) 
 	dispatchErr := errors.New("queue unavailable")
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
+	testCases := &submissionTestCaseRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{dispatchErr: dispatchErr}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	uc := NewSubmissionUsecase(submissions, problems, testCases, storage, dispatcher)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -243,6 +303,7 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 	return NewSubmissionUsecase(
 		submissions,
 		problems,
+		&submissionTestCaseRepository{},
 		&fakeSubmissionSourceCodeStorage{},
 		&fakeSubmissionExecutionDispatcher{},
 	)
@@ -289,9 +350,21 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 }
 
 type fakeSubmissionSourceCodeStorage struct {
-	putCalled bool
-	putParams repository.PutSourceCodeParams
-	putErr    error
+	putCalled       bool
+	putParams       repository.PutSourceCodeParams
+	putErr          error
+	testCasesCalled bool
+	testCasesParams repository.PutTestCasesParams
+	testCasesErr    error
+}
+
+func (s *fakeSubmissionSourceCodeStorage) PutTestCases(_ context.Context, params repository.PutTestCasesParams) (string, error) {
+	s.testCasesCalled = true
+	s.testCasesParams = params
+	if s.testCasesErr != nil {
+		return "", s.testCasesErr
+	}
+	return testCasesArtifactKey, nil
 }
 
 func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
@@ -316,6 +389,24 @@ type submissionProblemRepository struct {
 	findCalled bool
 	findID     int64
 	findErr    error
+}
+
+type submissionTestCaseRepository struct {
+	testCases []domain.TestCase
+	err       error
+}
+
+func (r *submissionTestCaseRepository) ListByProblemID(_ context.Context, problemID int64) ([]domain.TestCase, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.testCases != nil {
+		return r.testCases, nil
+	}
+	return []domain.TestCase{
+		{ID: 1, ProblemID: problemID, Input: "1 2\n", ExpectedOutput: "3\n"},
+		{ID: 2, ProblemID: problemID, Input: "2 3\n", ExpectedOutput: "5\n"},
+	}, nil
 }
 
 func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {

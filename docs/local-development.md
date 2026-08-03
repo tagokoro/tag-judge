@@ -87,6 +87,8 @@ export JUDGE_STORAGE_BUCKET=judge-storage
 
 `judge-worker` は LocalStack SQS の `judge-submissions` から problem execution job を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。API Server は CodeRun 用の stdin execution job も生成するが、Rust worker の stdin mode処理と結果反映は後続実装とする。
 
+Submission API は受付時に DB の TestCase 一覧を worker 用 JSON へ変換し、内容の SHA-256 を含む `problems/{problem_id}/testcases/{sha256}.json` へ保存する。SQS message の `testCasesKey` はこの不変スナップショットを指すため、受付後に TestCase が更新されても実行内容は変化しない。
+
 ローカルで LocalStack に接続する場合は、`AWS_ENDPOINT_URL` を明示する。  
 `AWS_ENDPOINT_URL` が未設定の場合、worker は AWS 本番の SQS / S3 endpoint に接続する。
 
@@ -111,10 +113,10 @@ LocalStack へ投入する message body は `ExecutionJob` の JSON とする。
   "submissionId": "sub_local_001",
   "language": "python",
   "sourceCodeKey": "submissions/sub_local_001/main.py",
-  "testCasesKey": "problems/prob_001/testcases.json",
+  "testCasesKey": "problems/42/testcases/0123456789abcdef.json",
   "timeLimitMs": 1000,
   "problemExecution": {
-    "testCasesKey": "problems/prob_001/testcases.json",
+    "testCasesKey": "problems/42/testcases/0123456789abcdef.json",
     "timeLimitMs": 1000
   }
 }
@@ -128,7 +130,7 @@ API Server と DB の設計後に、結果の永続化責務を API Server ま�
 LocalStack には `judge-storage` bucket を作成する。  
 `judge-worker` は `JUDGE_STORAGE_BUCKET` で指定された bucket から `sourceCodeKey` と `testCasesKey` を読む。
 
-sample object を put/get する例:
+通常は Submission API が source code と TestCase artifact を自動保存する。worker 単体の手動確認用に sample object を put/get する例:
 
 ```sh
 printf 'print("hello")\n' | sudo docker compose exec -T localstack awslocal s3 cp \
@@ -138,7 +140,7 @@ printf 'print("hello")\n' | sudo docker compose exec -T localstack awslocal s3 c
 printf '[{"input":"hello\n","expectedOutput":"hello\n"}]\n' | \
   sudo docker compose exec -T localstack awslocal s3 cp \
   - \
-  s3://judge-storage/problems/prob_001/testcases.json
+  s3://judge-storage/problems/42/testcases/manual-test.json
 
 sudo docker compose exec -T localstack awslocal s3 cp \
   s3://judge-storage/submissions/sub_local_001/main.py \
@@ -154,7 +156,7 @@ sudo docker compose exec -T localstack awslocal sqs send-message \
     "submissionId": "sub_local_001",
     "language": "python",
     "sourceCodeKey": "submissions/sub_local_001/main.py",
-    "testCasesKey": "problems/prob_001/testcases.json",
+    "testCasesKey": "problems/42/testcases/manual-test.json",
     "timeLimitMs": 1000
   }'
 ```

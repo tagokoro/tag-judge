@@ -188,7 +188,10 @@ CodeRun API は `pending` レコードを作成した後、`code-runs/{user_id}/
 
 Dispatch の責務境界:
 
-- Submission usecase は source code 保存、`pending` Submission 永続化、dispatch の順に実行する
+- Submission usecase は DB から現在の TestCase 一覧を取得し、不変な TestCase artifact 保存、source code 保存、`pending` Submission 永続化、dispatch の順に実行する
+- TestCase artifact は worker が必要な `input` / `expectedOutput` の配列で、`problems/{problem_id}/testcases/{sha256}.json` に保存する
+- `testCasesKey` は Submission 受付時点の content-addressed snapshot を指し、後続の TestCase 更新・削除から pending job と再送 job を分離する
+- TestCase が 0 件の Problem は Submission を受け付けない
 - CodeRun usecase は `pending` CodeRun 永続化、source code 保存、dispatch の順に実行する
 - dispatch 失敗時はエラーを返すが、保存済み source code と `pending` record を usecase 内で rollback しない
 - queue は少なくとも1回配送を前提にし、同じ `ExecutionJob.reference` の再送を許容する
@@ -286,7 +289,8 @@ actual.trim_end() == expected.trim_end()
 ```text
 [API Server]
     |
-    | submissionId を送る
+    | DB の TestCase を immutable artifact として保存
+    | submissionId / artifact key を送る
     v
 [Queue]
     |
@@ -341,6 +345,6 @@ Phase 3: API / UI と接続
 ## 8. 現時点で保留する論点
 
 - sandbox の具体方式
-- テストケースと提出コードの保存先
+- TestCase の artifact retention / garbage collection 方針
 - `judge-core` を crate のみで持つか、CLI バイナリも持つか
 - C++ 対応時に CE をどの粒度で扱うか

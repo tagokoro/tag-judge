@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -711,6 +712,7 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
 			&fakeSubmissionRepository{},
 			problemRepo,
+			testCaseRepo,
 			&fakeSourceCodeStorage{},
 			&fakeExecutionDispatcher{},
 		)),
@@ -792,6 +794,10 @@ type fakeSourceCodeStorage struct{}
 
 func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.PutSourceCodeParams) error {
 	return nil
+}
+
+func (s *fakeSourceCodeStorage) PutTestCases(_ context.Context, params repository.PutTestCasesParams) (string, error) {
+	return fmt.Sprintf("problems/%d/testcases/test.json", params.ProblemID), nil
 }
 
 type fakeExecutionDispatcher struct{}
