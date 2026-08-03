@@ -46,6 +46,9 @@ type CreateTestCaseInput struct {
 }
 
 func (u *ProblemUsecase) CreateProblem(ctx context.Context, actor auth.Actor, input CreateProblemInput) (*domain.Problem, error) {
+	if err := validateActor(actor); err != nil {
+		return nil, err
+	}
 	if !actor.Role.CanCreateProblem() {
 		return nil, apperror.Forbidden("FORBIDDEN", "author or admin role required")
 	}

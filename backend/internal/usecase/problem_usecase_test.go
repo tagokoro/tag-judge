@@ -70,7 +70,7 @@ func TestGetPublicProblemInvalidID(t *testing.T) {
 func TestCreateProblem(t *testing.T) {
 	repo := &fakeProblemRepository{}
 	uc := NewProblemUsecase(repo)
-	actor := auth.Actor{UserID: "author-id", Role: domain.UserRoleAuthor}
+	actor := auth.Actor{UserID: problemAuthorID, Role: domain.UserRoleAuthor}
 
 	problem, err := uc.CreateProblem(context.Background(), actor, validCreateInput())
 	if err != nil {
@@ -98,7 +98,7 @@ func TestCreateProblem(t *testing.T) {
 func TestCreateProblemAdmin(t *testing.T) {
 	repo := &fakeProblemRepository{}
 	uc := NewProblemUsecase(repo)
-	actor := auth.Actor{UserID: "admin-id", Role: domain.UserRoleAdmin}
+	actor := auth.Actor{UserID: problemAdminID, Role: domain.UserRoleAdmin}
 
 	_, err := uc.CreateProblem(context.Background(), actor, validCreateInput())
 	if err != nil {
@@ -118,7 +118,7 @@ func TestCreateProblemVisibilities(t *testing.T) {
 			input := validCreateInput()
 			input.Visibility = visibility
 
-			_, err := uc.CreateProblem(context.Background(), auth.Actor{UserID: "author-id", Role: domain.UserRoleAuthor}, input)
+			_, err := uc.CreateProblem(context.Background(), auth.Actor{UserID: problemAuthorID, Role: domain.UserRoleAuthor}, input)
 			if err != nil {
 				t.Fatalf("CreateProblem returned error: %v", err)
 			}
@@ -132,11 +132,24 @@ func TestCreateProblemVisibilities(t *testing.T) {
 func TestCreateProblemForbidden(t *testing.T) {
 	repo := &fakeProblemRepository{}
 	uc := NewProblemUsecase(repo)
-	actor := auth.Actor{UserID: "user-id", Role: domain.UserRoleUser}
+	actor := auth.Actor{UserID: problemUserID, Role: domain.UserRoleUser}
 
 	_, err := uc.CreateProblem(context.Background(), actor, validCreateInput())
 	if !errors.Is(err, apperror.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if repo.createCalled {
+		t.Fatal("repository should not be called")
+	}
+}
+
+func TestCreateProblemActor(t *testing.T) {
+	repo := &fakeProblemRepository{}
+	uc := NewProblemUsecase(repo)
+
+	_, err := uc.CreateProblem(context.Background(), auth.Actor{UserID: "invalid", Role: domain.UserRoleAuthor}, validCreateInput())
+	if !errors.Is(err, apperror.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 	if repo.createCalled {
 		t.Fatal("repository should not be called")
@@ -163,7 +176,7 @@ func TestCreateProblemValidation(t *testing.T) {
 			input := validCreateInput()
 			tt.mutate(&input)
 
-			_, err := uc.CreateProblem(context.Background(), auth.Actor{UserID: "author-id", Role: domain.UserRoleAuthor}, input)
+			_, err := uc.CreateProblem(context.Background(), auth.Actor{UserID: problemAuthorID, Role: domain.UserRoleAuthor}, input)
 			if !errors.Is(err, apperror.ErrInvalidInput) {
 				t.Fatalf("err = %v, want ErrInvalidInput", err)
 			}
@@ -187,6 +200,12 @@ func validCreateInput() CreateProblemInput {
 		},
 	}
 }
+
+const (
+	problemAuthorID = "00000000-0000-4000-8000-000000000001"
+	problemAdminID  = "00000000-0000-4000-8000-000000000002"
+	problemUserID   = "00000000-0000-4000-8000-000000000003"
+)
 
 type fakeProblemRepository struct {
 	listCalled   bool

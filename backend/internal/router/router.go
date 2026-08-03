@@ -10,9 +10,13 @@ import (
 )
 
 type Handlers struct {
-	Problems *handler.ProblemHandler
-	Me       *handler.MeHandler
-	Auth     *appmiddleware.AuthMiddleware
+	Problems    *handler.ProblemHandler
+	CodeRuns    *handler.CodeRunHandler
+	Groups      *handler.GroupHandler
+	Submissions *handler.SubmissionHandler
+	Me          *handler.MeHandler
+	AuthHTTP    *handler.AuthHandler
+	Auth        *appmiddleware.AuthMiddleware
 }
 
 func New(handlers Handlers) http.Handler {
@@ -30,7 +34,20 @@ func New(handlers Handlers) http.Handler {
 	r.Get("/api/v1/problems", handlers.Problems.List)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems", handlers.Problems.Create)
 	r.Get("/api/v1/problems/{problem_id}", handlers.Problems.Get)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/code-runs", handlers.CodeRuns.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs", handlers.CodeRuns.List)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs/{code_run_id}", handlers.CodeRuns.Get)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems/{problem_id}/submissions", handlers.Submissions.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/submissions/{submission_id}", handlers.Submissions.Get)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/submissions", handlers.Submissions.List)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me", handlers.Me.Get)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/groups", handlers.Groups.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/groups", handlers.Groups.List)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/groups/{group_id}", handlers.Groups.Get)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/groups/{group_id}/members", handlers.Groups.AddMember)
+	r.Get("/api/v1/auth/google/login", handlers.AuthHTTP.GoogleLogin)
+	r.Get("/api/v1/auth/google/callback", handlers.AuthHTTP.GoogleCallback)
+	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
 
 	return r
 }
