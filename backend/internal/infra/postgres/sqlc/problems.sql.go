@@ -11,6 +11,105 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createProblem = `-- name: CreateProblem :one
+INSERT INTO problems (title, statement, time_limit_ms, memory_limit_kb, visibility, created_by)
+VALUES ($1, $2, $3, $4, $5, $6::uuid)
+RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
+`
+
+type CreateProblemParams struct {
+	Title         string      `json:"title"`
+	Statement     string      `json:"statement"`
+	TimeLimitMs   int32       `json:"time_limit_ms"`
+	MemoryLimitKb int32       `json:"memory_limit_kb"`
+	Visibility    string      `json:"visibility"`
+	CreatedBy     pgtype.UUID `json:"created_by"`
+}
+
+type CreateProblemRow struct {
+	ID            int64              `json:"id"`
+	Title         string             `json:"title"`
+	Statement     string             `json:"statement"`
+	TimeLimitMs   int32              `json:"time_limit_ms"`
+	MemoryLimitKb int32              `json:"memory_limit_kb"`
+	Visibility    string             `json:"visibility"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateProblem(ctx context.Context, arg CreateProblemParams) (CreateProblemRow, error) {
+	row := q.db.QueryRow(ctx, createProblem,
+		arg.Title,
+		arg.Statement,
+		arg.TimeLimitMs,
+		arg.MemoryLimitKb,
+		arg.Visibility,
+		arg.CreatedBy,
+	)
+	var i CreateProblemRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Statement,
+		&i.TimeLimitMs,
+		&i.MemoryLimitKb,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteProblem = `-- name: DeleteProblem :execrows
+DELETE FROM problems
+WHERE id = $1
+`
+
+func (q *Queries) DeleteProblem(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProblem, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getProblem = `-- name: GetProblem :one
+SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
+FROM problems
+WHERE id = $1
+`
+
+type GetProblemRow struct {
+	ID            int64              `json:"id"`
+	Title         string             `json:"title"`
+	Statement     string             `json:"statement"`
+	TimeLimitMs   int32              `json:"time_limit_ms"`
+	MemoryLimitKb int32              `json:"memory_limit_kb"`
+	Visibility    string             `json:"visibility"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetProblem(ctx context.Context, id int64) (GetProblemRow, error) {
+	row := q.db.QueryRow(ctx, getProblem, id)
+	var i GetProblemRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Statement,
+		&i.TimeLimitMs,
+		&i.MemoryLimitKb,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getPublicProblem = `-- name: GetPublicProblem :one
 SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
 FROM problems
@@ -99,4 +198,61 @@ func (q *Queries) ListPublicProblems(ctx context.Context, arg ListPublicProblems
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateProblem = `-- name: UpdateProblem :one
+UPDATE problems
+SET title = $1,
+    statement = $2,
+    time_limit_ms = $3,
+    memory_limit_kb = $4,
+    visibility = $5,
+    updated_at = now()
+WHERE id = $6
+RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by::text AS created_by, created_at, updated_at
+`
+
+type UpdateProblemParams struct {
+	Title         string `json:"title"`
+	Statement     string `json:"statement"`
+	TimeLimitMs   int32  `json:"time_limit_ms"`
+	MemoryLimitKb int32  `json:"memory_limit_kb"`
+	Visibility    string `json:"visibility"`
+	ID            int64  `json:"id"`
+}
+
+type UpdateProblemRow struct {
+	ID            int64              `json:"id"`
+	Title         string             `json:"title"`
+	Statement     string             `json:"statement"`
+	TimeLimitMs   int32              `json:"time_limit_ms"`
+	MemoryLimitKb int32              `json:"memory_limit_kb"`
+	Visibility    string             `json:"visibility"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateProblem(ctx context.Context, arg UpdateProblemParams) (UpdateProblemRow, error) {
+	row := q.db.QueryRow(ctx, updateProblem,
+		arg.Title,
+		arg.Statement,
+		arg.TimeLimitMs,
+		arg.MemoryLimitKb,
+		arg.Visibility,
+		arg.ID,
+	)
+	var i UpdateProblemRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Statement,
+		&i.TimeLimitMs,
+		&i.MemoryLimitKb,
+		&i.Visibility,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

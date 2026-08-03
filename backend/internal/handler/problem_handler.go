@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
+	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
@@ -17,6 +18,87 @@ type ProblemHandler struct {
 
 func NewProblemHandler(problems *usecase.ProblemUsecase) *ProblemHandler {
 	return &ProblemHandler{problems: problems}
+}
+
+func (h *ProblemHandler) Create(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+
+	var request createProblemRequest
+	if err := decodeJSONBody(r, &request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must be valid JSON"))
+		return
+	}
+
+	problem, err := h.problems.CreateProblem(r.Context(), actor, usecase.CreateProblemInput{
+		Title:         request.Title,
+		Statement:     request.Statement,
+		TimeLimitMS:   request.TimeLimitMS,
+		MemoryLimitKB: request.MemoryLimitKB,
+		Visibility:    domain.ProblemVisibility(request.Visibility),
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newProblemResponse(*problem))
+}
+
+func (h *ProblemHandler) Update(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+	id, err := parseProblemID(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	var request updateProblemRequest
+	if err := decodeJSONBody(r, &request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_JSON", "request body must be valid JSON"))
+		return
+	}
+	var visibility *domain.ProblemVisibility
+	if request.Visibility != nil {
+		value := domain.ProblemVisibility(*request.Visibility)
+		visibility = &value
+	}
+	problem, err := h.problems.UpdateProblem(r.Context(), actor, id, usecase.UpdateProblemInput{
+		Title:         request.Title,
+		Statement:     request.Statement,
+		TimeLimitMS:   request.TimeLimitMS,
+		MemoryLimitKB: request.MemoryLimitKB,
+		Visibility:    visibility,
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
+}
+
+func (h *ProblemHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.ActorFromContext(r.Context())
+	if !ok {
+		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
+		return
+	}
+	id, err := parseProblemID(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	if err := h.problems.DeleteProblem(r.Context(), actor, id); err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -49,9 +131,9 @@ func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "problem_id"), 10, 64)
+	id, err := parseProblemID(r)
 	if err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer"))
+		WriteError(w, r, err)
 		return
 	}
 
@@ -62,6 +144,14 @@ func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
+}
+
+func parseProblemID(r *http.Request) (int64, error) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "problem_id"), 10, 64)
+	if err != nil {
+		return 0, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer")
+	}
+	return id, nil
 }
 
 func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
@@ -75,6 +165,22 @@ func parseOptionalInt(r *http.Request, key string) (int, bool, error) {
 	}
 	parsed, err := strconv.Atoi(value)
 	return parsed, true, err
+}
+
+type createProblemRequest struct {
+	Title         string `json:"title"`
+	Statement     string `json:"statement"`
+	TimeLimitMS   int    `json:"time_limit_ms"`
+	MemoryLimitKB int    `json:"memory_limit_kb"`
+	Visibility    string `json:"visibility"`
+}
+
+type updateProblemRequest struct {
+	Title         *string `json:"title"`
+	Statement     *string `json:"statement"`
+	TimeLimitMS   *int    `json:"time_limit_ms"`
+	MemoryLimitKB *int    `json:"memory_limit_kb"`
+	Visibility    *string `json:"visibility"`
 }
 
 type problemResponse struct {

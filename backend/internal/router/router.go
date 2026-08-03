@@ -11,6 +11,7 @@ import (
 
 type Handlers struct {
 	Problems    *handler.ProblemHandler
+	TestCases   *handler.TestCaseHandler
 	CodeRuns    *handler.CodeRunHandler
 	Groups      *handler.GroupHandler
 	Submissions *handler.SubmissionHandler
@@ -32,7 +33,14 @@ func New(handlers Handlers) http.Handler {
 	})
 
 	r.Get("/api/v1/problems", handlers.Problems.List)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems", handlers.Problems.Create)
 	r.Get("/api/v1/problems/{problem_id}", handlers.Problems.Get)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/problems/{problem_id}", handlers.Problems.Update)
+	r.With(handlers.Auth.RequireAuth).Delete("/api/v1/problems/{problem_id}", handlers.Problems.Delete)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/problems/{problem_id}/test-cases", handlers.TestCases.List)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems/{problem_id}/test-cases", handlers.TestCases.Create)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/problems/{problem_id}/test-cases/{test_case_id}", handlers.TestCases.Update)
+	r.With(handlers.Auth.RequireAuth).Delete("/api/v1/problems/{problem_id}/test-cases/{test_case_id}", handlers.TestCases.Delete)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/code-runs", handlers.CodeRuns.Create)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs", handlers.CodeRuns.List)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs/{code_run_id}", handlers.CodeRuns.Get)

@@ -20,14 +20,14 @@ const (
 
 type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
-	problems    repository.ProblemRepository
+	problems    repository.PublicProblemReader
 	storage     repository.SourceCodeStorage
 	dispatcher  repository.ExecutionDispatcher
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
-	problems repository.ProblemRepository,
+	problems repository.PublicProblemReader,
 	storage repository.SourceCodeStorage,
 	dispatcher repository.ExecutionDispatcher,
 ) *SubmissionUsecase {
