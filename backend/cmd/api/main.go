@@ -48,7 +48,7 @@ func run() error {
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
-	sourceCodeStorage, executionDispatcher, err := buildJudgeInfra(ctx, cfg)
+	sourceCodeStorage, executionDispatcher, err := buildJudgeInfra(cfg)
 	if err != nil {
 		return err
 	}
@@ -110,34 +110,8 @@ func run() error {
 	}
 }
 
-func buildJudgeInfra(ctx context.Context, cfg config.Config) (repository.SourceCodeStorage, repository.ExecutionDispatcher, error) {
-	if !cfg.AWSJudgeInfraEnabled() {
-		if cfg.JudgeStorageBucket != "" || cfg.JudgeSubmissionsQueue != "" {
-			slog.Warn(
-				"AWS judge infra is partially configured; using local judge adapters",
-				"bucket_configured", cfg.JudgeStorageBucket != "",
-				"queue_configured", cfg.JudgeSubmissionsQueue != "",
-			)
-		}
-		return judgeinfra.NewFileSourceCodeStorage(cfg.SourceCodeRoot),
-			judgeinfra.NewLoggingDispatcher(slog.Default()),
-			nil
-	}
-
-	awsConfig, err := judgeinfra.LoadAWSConfig(ctx, cfg.AWSRegion, cfg.AWSEndpointURL)
-	if err != nil {
-		return nil, nil, err
-	}
-	dispatcher, err := judgeinfra.NewSQSDispatcher(ctx, awsConfig, cfg.JudgeSubmissionsQueue, cfg.AWSEndpointURL)
-	if err != nil {
-		return nil, nil, err
-	}
-	slog.Info(
-		"using AWS judge infra adapters",
-		"region", cfg.AWSRegion,
-		"endpoint_configured", cfg.AWSEndpointURL != "",
-		"bucket", cfg.JudgeStorageBucket,
-		"queue", cfg.JudgeSubmissionsQueue,
-	)
-	return judgeinfra.NewS3SourceCodeStorage(awsConfig, cfg.JudgeStorageBucket, cfg.AWSEndpointURL), dispatcher, nil
+func buildJudgeInfra(cfg config.Config) (repository.SourceCodeStorage, repository.ExecutionDispatcher, error) {
+	return judgeinfra.NewFileSourceCodeStorage(cfg.SourceCodeRoot),
+		judgeinfra.NewLoggingDispatcher(slog.Default()),
+		nil
 }

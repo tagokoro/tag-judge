@@ -1,0 +1,22 @@
+{
+  "name": "tag-judge-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:api": "wrangler dev --config api-worker/wrangler.jsonc",
+    "dev:consumer": "wrangler dev --config consumer-worker/wrangler.jsonc",
+    "deploy:api": "wrangler deploy --config api-worker/wrangler.jsonc",
+    "deploy:consumer": "wrangler deploy --config consumer-worker/wrangler.jsonc",
+    "d1:migrate:local": "wrangler d1 migrations apply tag-judge --local --config api-worker/wrangler.jsonc",
+    "d1:migrate:remote": "wrangler d1 migrations apply tag-judge --remote --config api-worker/wrangler.jsonc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.3.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20250801.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.27.0"
+  }
+}

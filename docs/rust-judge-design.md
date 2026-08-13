@@ -38,22 +38,21 @@ judge-core      : 実際に compile / run / compare する
 - 出力比較
 - verdict 生成
 
-`judge-core` は Queue、DB、AWS を知らない。これにより、ローカル CLI からも単体テストからも扱いやすくする。
+`judge-core` は Queue、DB、Cloudflare などの実行基盤を知らない。これにより、ローカル CLI からも単体テストからも扱いやすくする。
 
-### judge-worker
+### Cloudflare Consumer Worker / Go judge-runner
 
-インフラとの接続を担う常駐プロセス。
+インフラとの接続とSandbox内の実行を担う処理。
 
 責務:
 
-- Queue から判定ジョブを取得する
-- storage から提出コードやテストケースを取得する
-- `judge-core` を呼び出す
+- Consumer Worker が Queue から判定ジョブを取得する
+- Consumer Worker が R2 から提出コードやテストケースを取得する
+- Cloudflare Sandbox 内の Go judge-runner を呼び出す
 - 判定結果を返す
 - 必要に応じて失敗を再試行可能な形で扱う
 
-現時点では、`judge-worker` は DB に直接アクセスしない方針とする。  
-ローカル実装でも本番想定に合わせて S3 key を受け取り、worker が object storage から実体を取得する。
+MVPでは Consumer Worker がD1へ直接書き込む。runner本体はDBを知らないまま保ち、将来は同じ境界をResult Queue publisherへ差し替えられる構成とする。Cloudflare版ではR2 keyを受け取り、Consumer Workerがobject storageから実体を取得する。
 
 ```text
 local JudgeJob
@@ -64,22 +63,26 @@ local JudgeJob
 - timeLimitMs
 ```
 
-判定結果を DB に保存する責務は、将来的には API Server または Result Consumer が担う。
+長期的には判定結果をResult Queueへ発行し、Result ConsumerがDBへ保存する構成を候補とする。
 
 ## 3. なぜ分けるのか
 
 ```text
 judge-core
-- AWS を知らない
+- Cloudflare を知らない
 - Queue を知らない
 - DB を知らない
 - ただ判定する
 
-judge-worker
-- AWS を知る
+Consumer Worker
+- Cloudflare の具体bindingを知る
 - Queue を知る
 - DB を知る
 - 仕事を運ぶ
+
+Go judge-runner
+- R2 / Queue / D1 を知らない
+- Sandbox内で source / testcases / config から判定結果を返す
 ```
 
 この分離により、次の利点を得る。
@@ -149,17 +152,17 @@ JudgeRequest
 | `timeLimitMs` | 1ケースあたりの実行時間制限 |
 | `testCases` | 入力と期待出力の配列 |
 
-本番構成では、提出コードそのものは S3 に保存し、Queue には `sourceCodeKey` のような参照情報を積む。ただし、`judge-core` は S3 を知らない。`judge-worker` が S3 から取得した実際の `sourceCode` を `judge-core` に渡す。
+本番構成では、提出コードそのものは R2 に保存し、Queue には `sourceCodeKey` のような参照情報を積む。ただし、runner本体は R2 を知らない。Consumer Worker が R2 から取得した実際の `sourceCode` を Sandbox 内の judge-runner に渡す。
 
-API Server も同じ境界を守る。Submission / CodeRun API は usecase では `SourceCodeStorage` と `ExecutionDispatcher` interface だけに依存し、AWS SDK / S3 / SQS の具体 adapter は infra 層で組み立てる。LocalStack では `AWS_ENDPOINT_URL`, `JUDGE_STORAGE_BUCKET`, `JUDGE_SUBMISSIONS_QUEUE_NAME` を設定すると S3 / SQS adapter を使い、未設定時はローカル開発用 adapter に戻す。
+API も同じ境界を守る。Submission / CodeRun API は usecase では `SourceCodeStorage` と `ExecutionDispatcher` interface だけに依存し、R2 / Queue の具体 adapter は実行基盤側で組み立てる。Cloudflare版では API Worker が R2 binding と Queue producer binding を持つ。
 
 ```text
-SQS job
+Queue job
   ↓
-judge-worker
-  ├─ S3 から sourceCode を取得
-  ├─ S3 または DB から testCases を取得
-  └─ judge-core に実データを渡す
+Consumer Worker
+  ├─ R2 から sourceCode を取得
+  ├─ R2 から testCases を取得
+  └─ Cloudflare Sandbox 内の Go judge-runner に実データを渡す
 ```
 
 Queue に積むジョブは Submission 専用の `JudgeJob` ではなく、API Server 側では `ExecutionJob` として扱う。
@@ -184,11 +187,14 @@ ExecutionJob
 
 CodeRun API は `pending` レコードを作成した後、`code-runs/{user_id}/{code_run_id}/main.{ext}` へソースコードを保存し、stdin execution job を dispatch する。実行時間制限は `CODE_RUN_TIME_LIMIT_MS` で設定し、未指定時は 5000ms とする。source storage または dispatch が失敗した場合はエラーを返すが、作成済みの `pending` CodeRun は rollback しない。source key は CodeRun ID から決定的に生成できるため、同じ reference の再送時にも同じartifactを参照できる。
 
-既存の Rust worker は当面 `submissionId`, `sourceCodeKey`, `testCasesKey`, `timeLimitMs` を読むため、Problem execution の SQS payload にはこれらのフィールドも維持する。追加された `reference` と `executionMode` は、worker 側を拡張するときの移行用 envelope とする。
+Cloudflare版のConsumer Workerは `reference`, `executionMode`, `submissionId`, `sourceCodeKey`, `testCasesKey`, `timeLimitMs` を読む。既存のRust workerと互換にしやすいよう、Problem execution payloadの基本フィールドは維持する。
 
 Dispatch の責務境界:
 
-- Submission usecase は source code 保存、`pending` Submission 永続化、dispatch の順に実行する
+- Submission usecase は DB から現在の TestCase 一覧を取得し、不変な TestCase artifact 保存、source code 保存、`pending` Submission 永続化、dispatch の順に実行する
+- TestCase artifact は worker が必要な `input` / `expectedOutput` の配列で、`problems/{problem_id}/testcases/{sha256}.json` に保存する
+- `testCasesKey` は Submission 受付時点の content-addressed snapshot を指し、後続の TestCase 更新・削除から pending job と再送 job を分離する
+- TestCase が 0 件の Problem は Submission を受け付けない
 - CodeRun usecase は `pending` CodeRun 永続化、source code 保存、dispatch の順に実行する
 - dispatch 失敗時はエラーを返すが、保存済み source code と `pending` record を usecase 内で rollback しない
 - queue は少なくとも1回配送を前提にし、同じ `ExecutionJob.reference` の再送を許容する
@@ -284,22 +290,23 @@ actual.trim_end() == expected.trim_end()
 ## 6. インフラとの関係
 
 ```text
-[API Server]
+[API Worker]
     |
-    | submissionId を送る
+    | DB の TestCase を immutable artifact として保存
+    | submissionId / artifact key を送る
     v
 [Queue]
     |
     | submissionId / sourceCodeKey / testCasesKey を渡す
     v
-[judge-worker: Rust]
+[Consumer Worker: TypeScript]
     |
     | sourceCode / testCases を取得
     v
-[Storage: local file or S3]
+[Storage: local file or R2]
     |
     v
-[judge-worker: Rust]
+[Go judge-runner in Cloudflare Sandbox]
     |
     | 判定依頼
     v
@@ -315,7 +322,8 @@ actual.trim_end() == expected.trim_end()
 | 層 | 役割 |
 | --- | --- |
 | インフラ | どこで動かすか、どう運ぶか |
-| judge-worker | 判定ジョブをどう受け取り、どう返すか |
+| Consumer Worker | 判定ジョブをどう受け取り、どう返すか |
+| Go judge-runner | Sandbox内でどの形式の入力を受け、どう判定結果を返すか |
 | judge-core | 何をどう判定するか |
 
 Rust の成果物はインフラの代替ではなく、インフラの上で最も重要な処理を担うアプリケーション部品である。
@@ -327,7 +335,7 @@ Phase 1: judge-core
 - ローカル CLI で直接実行できる
 - Python、複数ケース、AC/WA/TLE/RE/IE
 
-Phase 2: judge-worker
+Phase 2: Consumer Worker / Go judge-runner
 - Queue job を受け取る
 - judge-core を呼ぶ
 - 結果を DB に返す
@@ -341,6 +349,6 @@ Phase 3: API / UI と接続
 ## 8. 現時点で保留する論点
 
 - sandbox の具体方式
-- テストケースと提出コードの保存先
+- TestCase の artifact retention / garbage collection 方針
 - `judge-core` を crate のみで持つか、CLI バイナリも持つか
 - C++ 対応時に CE をどの粒度で扱うか

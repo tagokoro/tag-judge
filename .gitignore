@@ -10,3 +10,8 @@ judge/core/src/tmp/
 *.tfstate
 *.tfstate.*
 *.tfplan
+
+# Cloudflare local dependencies and state
+cloudflare/node_modules/
+cloudflare/.wrangler-home/
+cloudflare/**/.wrangler/

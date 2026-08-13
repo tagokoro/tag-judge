@@ -1,0 +1,61 @@
+name: Cloudflare
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cloudflare.yml"
+      - "cloudflare/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cloudflare.yml"
+      - "cloudflare/**"
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare:
+    name: Cloudflare runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Install dependencies
+        working-directory: cloudflare
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: cloudflare
+        run: npm run typecheck
+
+      - name: API Worker dry-run
+        working-directory: cloudflare
+        env:
+          HOME: ${{ runner.temp }}
+        run: npx wrangler deploy --config api-worker/wrangler.jsonc --dry-run
+
+      - name: Consumer Worker dry-run
+        working-directory: cloudflare
+        env:
+          HOME: ${{ runner.temp }}
+        run: npx wrangler deploy --config consumer-worker/wrangler.jsonc --dry-run --containers-rollout=none
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: cloudflare/consumer-worker/judge-runner/go.mod
+
+      - name: Go test judge-runner
+        working-directory: cloudflare/consumer-worker/judge-runner
+        run: go test ./...

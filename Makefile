@@ -11,6 +11,7 @@ PORT ?= 8080
 
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 BACKEND_DIR ?= backend
+CLOUDFLARE_DIR ?= cloudflare
 MIGRATIONS_DIR ?= $(BACKEND_DIR)/db/migrations
 SEED_FILE ?= $(BACKEND_DIR)/db/seeds/development.sql
 
@@ -70,3 +71,23 @@ run-api: ## Run the API server
 api-smoke: ## Check API health and public problems
 	curl -i http://localhost:$(PORT)/healthz
 	curl -s http://localhost:$(PORT)/api/v1/problems
+
+.PHONY: cf-install
+cf-install: ## Install Cloudflare Worker dependencies
+	cd $(CLOUDFLARE_DIR) && npm install
+
+.PHONY: cf-typecheck
+cf-typecheck: ## Type-check Cloudflare Workers
+	cd $(CLOUDFLARE_DIR) && npm run typecheck
+
+.PHONY: cf-d1-migrate-local
+cf-d1-migrate-local: ## Apply Cloudflare D1 migrations locally
+	cd $(CLOUDFLARE_DIR) && npm run d1:migrate:local
+
+.PHONY: cf-dev-api
+cf-dev-api: ## Run Cloudflare API Worker locally
+	cd $(CLOUDFLARE_DIR) && npm run dev:api
+
+.PHONY: cf-dev-consumer
+cf-dev-consumer: ## Run Cloudflare Consumer Worker locally
+	cd $(CLOUDFLARE_DIR) && npm run dev:consumer

@@ -17,21 +17,5 @@ services:
       timeout: 5s
       retries: 5
 
-  localstack:
-    image: localstack/localstack:3
-    container_name: judge-localstack
-    environment:
-      SERVICES: sqs,s3
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-northeast-1}
-    ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
-    volumes:
-      - ./localstack/init:/etc/localstack/init/ready.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "awslocal sqs list-queues >/dev/null 2>&1 && awslocal s3 ls >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
 volumes:
   postgres_data:

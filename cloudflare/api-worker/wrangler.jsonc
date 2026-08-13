@@ -1,0 +1,28 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "tag-judge-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-13",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tag-judge",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../d1/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "JUDGE_STORAGE",
+      "bucket_name": "tag-judge-artifacts"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "JUDGE_QUEUE",
+        "queue": "tag-judge-jobs"
+      }
+    ]
+  }
+}

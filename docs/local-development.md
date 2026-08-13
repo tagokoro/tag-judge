@@ -2,33 +2,22 @@
 
 ## 1. 目的
 
-この Docker 環境は、アプリケーション全体をコンテナ化するためではなく、ローカル開発で必要な外部依存を再現するために用意する。
+ローカルでは次の2系統を使い分ける。
 
-```text
-Rust crates: ローカルで実行
-PostgreSQL: Docker
-SQS: LocalStack
-S3: LocalStack
-```
+| 系統 | 目的 |
+| --- | --- |
+| Go backend + PostgreSQL | 既存APIとユースケース実装の確認 |
+| Cloudflare Workers + D1/R2/Queue/Sandbox | 本番想定のCloudflare実行経路の確認 |
 
-`judge-core` は DB / Queue / AWS を知らない判定エンジンとして保つ。  
-`judge-worker` は Queue との接続を担うが、現段階では DB スキーマには依存させない。
+AWS / LocalStack はアクティブな開発前提から外す。提出コードとテストケースは Cloudflare 構成では R2、metadata と結果は D1、判定ジョブは Queue を使う。
 
-## 2. 構成
-
-| サービス | ローカル | 本番想定 | 役割 |
-| --- | --- | --- | --- |
-| DB | PostgreSQL 16 | RDS for PostgreSQL | API が管理する永続データ |
-| Queue | LocalStack SQS | Amazon SQS | 判定ジョブの受け渡し |
-| Object Storage | LocalStack S3 | Amazon S3 | 提出コード、テストケース、実行ログなどの保存候補 |
-
-Redis は現時点では導入しない。判定ジョブの受け渡しは SQS を本番前提に設計し、キャッシュやセッション管理が必要になった段階で Redis を検討する。
-
-## 3. 起動
+## 2. Go backend の起動
 
 ```sh
 cp .env.example .env
-docker compose up -d
+docker compose up -d postgres
+make db-setup
+make run-api
 ```
 
 状態確認:
@@ -49,122 +38,72 @@ DB のデータも消す場合:
 docker compose down -v
 ```
 
-## 4. 接続情報
-
-PostgreSQL:
-
-```text
-host: localhost
-port: 5432
-database: judge
-user: judge_user
-password: judge_pass
-```
-
-LocalStack:
-
-```text
-endpoint: http://localhost:4566
-region: ap-northeast-1
-queue: judge-submissions
-dead-letter queue: judge-submissions-dlq
-bucket: judge-storage
-```
-
-## 5. Judge Worker の実行
-
-API Server は `JUDGE_STORAGE_BUCKET` と `JUDGE_SUBMISSIONS_QUEUE_NAME` が両方設定されている場合、Submission / CodeRun のソースコードを S3 に保存し、実行ジョブを SQS に送信する。
-どちらかが未設定の場合は、ローカルファイル保存とログ出力 dispatcher を使うため、AWS / LocalStack なしでも API Server は起動できる。
-
-LocalStack に接続する場合は、API Server と Worker の両方で同じ設定を使う。
+## 3. Cloudflare Workers の準備
 
 ```sh
-export AWS_DEFAULT_REGION=ap-northeast-1
-export AWS_ENDPOINT_URL=http://localhost:4566
-export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
-export JUDGE_STORAGE_BUCKET=judge-storage
+cd cloudflare
+npm install
 ```
 
-`judge-worker` は LocalStack SQS の `judge-submissions` から problem execution job を 1 件受信し、LocalStack S3 から提出コードとテストケースを取得して `judge-core` で判定する。処理に成功したら SQS message を削除する。API Server は CodeRun 用の stdin execution job も生成するが、Rust worker の stdin mode処理と結果反映は後続実装とする。
-
-ローカルで LocalStack に接続する場合は、`AWS_ENDPOINT_URL` を明示する。  
-`AWS_ENDPOINT_URL` が未設定の場合、worker は AWS 本番の SQS / S3 endpoint に接続する。
+Cloudflare resourceを作成する:
 
 ```sh
-cd judge/worker
-export AWS_DEFAULT_REGION=ap-northeast-1
-export AWS_ENDPOINT_URL=http://localhost:4566
-export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
-export JUDGE_STORAGE_BUCKET=judge-storage
-cargo run
+npx wrangler d1 create tag-judge
+npx wrangler r2 bucket create tag-judge-artifacts
+npx wrangler queues create tag-judge-jobs
+npx wrangler queues create tag-judge-jobs-dlq
 ```
 
-LocalStack へ投入する message body は `ExecutionJob` の JSON とする。problem mode は既存workerとの互換フィールドも含める。
+`wrangler d1 create` が返す `database_id` を次の2ファイルへ反映する。
 
-```json
-{
-  "reference": {
-    "kind": "submission",
-    "id": "sub_local_001"
-  },
-  "executionMode": "problem",
-  "submissionId": "sub_local_001",
-  "language": "python",
-  "sourceCodeKey": "submissions/sub_local_001/main.py",
-  "testCasesKey": "problems/prob_001/testcases.json",
-  "timeLimitMs": 1000,
-  "problemExecution": {
-    "testCasesKey": "problems/prob_001/testcases.json",
-    "timeLimitMs": 1000
-  }
-}
-```
+- `cloudflare/api-worker/wrangler.jsonc`
+- `cloudflare/consumer-worker/wrangler.jsonc`
 
-現時点では判定結果は標準出力に出す。  
-API Server と DB の設計後に、結果の永続化責務を API Server または Result Consumer に接続する。
-
-## 6. S3 の動作確認
-
-LocalStack には `judge-storage` bucket を作成する。  
-`judge-worker` は `JUDGE_STORAGE_BUCKET` で指定された bucket から `sourceCodeKey` と `testCasesKey` を読む。
-
-sample object を put/get する例:
+D1 migration:
 
 ```sh
-printf 'print("hello")\n' | sudo docker compose exec -T localstack awslocal s3 cp \
-  - \
-  s3://judge-storage/submissions/sub_local_001/main.py
-
-printf '[{"input":"hello\n","expectedOutput":"hello\n"}]\n' | \
-  sudo docker compose exec -T localstack awslocal s3 cp \
-  - \
-  s3://judge-storage/problems/prob_001/testcases.json
-
-sudo docker compose exec -T localstack awslocal s3 cp \
-  s3://judge-storage/submissions/sub_local_001/main.py \
-  -
+npm run d1:migrate:local
 ```
 
-SQS へメッセージを投入する例:
+API Worker:
 
 ```sh
-sudo docker compose exec -T localstack awslocal sqs send-message \
-  --queue-url http://localhost:4566/000000000000/judge-submissions \
-  --message-body '{
-    "submissionId": "sub_local_001",
+npm run dev:api
+```
+
+Consumer Worker:
+
+```sh
+npm run dev:consumer
+```
+
+Cloudflare Sandbox は初回起動時にDockerでcontainer imageをbuildするため、数分かかることがある。
+
+## 4. Cloudflare版 Submission API の疎通
+
+MVPのCloudflare API Workerは、session auth移植前の仮認証として `X-User-ID` を受け取る。
+
+```sh
+curl -i http://localhost:8787/healthz
+
+curl -i http://localhost:8787/api/v1/problems/1/submissions \
+  -H 'content-type: application/json' \
+  -H 'x-user-id: dev-user-1' \
+  -d '{
     "language": "python",
-    "sourceCodeKey": "submissions/sub_local_001/main.py",
-    "testCasesKey": "problems/prob_001/testcases.json",
-    "timeLimitMs": 1000
+    "source_code": "print(input())\n"
   }'
 ```
 
-`cargo run` した `judge-worker` が上記メッセージを受信すると、標準出力に判定結果 JSON を出す。
+このAPIは次の順に処理する。
 
-## 7. 設計上の位置づけ
+```text
+request
+  -> D1 から problem / test_cases を読む
+  -> R2 に source code を保存
+  -> R2 に test case artifact を保存
+  -> D1 に pending submission を作る
+  -> Queue に judge job を送る
+```
 
-この段階では DB テーブルを先に作り込まない。  
-`users`, `problems`, `submissions`, `test_cases` などのスキーマは、API Server の責務、認証、認可、提出データの保存場所を設計してから追加する。
-
-Queue は先に用意する。  
-理由は、提出受付と判定実行を分離する設計境界を早い段階で確認できるためである。
+Consumer WorkerはQueue messageを受け取り、R2からartifactを読み、Cloudflare Sandbox内のGo judge-runnerを実行してD1へ結果を保存する。

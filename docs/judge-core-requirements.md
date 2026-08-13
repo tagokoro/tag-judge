@@ -4,11 +4,11 @@
 
 `judge-core` は、提出コードと複数テストケースを受け取り、オンラインジャッジとして必要な判定結果を返す Rust 製の判定エンジンである。
 
-このコンポーネントは、Queue / DB / S3 / AWS を直接扱わない。  
-外部インフラとの接続は `judge-worker` の責務とし、`judge-core` は純粋に判定処理へ集中する。
+このコンポーネントは、Queue / DB / object storage / cloud provider を直接扱わない。  
+外部インフラとの接続は Cloudflare Consumer Worker の責務とし、判定runnerは純粋に判定処理へ集中する。
 
 ```text
-judge-worker
+Consumer Worker / Go judge-runner
   ├─ sourceCode を取得する
   ├─ testCases を取得する
   └─ judge-core に渡す
@@ -186,7 +186,7 @@ overall verdict: WA
 
 ## 6. CLI 要件
 
-`judge-core` は API Server や judge-worker が未完成でも単体検証できるよう、CLI を持つ。
+`judge-core` は API Server や Consumer Worker が未完成でも単体検証できるよう、CLI を持つ。
 
 ```text
 judge-core <request.json>
@@ -199,7 +199,7 @@ judge-core <request.json>
 - 判定を実行する
 - `JudgeResult` を JSON として標準出力へ出す
 
-CLI は開発・デバッグ用の入口であり、本番では `judge-worker` からライブラリとして呼ぶ想定とする。
+CLI は開発・デバッグ用の入口であり、本番では Sandbox 内の judge-runner から呼ぶ想定とする。
 
 ## 7. 推奨プロジェクト構成
 
@@ -278,7 +278,7 @@ judge/
 - sandbox の完成形
 - Special Judge
 - 部分点
-- Queue / DB / S3 接続
+- Queue / DB / object storage 接続
 - Web API 接続
 
 これらは judge-core の最小核が動いた後に、別フェーズで設計する。

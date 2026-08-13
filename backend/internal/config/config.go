@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -23,10 +22,6 @@ type Config struct {
 	DevHeaderAuth          bool
 	SourceCodeRoot         string
 	CodeRunTimeLimitMS     int
-	AWSRegion              string
-	AWSEndpointURL         string
-	JudgeStorageBucket     string
-	JudgeSubmissionsQueue  string
 }
 
 func Load() (Config, error) {
@@ -45,10 +40,6 @@ func Load() (Config, error) {
 		DevHeaderAuth:          getBoolEnv("DEV_HEADER_AUTH", false),
 		SourceCodeRoot:         getFirstEnv([]string{"SOURCE_CODE_ROOT", "SUBMISSION_SOURCE_ROOT"}, os.TempDir()+"/tag-judge-sources"),
 		CodeRunTimeLimitMS:     getPositiveIntEnv("CODE_RUN_TIME_LIMIT_MS", 5000),
-		AWSRegion:              getFirstEnv([]string{"AWS_DEFAULT_REGION", "AWS_REGION"}, "ap-northeast-1"),
-		AWSEndpointURL:         os.Getenv("AWS_ENDPOINT_URL"),
-		JudgeStorageBucket:     os.Getenv("JUDGE_STORAGE_BUCKET"),
-		JudgeSubmissionsQueue:  os.Getenv("JUDGE_SUBMISSIONS_QUEUE_NAME"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -62,10 +53,6 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func (c Config) AWSJudgeInfraEnabled() bool {
-	return strings.TrimSpace(c.JudgeStorageBucket) != "" && strings.TrimSpace(c.JudgeSubmissionsQueue) != ""
 }
 
 func getEnv(key, fallback string) string {

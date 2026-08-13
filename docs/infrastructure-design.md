@@ -2,190 +2,99 @@
 
 ## 1. 目的
 
-このドキュメントは、Rust 製オンラインジャッジ基盤における初期インフラ設計の方針を整理する。
+このドキュメントは、オンラインジャッジ基盤の本番インフラ方針を整理する。
 
-このプロジェクトでは、単に Web アプリケーションを公開するだけでなく、以下を設計上の重要課題として扱う。
+このプロジェクトでは、単に API を公開するだけではなく、以下を設計上の重要課題として扱う。
 
-- 提出受付と Rust 製 Judge Worker を分離する
-- 提出集中を吸収する
-- 判定処理の失敗に備える
-- 将来の拡張余地を残しつつ、初期段階で過剰に複雑化しない
+- 提出受付と判定実行を分離する
+- 提出集中を Queue で吸収する
+- 提出コードとテストケースを DB へ直接詰め込まない
+- 未信頼コードを API 実行環境から隔離する
+- MVP では小さく始めつつ、複数言語や再ジャッジへ拡張できる境界を残す
 
 ## 2. 現時点の結論
 
-初期開発ではローカル環境を中心に進めるが、本番環境は AWS を前提に設計する。
+本番想定は AWS ではなく Cloudflare Developer Platform に寄せる。
 
 ```text
-初期開発: ローカル中心
-本番想定: AWS
-設計方針: 本番で AWS に移しやすい責務境界を最初から作る
+Browser / Frontend
+  -> API Worker: TypeScript
+      -> D1: metadata / results
+      -> R2: source code / test case artifacts
+      -> Queue: judge jobs
+  -> Consumer Worker: TypeScript
+      -> Cloudflare Sandbox
+      -> Go judge-runner
+      -> D1: AC / WA / TLE ...
 ```
 
-理由は、コード実行を伴う Judge Worker を API Server から分離する必要があり、AWS のマネージドサービスがその構成と相性が良いためである。
+理由は、API、DB、object storage、queue、隔離実行環境を Cloudflare 内の binding として扱えるためである。小さいMVPでは運用対象を増やさず、提出受付から判定結果反映までを1つのプラットフォーム上で確認できる。
 
 ## 3. 最小構成
 
-```text
-[Frontend]
-    ↓
-[API Server]
-    ↓        ↘
- [RDS]      [SQS]
-              ↓
-[Judge Worker: Rust]
-              ↓
-             [RDS]
-
-あわせて:
-- テストケースや提出コードの保存先として S3
-```
-
-### 各コンポーネントの責務
-
 | コンポーネント | 責務 |
 | --- | --- |
-| Frontend | コンテスト閲覧、問題表示、提出、質問、順位表表示 |
-| API Server | 認証、認可、提出受付、質問管理、順位表 API 提供 |
-| RDS | User / Contest / Problem / Submission / Question などの永続データ保存 |
-| SQS | `submissionId` を含む判定ジョブの待ち行列 |
-| Judge Worker | Queue からのジョブ取得、提出コード・テストケース取得、`judge-core` 呼び出し、判定結果返却 |
-| judge-core | Rust 製の判定エンジン。compile / run / compare を担当 |
-| S3 | テストケース、提出コード、実行ログなどのファイル保存に利用 |
+| Frontend | 問題閲覧、提出、提出結果閲覧 |
+| API Worker | 認証、認可、提出受付、metadata作成、R2保存、Queue発行 |
+| D1 | User / Problem / TestCase / Submission / Result / Session などの永続データ |
+| R2 | 提出コード、テストケースartifact、将来の実行ログ |
+| Queue | 判定ジョブの待ち行列 |
+| Consumer Worker | Queue messageを受け取り、artifact取得、Sandbox起動、結果永続化を行う |
+| Cloudflare Sandbox | 未信頼コードをAPI Workerから隔離して実行する |
+| Go judge-runner | Sandbox内で source / testcases を受け取り、AC / WA / TLE などを返す |
 
-## 4. なぜ Queue を置くのか
+## 4. Queue を置く理由
 
-提出処理を API Server 内で同期的に完結させると、コード実行の負荷や失敗が API 全体へ波及する。
+提出処理を API Worker 内で同期的に完結させると、コード実行の負荷や失敗が API 全体へ波及する。
 
 そこで、提出受付と判定実行の間に Queue を置く。
 
 ```text
 ユーザーが提出
-  ↓
-API Server が Submission を保存
-  ↓
-Queue に判定ジョブを追加
-  ↓
-Judge Worker がジョブを取得
-  ↓
-Judge Worker が storage から sourceCode / testCases を取得
-  ↓
-judge-core が compile / run / compare を実行
-  ↓
-判定結果を返す
+  -> API Worker が Submission を pending で保存
+  -> API Worker が source code / testcases を R2 に保存
+  -> API Worker が Queue に judge job を送る
+  -> Consumer Worker が job を受け取る
+  -> Consumer Worker が R2 から artifact を読む
+  -> Cloudflare Sandbox 内の Go judge-runner が判定する
+  -> Consumer Worker が D1 へ結果を保存する
 ```
 
-### 解決する課題
+これにより、提出集中時でも API Worker は受付に集中でき、判定側は Queue の再配送を前提に冪等に処理できる。
 
-- 提出集中時でも API Server が受付に集中できる
-- Judge Worker を独立して増減できる
-- Worker 障害時の再試行設計を取り入れやすい
-- API と Judge の責務を明確に分離できる
+## 5. D1 / R2 / Queue の使い分け
 
-## 5. Redis ではなく SQS を本番 Queue に選ぶ理由
-
-Redis は高速なインメモリデータストアであり、本番環境でも利用できる。AWS 上では ElastiCache for Redis を利用できる。
-
-ただし、このプロジェクトにおける Queue の主目的は、キャッシュではなく **判定ジョブを安定して受け渡すこと** である。
-
-SQS はメッセージキュー専用サービスであり、以下のような運用上の仕組みを標準で持つ。
-
-- 処理中メッセージを一時的に隠す visibility timeout
-- 失敗し続けるジョブを隔離する dead-letter queue
-- Worker の増減に合わせた疎結合な処理
-
-そのため、現時点では次の方針とする。
-
-```text
-Queue: SQS を本番想定とする
-Redis: 必要性が生じるまで導入しない
-```
-
-Redis は将来的に、キャッシュやセッション管理、ランキング補助などに必要になった場合に検討する。
-
-## 6. ローカル開発と本番環境の対応
-
-| 役割 | ローカル開発 | 本番想定 |
+| データ | 保存先 | 理由 |
 | --- | --- | --- |
-| API Server | ローカル実行 / コンテナ | ECS on Fargate |
-| Judge Worker | Rust バイナリをローカル実行 / コンテナ | ECS on Fargate |
-| judge-core | Rust crate / CLI としてローカル実行 | Judge Worker コンテナ内で利用 |
-| DB | PostgreSQL | RDS for PostgreSQL |
-| Queue | 抽象インターフェース + 簡易実装 | SQS |
-| ファイル保存 | ローカルストレージ | S3 |
+| User / Session / Problem / Submission / Result | D1 | 検索、一覧、状態更新、参照整合性が必要 |
+| 提出コード | R2 | 本文が大きくなりやすく、DB行に直接置かない方が扱いやすい |
+| テストケースartifact | R2 | 提出受付時点の不変snapshotとして参照する |
+| 判定ジョブ | Queue | APIと判定処理を非同期に分離する |
 
-### 設計上の意図
+Submission は `source_code_key` と `test_cases_key` だけを持つ。実体は R2 に保存する。
 
-ローカル環境と本番環境で具体的なサービスは異なっても、アプリケーション内部では以下の責務を固定する。
+## 6. クリーンアーキテクチャ上の境界
 
-- `Submission` を保存する
-- 判定ジョブを発行する
-- Worker がジョブを取得する
-- `judge-core` が実際の判定を行う
-- 判定結果を返し、API Server または Result Consumer が永続化する
+既存Go backendでは usecase が `ArtifactStorage` と `ExecutionDispatcher` interface に依存しており、S3/SQSなどの具体サービスを知らない。この境界はCloudflare版でも維持する。
 
-Queue 実装を直接アプリケーション全体へ散らさず、境界を抽象化しておくことで、本番移行時の変更範囲を抑える。
+Cloudflare版では、具体実装は次のように外側へ置く。
 
-## 7. Submission の状態遷移
+- API Worker: R2へartifact保存、Queueへjob送信
+- Consumer Worker: R2からartifact取得、Sandboxへ実行依頼、D1へ結果保存
+- Go judge-runner: DB / R2 / Queueを知らず、source / testcases / config から判定結果だけを返す
 
-```text
-PENDING   : 提出受付済み、まだ未処理
-JUDGING   : Worker が処理中
-AC        : 正解
-WA        : 不正解
-ERROR     : 実行基盤または想定外の障害
-```
+## 7. MVP の制約
 
-この状態遷移を持つことで、frontend は提出直後に `JUDGING` を表示でき、非同期判定という backend の都合を自然な UX に変換できる。
+- 対応言語は Python のみ
+- CodeRun は任意stdin実行として後続でCloudflare版へ移植する
+- scoring は全ケースACで満点、1ケースでも非ACなら0点
+- 認証は最終的に session cookie を Worker 側へ移植する
+- Cloudflare Sandbox はPaid plan前提のため、ローカル確認にはDockerが必要
 
-## 8. いま学ぶべき AWS 知識
+## 8. 次に詰める論点
 
-### まず必要
-
-1. **RDS**
-   - DB を AWS に置くとはどういうことか
-   - PostgreSQL をどこで動かすか
-   - バックアップや接続情報をどう考えるか
-
-2. **SQS**
-   - Queue とは何か
-   - API Server と Worker をどう分離するか
-   - 再試行や失敗ジョブ隔離をどう扱うか
-
-3. **ECS / Fargate**
-   - API Server と Judge Worker をコンテナとしてどう動かすか
-   - 1つのアプリを複数プロセスへ分けて運用する考え方
-
-4. **S3**
-   - DB とファイル保存の違い
-   - テストケースや提出コードをどこへ置くか
-
-### 後回しでよい
-
-- VPC の細かいネットワーク設計
-- Auto Scaling の高度な調整
-- CloudFront / Route 53 / WAF
-- Redis / ElastiCache
-- IaC の高度な作り込み
-- マルチ AZ や冗長化の細部
-
-これらは重要ではあるが、現段階ではアプリケーションの核となる責務分離を理解してからでよい。
-
-## 9. 学習順
-
-```text
-Step 1: ローカルで API / Worker / DB / Queue の役割を理解する
-Step 2: RDS を理解して、DB を「自分で動かす」から「預ける」へ進む
-Step 3: SQS を理解して、非同期処理を本番運用の観点で捉える
-Step 4: ECS / Fargate を理解して、API と Worker を別プロセスで載せる
-Step 5: 必要になったら S3 や監視、Redis を足す
-```
-
-## 10. 現時点で保留する論点
-
-- Judge Worker / judge-core の具体的なサンドボックス方式
-- 提出コードやテストケースを DB と S3 のどちらへ置くか
-- Queue のローカル実装方法
-- Worker の再試行回数と `ERROR` への遷移条件
-- ランキングを毎回集計するか、事前計算するか
-
-これらは backend の次段階の設計で詰める。
+- Google OAuth callback を API Worker に移すか、Go backendを認証だけ暫定併用するか
+- Session token hash を D1 に置く運用で問題ないか
+- D1 schema と既存PostgreSQL migrationをどのタイミングで一本化するか
+- CodeRun API を Submission と同じ Queue / Sandbox 経路に乗せるか
+- 管理者向けの再ジャッジを Queue message としてどう表現するか

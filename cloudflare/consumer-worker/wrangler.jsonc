@@ -1,0 +1,53 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "tag-judge-consumer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-13",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tag-judge",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../d1/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "JUDGE_STORAGE",
+      "bucket_name": "tag-judge-artifacts"
+    }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "tag-judge-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "tag-judge-jobs-dlq"
+      }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Sandbox",
+        "name": "Sandbox"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["Sandbox"],
+      "tag": "v1"
+    }
+  ]
+}
