@@ -13,7 +13,8 @@ use crate::models::JudgeJob;
 const DEFAULT_REGION: &str = "ap-northeast-1";
 const DEFAULT_QUEUE_NAME: &str = "judge-submissions";
 const MAX_MESSAGES_PER_POLL: i32 = 1;
-const WAIT_TIME_SECONDS: i32 = 5;
+// SQS returns as soon as a message is available; this is the maximum wait.
+const WAIT_TIME_SECONDS: i32 = 20;
 
 #[derive(Debug)]
 pub struct ReceivedJudgeJob {
