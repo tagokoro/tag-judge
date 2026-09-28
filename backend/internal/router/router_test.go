@@ -711,6 +711,7 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
 			&fakeSubmissionRepository{},
 			problemRepo,
+			testCaseRepo,
 			&fakeSourceCodeStorage{},
 			&fakeExecutionDispatcher{},
 		)),
@@ -775,6 +776,7 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 		ProblemID:     params.ProblemID,
 		Language:      params.Language,
 		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
 		Status:        params.Status,
 		Score:         params.Score,
 	}, nil
@@ -789,6 +791,10 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.
 }
 
 type fakeSourceCodeStorage struct{}
+
+func (s *fakeSourceCodeStorage) PutTestCases(_ context.Context, _ repository.PutTestCasesParams) (string, error) {
+	return "problems/1/testcases/content-hash.json", nil
+}
 
 func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.PutSourceCodeParams) error {
 	return nil

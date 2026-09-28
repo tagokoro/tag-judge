@@ -70,6 +70,7 @@ type Submission struct {
 	Score         int32              `json:"score"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
+	TestCasesKey  string             `json:"test_cases_key"`
 }
 
 type SubmissionResult struct {

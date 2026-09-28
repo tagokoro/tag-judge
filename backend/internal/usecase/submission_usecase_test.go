@@ -12,13 +12,17 @@ import (
 )
 
 const testUserID = "00000000-0000-4000-8000-000000000001"
+const testCasesArtifactKey = "problems/42/testcases/content-hash.json"
 
 func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	testCases := &submissionTestCaseRepository{testCases: []domain.TestCase{
+		{ID: 1, ProblemID: 42, Input: "1 2\\n", ExpectedOutput: "3\\n", Score: 1},
+	}}
+	uc := NewSubmissionUsecase(submissions, problems, testCases, storage, dispatcher)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -38,10 +42,13 @@ func TestCreateSubmission(t *testing.T) {
 	if submissions.createParams.SourceCodeKey == "" {
 		t.Fatalf("source code key is empty")
 	}
+	if submissions.createParams.TestCasesKey != testCasesArtifactKey {
+		t.Fatalf("test cases key = %q, want %q", submissions.createParams.TestCasesKey, testCasesArtifactKey)
+	}
 	if submissions.createParams.Status != domain.SubmissionStatusPending || submissions.createParams.Score != 0 {
 		t.Fatalf("create params = %+v", submissions.createParams)
 	}
-	if !storage.putCalled || storage.putParams.SourceCode != "print(42)" {
+	if !storage.putCalled || storage.putParams.SourceCode != "print(42)" || !storage.testCasesCalled {
 		t.Fatalf("storage params = %+v", storage.putParams)
 	}
 	if !dispatcher.dispatchCalled {
@@ -55,7 +62,7 @@ func TestCreateSubmission(t *testing.T) {
 		t.Fatalf("execution mode = %s, want problem", dispatcher.job.Mode().Kind())
 	}
 	problemExecution, ok := dispatcher.job.Mode().Problem()
-	if !ok || problemExecution.TestCasesKey != "problems/42/testcases.json" || problemExecution.TimeLimitMS != 1000 {
+	if !ok || problemExecution.TestCasesKey != submissions.createParams.TestCasesKey || problemExecution.TimeLimitMS != 1000 {
 		t.Fatalf("problem execution = %+v", problemExecution)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
@@ -190,7 +197,7 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	uc := NewSubmissionUsecase(submissions, problems, &submissionTestCaseRepository{testCases: []domain.TestCase{{ID: 1, Score: 1}}}, storage, dispatcher)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      auth.Actor{UserID: "not-a-uuid", Role: domain.UserRoleUser},
@@ -212,7 +219,7 @@ func TestCreateSubmissionReturnsDispatchFailureAfterPendingCreate(t *testing.T) 
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
 	dispatcher := &fakeSubmissionExecutionDispatcher{dispatchErr: dispatchErr}
-	uc := NewSubmissionUsecase(submissions, problems, storage, dispatcher)
+	uc := NewSubmissionUsecase(submissions, problems, &submissionTestCaseRepository{testCases: []domain.TestCase{{ID: 1, Score: 1}}}, storage, dispatcher)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -243,6 +250,7 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 	return NewSubmissionUsecase(
 		submissions,
 		problems,
+		&submissionTestCaseRepository{testCases: []domain.TestCase{{ID: 1, Score: 1}}},
 		&fakeSubmissionSourceCodeStorage{},
 		&fakeSubmissionExecutionDispatcher{},
 	)
@@ -267,6 +275,7 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 		ProblemID:     params.ProblemID,
 		Language:      params.Language,
 		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
 		Status:        params.Status,
 		Score:         params.Score,
 	}, nil
@@ -289,9 +298,21 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 }
 
 type fakeSubmissionSourceCodeStorage struct {
-	putCalled bool
-	putParams repository.PutSourceCodeParams
-	putErr    error
+	putCalled       bool
+	putParams       repository.PutSourceCodeParams
+	putErr          error
+	testCasesCalled bool
+	testCasesParams repository.PutTestCasesParams
+	testCasesErr    error
+}
+
+func (s *fakeSubmissionSourceCodeStorage) PutTestCases(_ context.Context, params repository.PutTestCasesParams) (string, error) {
+	s.testCasesCalled = true
+	s.testCasesParams = params
+	if s.testCasesErr != nil {
+		return "", s.testCasesErr
+	}
+	return testCasesArtifactKey, nil
 }
 
 func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
@@ -317,6 +338,37 @@ type submissionProblemRepository struct {
 	findID     int64
 	findErr    error
 }
+
+type submissionTestCaseRepository struct {
+	testCases     []domain.TestCase
+	listCalled    bool
+	listProblemID int64
+	listErr       error
+}
+
+func (r *submissionTestCaseRepository) CountByProblemID(_ context.Context, _ int64) (int, error) {
+	return len(r.testCases), nil
+}
+
+func (r *submissionTestCaseRepository) ListByProblemID(_ context.Context, problemID int64) ([]domain.TestCase, error) {
+	r.listCalled = true
+	r.listProblemID = problemID
+	return r.testCases, r.listErr
+}
+
+func (r *submissionTestCaseRepository) FindByID(context.Context, int64, int64) (*domain.TestCase, error) {
+	return nil, nil
+}
+
+func (r *submissionTestCaseRepository) Create(context.Context, repository.CreateTestCaseParams) (*domain.TestCase, error) {
+	return nil, nil
+}
+
+func (r *submissionTestCaseRepository) Update(context.Context, repository.UpdateTestCaseParams) (*domain.TestCase, error) {
+	return nil, nil
+}
+
+func (r *submissionTestCaseRepository) Delete(context.Context, int64, int64) error { return nil }
 
 func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
 	r.findCalled = true

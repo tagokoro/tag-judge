@@ -29,6 +29,24 @@ func (s *FileSourceCodeStorage) PutSourceCode(_ context.Context, params reposito
 	return os.WriteFile(path, []byte(params.SourceCode), 0o600)
 }
 
+func (s *FileSourceCodeStorage) PutTestCases(_ context.Context, params repository.PutTestCasesParams) (string, error) {
+	body, key, err := marshalTestCases(params)
+	if err != nil {
+		return "", err
+	}
+	path, err := s.objectPath(key)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
 func (s *FileSourceCodeStorage) objectPath(key string) (string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", fmt.Errorf("source code key must not be empty")

@@ -11,6 +11,7 @@ type CreateSubmissionParams struct {
 	ProblemID     int64
 	Language      domain.SubmissionLanguage
 	SourceCodeKey string
+	TestCasesKey  string
 	Status        domain.SubmissionStatus
 	Score         int
 }
