@@ -61,7 +61,9 @@ func run() error {
 	problemUsecase := usecase.NewProblemUsecase(problemRepo, testCaseRepo)
 	testCaseUsecase := usecase.NewTestCaseUsecase(problemRepo, testCaseRepo)
 	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, executionDispatcher, cfg.CodeRunTimeLimitMS)
-	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, executionDispatcher)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, testCaseRepo, sourceCodeStorage)
+	outboxPublisher := postgres.NewSubmissionOutboxPublisher(db, executionDispatcher, slog.Default())
+	go outboxPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 
@@ -110,7 +112,7 @@ func run() error {
 	}
 }
 
-func buildJudgeInfra(ctx context.Context, cfg config.Config) (repository.SourceCodeStorage, repository.ExecutionDispatcher, error) {
+func buildJudgeInfra(ctx context.Context, cfg config.Config) (repository.ArtifactStorage, repository.ExecutionDispatcher, error) {
 	if !cfg.AWSJudgeInfraEnabled() {
 		if cfg.JudgeStorageBucket != "" || cfg.JudgeSubmissionsQueue != "" {
 			slog.Warn(

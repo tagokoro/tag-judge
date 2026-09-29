@@ -8,7 +8,7 @@ use judge_worker::{
     mock_sqs::MockSqs,
     models::JudgeJob,
     storage::ArtifactStore,
-    worker::{process_job_with_runner, process_next_with_runner},
+    worker::{process_job_with_runner, process_job_with_runner_reliably, process_next_with_runner},
 };
 
 struct MemoryArtifactStore {
@@ -79,7 +79,7 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
         ("submissions/sub_ac_001/main.py", "print(input())"),
         (
             "problems/prob_001/testcases.json",
-            r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
+            r#"[{ "testCaseId": 101, "score": 5, "input": "hello\n", "expectedOutput": "hello\n" }]"#,
         ),
     ]);
 
@@ -98,6 +98,7 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
 
     assert_eq!(result.submission_id, "sub_ac_001");
     assert_eq!(result.result.verdict, Verdict::AC);
+    assert_eq!(result.score, 5);
     assert_eq!(result.result.case_results.len(), 1);
 }
 
@@ -108,11 +109,11 @@ async fn process_next_receives_jobs_in_fifo_order() {
         ("submissions/sub_2/main.py", "print(input())"),
         (
             "problems/prob_101/testcases.json",
-            r#"[{ "input": "one\n", "expectedOutput": "one\n" }]"#,
+            r#"[{ "testCaseId": 201, "score": 2, "input": "one\n", "expectedOutput": "one\n" }]"#,
         ),
         (
             "problems/prob_102/testcases.json",
-            r#"[{ "input": "two\n", "expectedOutput": "TWO\n" }]"#,
+            r#"[{ "testCaseId": 202, "score": 3, "input": "two\n", "expectedOutput": "TWO\n" }]"#,
         ),
     ]);
 
@@ -141,8 +142,10 @@ async fn process_next_receives_jobs_in_fifo_order() {
 
     assert_eq!(first.submission_id, "sub_1");
     assert_eq!(first.result.verdict, Verdict::AC);
+    assert_eq!(first.score, 2);
     assert_eq!(second.submission_id, "sub_2");
     assert_eq!(second.result.verdict, Verdict::WA);
+    assert_eq!(second.score, 0);
     assert!(
         process_next_with_runner(&mut queue, &store, &runner)
             .await
@@ -177,7 +180,7 @@ fn mock_sqs_job_can_be_deserialized_from_json() {
 async fn returns_ie_when_referenced_s3_object_is_missing() {
     let store = MemoryArtifactStore::new(vec![(
         "problems/prob_001/testcases.json",
-        r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
+        r#"[{ "testCaseId": 301, "score": 1, "input": "hello\n", "expectedOutput": "hello\n" }]"#,
     )]);
 
     let runner = direct_runner();
@@ -196,6 +199,26 @@ async fn returns_ie_when_referenced_s3_object_is_missing() {
     assert_eq!(result.submission_id, "sub_missing_source");
     assert_eq!(result.result.verdict, Verdict::IE);
     assert!(result.result.case_results.is_empty());
+}
+
+#[tokio::test]
+async fn real_worker_retries_when_s3_read_fails() {
+    let store = MemoryArtifactStore::new(vec![]);
+    let runner = direct_runner();
+    let error = process_job_with_runner_reliably(
+        job(
+            "sub_retry",
+            "submissions/missing/main.py",
+            "problems/missing/testcases.json",
+            1_000,
+        ),
+        &store,
+        &runner,
+    )
+    .await
+    .expect_err("S3 failure must retain the SQS message for retry");
+
+    assert!(error.to_string().contains("missing object"));
 }
 
 #[tokio::test]

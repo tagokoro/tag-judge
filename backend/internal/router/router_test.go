@@ -711,8 +711,8 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
 			&fakeSubmissionRepository{},
 			problemRepo,
+			testCaseRepo,
 			&fakeSourceCodeStorage{},
-			&fakeExecutionDispatcher{},
 		)),
 		Me:       handler.NewMeHandler(),
 		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
@@ -780,6 +780,10 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 	}, nil
 }
 
+func (r *fakeSubmissionRepository) CreateWithOutbox(_ context.Context, params repository.CreateSubmissionWithOutboxParams) (*domain.Submission, error) {
+	return r.Create(context.Background(), params.CreateSubmissionParams)
+}
+
 func (r *fakeSubmissionRepository) FindByID(_ context.Context, id int64) (*domain.Submission, error) {
 	return &domain.Submission{ID: id, UserID: "00000000-0000-4000-8000-000000000001"}, nil
 }
@@ -789,6 +793,10 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.
 }
 
 type fakeSourceCodeStorage struct{}
+
+func (s *fakeSourceCodeStorage) PutTestCases(_ context.Context, _ repository.PutTestCasesParams) (string, error) {
+	return "problems/1/testcases/test.json", nil
+}
 
 func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.PutSourceCodeParams) error {
 	return nil

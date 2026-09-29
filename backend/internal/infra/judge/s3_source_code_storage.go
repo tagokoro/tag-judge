@@ -46,6 +46,21 @@ func (s *S3SourceCodeStorage) PutSourceCode(ctx context.Context, params reposito
 	return nil
 }
 
+func (s *S3SourceCodeStorage) PutTestCases(ctx context.Context, params repository.PutTestCasesParams) (string, error) {
+	if strings.TrimSpace(s.bucket) == "" {
+		return "", fmt.Errorf("judge storage bucket must not be empty")
+	}
+	body, key, err := marshalTestCases(params)
+	if err != nil {
+		return "", err
+	}
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Body: strings.NewReader(string(body)), ContentType: aws.String("application/json; charset=utf-8")})
+	if err != nil {
+		return "", fmt.Errorf("put test cases to s3://%s/%s: %w", s.bucket, key, err)
+	}
+	return key, nil
+}
+
 func sourceContentType(language domain.ExecutionLanguage) string {
 	switch language {
 	case domain.ExecutionLanguagePython:

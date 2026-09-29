@@ -21,21 +21,21 @@ const (
 type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.PublicProblemReader
-	storage     repository.SourceCodeStorage
-	dispatcher  repository.ExecutionDispatcher
+	testCases   repository.TestCaseRepository
+	storage     repository.ArtifactStorage
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.PublicProblemReader,
-	storage repository.SourceCodeStorage,
-	dispatcher repository.ExecutionDispatcher,
+	testCases repository.TestCaseRepository,
+	storage repository.ArtifactStorage,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
 		submissions: submissions,
 		problems:    problems,
+		testCases:   testCases,
 		storage:     storage,
-		dispatcher:  dispatcher,
 	}
 }
 
@@ -66,6 +66,17 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if err != nil {
 		return nil, err
 	}
+	testCases, err := u.testCases.ListByProblemID(ctx, problem.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(testCases) == 0 {
+		return nil, apperror.Conflict("PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
+	}
+	testCasesKey, err := u.storage.PutTestCases(ctx, repository.PutTestCasesParams{ProblemID: problem.ID, TestCases: testCases})
+	if err != nil {
+		return nil, err
+	}
 
 	sourceCodeKey, err := newSourceCodeKey(input.Actor.UserID, input.ProblemID, input.Language)
 	if err != nil {
@@ -79,31 +90,19 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		return nil, err
 	}
 
-	submission, err := u.submissions.Create(ctx, repository.CreateSubmissionParams{
-		UserID:        input.Actor.UserID,
-		ProblemID:     input.ProblemID,
-		Language:      input.Language,
-		SourceCodeKey: sourceCodeKey,
-		Status:        domain.SubmissionStatusPending,
-		Score:         0,
+	submission, err := u.submissions.CreateWithOutbox(ctx, repository.CreateSubmissionWithOutboxParams{
+		CreateSubmissionParams: repository.CreateSubmissionParams{
+			UserID:        input.Actor.UserID,
+			ProblemID:     input.ProblemID,
+			Language:      input.Language,
+			SourceCodeKey: sourceCodeKey,
+			TestCasesKey:  testCasesKey,
+			Status:        domain.SubmissionStatusPending,
+			Score:         0,
+		},
+		TimeLimitMS: problem.TimeLimitMS,
 	})
 	if err != nil {
-		return nil, err
-	}
-
-	reference, err := repository.NewSubmissionExecutionReference(fmt.Sprintf("%d", submission.ID))
-	if err != nil {
-		return nil, err
-	}
-	mode, err := repository.NewProblemExecution(testCasesKey(problem.ID), problem.TimeLimitMS)
-	if err != nil {
-		return nil, err
-	}
-	job, err := repository.NewExecutionJob(reference, input.Language, sourceCodeKey, mode)
-	if err != nil {
-		return nil, err
-	}
-	if err := u.dispatcher.Dispatch(ctx, job); err != nil {
 		return nil, err
 	}
 
@@ -170,10 +169,6 @@ func newSourceCodeKey(userID string, problemID int64, language domain.Submission
 		return "", err
 	}
 	return fmt.Sprintf("submissions/%s/problems/%d/%s%s", userID, problemID, token, sourceExtension(language)), nil
-}
-
-func testCasesKey(problemID int64) string {
-	return fmt.Sprintf("problems/%d/testcases.json", problemID)
 }
 
 func randomHex(size int) (string, error) {
