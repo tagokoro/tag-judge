@@ -28,6 +28,7 @@ func (r *SubmissionRepository) Create(ctx context.Context, params repository.Cre
 		ProblemID:     params.ProblemID,
 		Language:      string(params.Language),
 		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
 		Status:        string(params.Status),
 		Score:         int32(params.Score),
 	})
@@ -35,7 +36,7 @@ func (r *SubmissionRepository) Create(ctx context.Context, params repository.Cre
 		return nil, err
 	}
 
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
+	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
 	return &submission, nil
 }
 
@@ -48,7 +49,7 @@ func (r *SubmissionRepository) FindByID(ctx context.Context, id int64) (*domain.
 		return nil, err
 	}
 
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
+	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
 	return &submission, nil
 }
 
@@ -64,7 +65,7 @@ func (r *SubmissionRepository) ListByUserID(ctx context.Context, params reposito
 
 	submissions := make([]domain.Submission, 0, len(rows))
 	for _, row := range rows {
-		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt))
+		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt))
 	}
 	return submissions, nil
 }
@@ -75,6 +76,7 @@ func newSubmission(
 	problemID int64,
 	language string,
 	sourceCodeKey string,
+	testCasesKey string,
 	status string,
 	score int32,
 	createdAt pgtype.Timestamptz,
@@ -92,6 +94,7 @@ func newSubmission(
 		ProblemID:     problemID,
 		Language:      domain.SubmissionLanguage(language),
 		SourceCodeKey: sourceCodeKey,
+		TestCasesKey:  testCasesKey,
 		Status:        domain.SubmissionStatus(status),
 		Score:         int(score),
 		CreatedAt:     createdAt.Time,

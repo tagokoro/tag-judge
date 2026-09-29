@@ -28,6 +28,7 @@ type Submission struct {
 	ProblemID     int64
 	Language      SubmissionLanguage
 	SourceCodeKey string
+	TestCasesKey  string
 	Status        SubmissionStatus
 	Score         int
 	CreatedAt     time.Time

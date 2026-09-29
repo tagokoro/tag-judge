@@ -78,8 +78,8 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
     let store = MemoryArtifactStore::new(vec![
         ("submissions/sub_ac_001/main.py", "print(input())"),
         (
-            "problems/prob_001/testcases.json",
-            r#"[{ "input": "hello\n", "expectedOutput": "hello\n" }]"#,
+            "problems/42/testcases/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.json",
+            r#"[{ "input": "hello\n", "expectedOutput": "hello\n", "testCaseId": 1, "score": 1 }]"#,
         ),
     ]);
 
@@ -88,7 +88,7 @@ async fn process_job_reads_s3_objects_runs_judge_core_and_keeps_submission_id() 
         job(
             "sub_ac_001",
             "submissions/sub_ac_001/main.py",
-            "problems/prob_001/testcases.json",
+            "problems/42/testcases/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.json",
             1_000,
         ),
         &store,

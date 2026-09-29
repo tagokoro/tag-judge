@@ -12,6 +12,7 @@ import (
 )
 
 const testUserID = "00000000-0000-4000-8000-000000000001"
+const testCasesArtifactKey = "problems/42/testcases/content-hash.json"
 
 func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
@@ -38,6 +39,9 @@ func TestCreateSubmission(t *testing.T) {
 	if submissions.createParams.SourceCodeKey == "" {
 		t.Fatalf("source code key is empty")
 	}
+	if submissions.createParams.TestCasesKey != testCasesArtifactKey {
+		t.Fatalf("test cases key = %q, want %q", submissions.createParams.TestCasesKey, testCasesArtifactKey)
+	}
 	if submissions.createParams.Status != domain.SubmissionStatusPending || submissions.createParams.Score != 0 {
 		t.Fatalf("create params = %+v", submissions.createParams)
 	}
@@ -55,7 +59,7 @@ func TestCreateSubmission(t *testing.T) {
 		t.Fatalf("execution mode = %s, want problem", dispatcher.job.Mode().Kind())
 	}
 	problemExecution, ok := dispatcher.job.Mode().Problem()
-	if !ok || problemExecution.TestCasesKey != "problems/42/testcases.json" || problemExecution.TimeLimitMS != 1000 {
+	if !ok || problemExecution.TestCasesKey != submissions.createParams.TestCasesKey || problemExecution.TimeLimitMS != 1000 {
 		t.Fatalf("problem execution = %+v", problemExecution)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
@@ -98,6 +102,26 @@ func TestCreateSubmissionProblem(t *testing.T) {
 	}
 	if submissions.createCalled {
 		t.Fatal("submission repository should not be called")
+	}
+}
+
+func TestCreateSubmissionRequiresCurrentTestCaseSnapshot(t *testing.T) {
+	submissions := &fakeSubmissionRepository{}
+	problems := &submissionProblemRepository{withoutSnapshot: true}
+	storage := &fakeSubmissionSourceCodeStorage{}
+	uc := NewSubmissionUsecase(submissions, problems, storage, &fakeSubmissionExecutionDispatcher{})
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      submissionTestActor(domain.UserRoleUser),
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, apperror.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
+	}
+	if storage.putCalled || submissions.createCalled {
+		t.Fatalf("submission dependencies should not be called: storage=%v create=%v", storage.putCalled, submissions.createCalled)
 	}
 }
 
@@ -267,6 +291,7 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 		ProblemID:     params.ProblemID,
 		Language:      params.Language,
 		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
 		Status:        params.Status,
 		Score:         params.Score,
 	}, nil
@@ -313,9 +338,10 @@ func (d *fakeSubmissionExecutionDispatcher) Dispatch(_ context.Context, job repo
 }
 
 type submissionProblemRepository struct {
-	findCalled bool
-	findID     int64
-	findErr    error
+	findCalled      bool
+	findID          int64
+	findErr         error
+	withoutSnapshot bool
 }
 
 func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
@@ -324,5 +350,9 @@ func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
-	return &domain.Problem{ID: id, TimeLimitMS: 1000}, nil
+	problem := &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: testCasesArtifactKey}
+	if r.withoutSnapshot {
+		problem.CurrentTestCasesKey = ""
+	}
+	return problem, nil
 }

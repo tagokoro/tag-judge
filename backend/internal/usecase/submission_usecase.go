@@ -66,6 +66,9 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(problem.CurrentTestCasesKey) == "" {
+		return nil, apperror.Conflict("PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
+	}
 
 	sourceCodeKey, err := newSourceCodeKey(input.Actor.UserID, input.ProblemID, input.Language)
 	if err != nil {
@@ -84,6 +87,7 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		ProblemID:     input.ProblemID,
 		Language:      input.Language,
 		SourceCodeKey: sourceCodeKey,
+		TestCasesKey:  problem.CurrentTestCasesKey,
 		Status:        domain.SubmissionStatusPending,
 		Score:         0,
 	})
@@ -95,7 +99,7 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if err != nil {
 		return nil, err
 	}
-	mode, err := repository.NewProblemExecution(testCasesKey(problem.ID), problem.TimeLimitMS)
+	mode, err := repository.NewProblemExecution(problem.CurrentTestCasesKey, problem.TimeLimitMS)
 	if err != nil {
 		return nil, err
 	}
@@ -170,10 +174,6 @@ func newSourceCodeKey(userID string, problemID int64, language domain.Submission
 		return "", err
 	}
 	return fmt.Sprintf("submissions/%s/problems/%d/%s%s", userID, problemID, token, sourceExtension(language)), nil
-}
-
-func testCasesKey(problemID int64) string {
-	return fmt.Sprintf("problems/%d/testcases.json", problemID)
 }
 
 func randomHex(size int) (string, error) {
