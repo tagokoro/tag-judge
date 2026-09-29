@@ -39,15 +39,16 @@ type GroupMember struct {
 }
 
 type Problem struct {
-	ID            int64              `json:"id"`
-	Title         string             `json:"title"`
-	Statement     string             `json:"statement"`
-	TimeLimitMs   int32              `json:"time_limit_ms"`
-	MemoryLimitKb int32              `json:"memory_limit_kb"`
-	Visibility    string             `json:"visibility"`
-	CreatedBy     pgtype.UUID        `json:"created_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                  int64              `json:"id"`
+	Title               string             `json:"title"`
+	Statement           string             `json:"statement"`
+	TimeLimitMs         int32              `json:"time_limit_ms"`
+	MemoryLimitKb       int32              `json:"memory_limit_kb"`
+	Visibility          string             `json:"visibility"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 }
 
 type Session struct {

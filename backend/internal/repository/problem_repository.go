@@ -33,6 +33,11 @@ type PublicProblemReader interface {
 	FindPublicByID(ctx context.Context, id int64) (*domain.Problem, error)
 }
 
+type TestCaseSnapshotProblemRepository interface {
+	ProblemRepository
+	SetCurrentTestCasesKey(ctx context.Context, problemID int64, key string) error
+}
+
 type ProblemRepository interface {
 	PublicProblemReader
 	ListPublic(ctx context.Context, params ListProblemsParams) ([]domain.Problem, error)

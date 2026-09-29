@@ -40,7 +40,7 @@ func (r *ProblemRepository) Create(ctx context.Context, params repository.Create
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -53,7 +53,7 @@ func (r *ProblemRepository) FindByID(ctx context.Context, id int64) (*domain.Pro
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -73,7 +73,7 @@ func (r *ProblemRepository) Update(ctx context.Context, params repository.Update
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -103,7 +103,7 @@ func (r *ProblemRepository) ListPublic(ctx context.Context, params repository.Li
 
 	problems := make([]domain.Problem, 0, len(rows))
 	for _, row := range rows {
-		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt))
+		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt))
 	}
 
 	return problems, nil
@@ -118,8 +118,15 @@ func (r *ProblemRepository) FindPublicByID(ctx context.Context, id int64) (*doma
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
+}
+
+func (r *ProblemRepository) SetCurrentTestCasesKey(ctx context.Context, problemID int64, key string) error {
+	return r.queries.SetCurrentTestCasesKey(ctx, sqlc.SetCurrentTestCasesKeyParams{
+		ID:                  problemID,
+		CurrentTestCasesKey: key,
+	})
 }
 
 func newProblem(
@@ -129,19 +136,21 @@ func newProblem(
 	timeLimitMS int32,
 	memoryLimitKB int32,
 	visibility string,
+	currentTestCasesKey string,
 	createdBy string,
 	createdAt pgtype.Timestamptz,
 	updatedAt pgtype.Timestamptz,
 ) domain.Problem {
 	return domain.Problem{
-		ID:            id,
-		Title:         title,
-		Statement:     statement,
-		TimeLimitMS:   int(timeLimitMS),
-		MemoryLimitKB: int(memoryLimitKB),
-		Visibility:    domain.ProblemVisibility(visibility),
-		CreatedBy:     createdBy,
-		CreatedAt:     createdAt.Time,
-		UpdatedAt:     updatedAt.Time,
+		ID:                  id,
+		Title:               title,
+		Statement:           statement,
+		TimeLimitMS:         int(timeLimitMS),
+		MemoryLimitKB:       int(memoryLimitKB),
+		Visibility:          domain.ProblemVisibility(visibility),
+		CurrentTestCasesKey: currentTestCasesKey,
+		CreatedBy:           createdBy,
+		CreatedAt:           createdAt.Time,
+		UpdatedAt:           updatedAt.Time,
 	}
 }

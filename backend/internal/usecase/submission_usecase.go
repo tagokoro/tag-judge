@@ -21,22 +21,19 @@ const (
 type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.PublicProblemReader
-	testCases   repository.TestCaseRepository
-	storage     repository.ArtifactStorage
+	storage     repository.SourceCodeStorage
 	dispatcher  repository.ExecutionDispatcher
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.PublicProblemReader,
-	testCases repository.TestCaseRepository,
-	storage repository.ArtifactStorage,
+	storage repository.SourceCodeStorage,
 	dispatcher repository.ExecutionDispatcher,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
 		submissions: submissions,
 		problems:    problems,
-		testCases:   testCases,
 		storage:     storage,
 		dispatcher:  dispatcher,
 	}
@@ -69,19 +66,8 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if err != nil {
 		return nil, err
 	}
-	testCases, err := u.testCases.ListByProblemID(ctx, problem.ID)
-	if err != nil {
-		return nil, err
-	}
-	if len(testCases) == 0 {
+	if strings.TrimSpace(problem.CurrentTestCasesKey) == "" {
 		return nil, apperror.Conflict("PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
-	}
-	testCasesKey, err := u.storage.PutTestCases(ctx, repository.PutTestCasesParams{
-		ProblemID: problem.ID,
-		TestCases: testCases,
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	sourceCodeKey, err := newSourceCodeKey(input.Actor.UserID, input.ProblemID, input.Language)
@@ -101,7 +87,7 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		ProblemID:     input.ProblemID,
 		Language:      input.Language,
 		SourceCodeKey: sourceCodeKey,
-		TestCasesKey:  testCasesKey,
+		TestCasesKey:  problem.CurrentTestCasesKey,
 		Status:        domain.SubmissionStatusPending,
 		Score:         0,
 	})
@@ -113,7 +99,7 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if err != nil {
 		return nil, err
 	}
-	mode, err := repository.NewProblemExecution(testCasesKey, problem.TimeLimitMS)
+	mode, err := repository.NewProblemExecution(problem.CurrentTestCasesKey, problem.TimeLimitMS)
 	if err != nil {
 		return nil, err
 	}

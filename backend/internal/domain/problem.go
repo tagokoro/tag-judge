@@ -20,15 +20,16 @@ func (v ProblemVisibility) Valid() bool {
 }
 
 type Problem struct {
-	ID            int64
-	Title         string
-	Statement     string
-	TimeLimitMS   int
-	MemoryLimitKB int
-	Visibility    ProblemVisibility
-	CreatedBy     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                  int64
+	Title               string
+	Statement           string
+	TimeLimitMS         int
+	MemoryLimitKB       int
+	Visibility          ProblemVisibility
+	CurrentTestCasesKey string
+	CreatedBy           string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type TestCase struct {
