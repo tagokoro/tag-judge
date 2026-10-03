@@ -264,6 +264,11 @@ func (r *fakeProblemRepository) Delete(_ context.Context, id int64) error {
 	return nil
 }
 
+func (r *fakeProblemRepository) SetCurrentTestCasesKey(_ context.Context, _ int64, key string) error {
+	r.problem.CurrentTestCasesKey = key
+	return nil
+}
+
 type fakeTestCaseCounter struct {
 	count     int
 	problemID int64

@@ -18,9 +18,10 @@ type SourceCodeStorage interface {
 	PutSourceCode(ctx context.Context, params PutSourceCodeParams) error
 }
 
-// PutTestCasesParams is a self-contained, immutable judge-input snapshot.
-// Its storage key is content-addressed so a later problem edit cannot alter a
-// queued submission's verdict.
+// PutTestCasesParams describes the immutable judge-input snapshot made when a
+// submission is accepted.  It deliberately contains the database records,
+// rather than a mutable problem key, so storage can derive a content-addressed
+// artifact from precisely the cases used for that submission.
 type PutTestCasesParams struct {
 	ProblemID int64
 	TestCases []domain.TestCase
@@ -30,6 +31,8 @@ type TestCaseArtifactStorage interface {
 	PutTestCases(ctx context.Context, params PutTestCasesParams) (string, error)
 }
 
+// ArtifactStorage is shared by submissions, which need both source code and
+// the test-case snapshot.  Code runs only need SourceCodeStorage.
 type ArtifactStorage interface {
 	SourceCodeStorage
 	TestCaseArtifactStorage

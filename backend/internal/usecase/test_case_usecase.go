@@ -10,12 +10,17 @@ import (
 )
 
 type TestCaseUsecase struct {
-	problems  repository.ProblemRepository
+	problems  repository.TestCaseSnapshotProblemRepository
 	testCases repository.TestCaseRepository
+	storage   repository.TestCaseArtifactStorage
 }
 
-func NewTestCaseUsecase(problems repository.ProblemRepository, testCases repository.TestCaseRepository) *TestCaseUsecase {
-	return &TestCaseUsecase{problems: problems, testCases: testCases}
+func NewTestCaseUsecase(
+	problems repository.TestCaseSnapshotProblemRepository,
+	testCases repository.TestCaseRepository,
+	storage repository.TestCaseArtifactStorage,
+) *TestCaseUsecase {
+	return &TestCaseUsecase{problems: problems, testCases: testCases, storage: storage}
 }
 
 type CreateTestCaseInput struct {
@@ -41,13 +46,20 @@ func (u *TestCaseUsecase) Create(ctx context.Context, actor auth.Actor, problemI
 	if _, err := u.managedProblem(ctx, actor, problemID); err != nil {
 		return nil, err
 	}
-	return u.testCases.Create(ctx, repository.CreateTestCaseParams{
+	testCase, err := u.testCases.Create(ctx, repository.CreateTestCaseParams{
 		ProblemID:      problemID,
 		Input:          input.Input,
 		ExpectedOutput: input.ExpectedOutput,
 		IsSample:       input.IsSample,
 		Score:          1,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := u.refreshSnapshot(ctx, problemID); err != nil {
+		return nil, err
+	}
+	return testCase, nil
 }
 
 func (u *TestCaseUsecase) Update(ctx context.Context, actor auth.Actor, problemID, id int64, input UpdateTestCaseInput) (*domain.TestCase, error) {
@@ -76,13 +88,20 @@ func (u *TestCaseUsecase) Update(ctx context.Context, actor auth.Actor, problemI
 	if input.IsSample != nil {
 		updatedSample = *input.IsSample
 	}
-	return u.testCases.Update(ctx, repository.UpdateTestCaseParams{
+	updated, err := u.testCases.Update(ctx, repository.UpdateTestCaseParams{
 		ID:             id,
 		ProblemID:      problemID,
 		Input:          updatedInput,
 		ExpectedOutput: updatedOutput,
 		IsSample:       updatedSample,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := u.refreshSnapshot(ctx, problemID); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (u *TestCaseUsecase) Delete(ctx context.Context, actor auth.Actor, problemID, id int64) error {
@@ -105,7 +124,30 @@ func (u *TestCaseUsecase) Delete(ctx context.Context, actor auth.Actor, problemI
 			return apperror.Conflict("PUBLIC_PROBLEM_REQUIRES_TEST_CASE", "cannot delete the last test case from a public problem")
 		}
 	}
-	return u.testCases.Delete(ctx, problemID, id)
+	if err := u.testCases.Delete(ctx, problemID, id); err != nil {
+		return err
+	}
+	return u.refreshSnapshot(ctx, problemID)
+}
+
+// refreshSnapshot creates the current immutable judge input when test cases
+// change. Submission creation only records this already-published key.
+func (u *TestCaseUsecase) refreshSnapshot(ctx context.Context, problemID int64) error {
+	testCases, err := u.testCases.ListByProblemID(ctx, problemID)
+	if err != nil {
+		return err
+	}
+	if len(testCases) == 0 {
+		return u.problems.SetCurrentTestCasesKey(ctx, problemID, "")
+	}
+	key, err := u.storage.PutTestCases(ctx, repository.PutTestCasesParams{
+		ProblemID: problemID,
+		TestCases: testCases,
+	})
+	if err != nil {
+		return err
+	}
+	return u.problems.SetCurrentTestCasesKey(ctx, problemID, key)
 }
 
 func (u *TestCaseUsecase) managedProblem(ctx context.Context, actor auth.Actor, problemID int64) (*domain.Problem, error) {

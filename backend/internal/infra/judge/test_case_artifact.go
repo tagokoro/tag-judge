@@ -8,11 +8,14 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
+// testCaseArtifact contains the Worker TestCase fields first.  serde ignores
+// the database identity and score today, while retaining them makes a snapshot
+// self-describing for result persistence added later.
 type testCaseArtifact struct {
-	TestCaseID     int64  `json:"testCaseId"`
-	Score          int    `json:"score"`
 	Input          string `json:"input"`
 	ExpectedOutput string `json:"expectedOutput"`
+	TestCaseID     int64  `json:"testCaseId"`
+	Score          int    `json:"score"`
 }
 
 func marshalTestCases(params repository.PutTestCasesParams) ([]byte, string, error) {
@@ -27,8 +30,14 @@ func marshalTestCases(params repository.PutTestCasesParams) ([]byte, string, err
 		if testCase.ID <= 0 || testCase.Score <= 0 {
 			return nil, "", fmt.Errorf("test case id and score must be positive")
 		}
-		artifact = append(artifact, testCaseArtifact{TestCaseID: testCase.ID, Score: testCase.Score, Input: testCase.Input, ExpectedOutput: testCase.ExpectedOutput})
+		artifact = append(artifact, testCaseArtifact{
+			Input:          testCase.Input,
+			ExpectedOutput: testCase.ExpectedOutput,
+			TestCaseID:     testCase.ID,
+			Score:          testCase.Score,
+		})
 	}
+
 	body, err := json.Marshal(artifact)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal test cases: %w", err)

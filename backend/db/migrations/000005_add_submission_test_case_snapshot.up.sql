@@ -3,4 +3,4 @@ UPDATE submissions SET test_cases_key = format('legacy/problems/%s/testcases.jso
 ALTER TABLE submissions ALTER COLUMN test_cases_key SET NOT NULL;
 ALTER TABLE submissions ADD CONSTRAINT submissions_test_cases_key_check CHECK (btrim(test_cases_key) <> '');
 
-ALTER TABLE submission_results ADD CONSTRAINT submission_results_submission_test_case_unique UNIQUE (submission_id, test_case_id);
+ALTER TABLE problems ADD COLUMN current_test_cases_key text NOT NULL DEFAULT '';

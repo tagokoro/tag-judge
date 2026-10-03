@@ -15,3 +15,7 @@ CREATE TABLE submission_job_outbox (
 CREATE INDEX submission_job_outbox_pending_idx
     ON submission_job_outbox (available_at, submission_id)
     WHERE dispatched_at IS NULL;
+
+ALTER TABLE submission_results
+    ADD CONSTRAINT submission_results_submission_test_case_unique
+    UNIQUE (submission_id, test_case_id);

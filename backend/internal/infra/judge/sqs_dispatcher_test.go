@@ -26,7 +26,7 @@ func TestMarshalExecutionJobUsesWorkerJSONShape(t *testing.T) {
 		"submissionId":  "123",
 		"language":      "python",
 		"sourceCodeKey": "submissions/user/problems/42/main.py",
-		"testCasesKey":  "problems/42/testcases.json",
+		"testCasesKey":  "problems/42/testcases/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.json",
 		"timeLimitMs":   float64(1000),
 	}
 	for key, wantValue := range want {
@@ -45,7 +45,7 @@ func TestMarshalExecutionJobUsesWorkerJSONShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("problemExecution is missing or invalid: %v", got["problemExecution"])
 	}
-	if problemExecution["testCasesKey"] != "problems/42/testcases.json" || problemExecution["timeLimitMs"] != float64(1000) {
+	if problemExecution["testCasesKey"] != "problems/42/testcases/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.json" || problemExecution["timeLimitMs"] != float64(1000) {
 		t.Fatalf("problemExecution = %+v", problemExecution)
 	}
 }
@@ -104,7 +104,7 @@ func newProblemExecutionJobForTest(t *testing.T) repository.ExecutionJob {
 	if err != nil {
 		t.Fatalf("NewSubmissionExecutionReference returned error: %v", err)
 	}
-	mode, err := repository.NewProblemExecution("problems/42/testcases.json", 1000)
+	mode, err := repository.NewProblemExecution("problems/42/testcases/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.json", 1000)
 	if err != nil {
 		t.Fatalf("NewProblemExecution returned error: %v", err)
 	}

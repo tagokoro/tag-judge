@@ -54,7 +54,12 @@ func (s *S3SourceCodeStorage) PutTestCases(ctx context.Context, params repositor
 	if err != nil {
 		return "", err
 	}
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Body: strings.NewReader(string(body)), ContentType: aws.String("application/json; charset=utf-8")})
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		Body:        strings.NewReader(string(body)),
+		ContentType: aws.String("application/json; charset=utf-8"),
+	})
 	if err != nil {
 		return "", fmt.Errorf("put test cases to s3://%s/%s: %w", s.bucket, key, err)
 	}

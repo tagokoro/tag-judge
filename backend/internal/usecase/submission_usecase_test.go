@@ -18,7 +18,7 @@ func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, &submissionTestCaseRepository{}, storage)
+	uc := NewSubmissionUsecase(submissions, problems, storage)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -37,6 +37,9 @@ func TestCreateSubmission(t *testing.T) {
 	}
 	if submissions.createWithOutboxParams.SourceCodeKey == "" {
 		t.Fatalf("source code key is empty")
+	}
+	if submissions.createWithOutboxParams.TestCasesKey != testCasesArtifactKey {
+		t.Fatalf("test cases key = %q, want %q", submissions.createWithOutboxParams.TestCasesKey, testCasesArtifactKey)
 	}
 	if submissions.createWithOutboxParams.Status != domain.SubmissionStatusPending || submissions.createWithOutboxParams.Score != 0 {
 		t.Fatalf("create params = %+v", submissions.createWithOutboxParams)
@@ -87,6 +90,26 @@ func TestCreateSubmissionProblem(t *testing.T) {
 	}
 	if submissions.createCalled {
 		t.Fatal("submission repository should not be called")
+	}
+}
+
+func TestCreateSubmissionRequiresCurrentTestCaseSnapshot(t *testing.T) {
+	submissions := &fakeSubmissionRepository{}
+	problems := &submissionProblemRepository{withoutSnapshot: true}
+	storage := &fakeSubmissionSourceCodeStorage{}
+	uc := NewSubmissionUsecase(submissions, problems, storage)
+
+	_, err := uc.Create(context.Background(), CreateSubmissionInput{
+		Actor:      submissionTestActor(domain.UserRoleUser),
+		ProblemID:  42,
+		Language:   domain.SubmissionLanguagePython,
+		SourceCode: "print(42)",
+	})
+	if !errors.Is(err, apperror.ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
+	}
+	if storage.putCalled || submissions.createCalled || submissions.createWithOutboxCalled {
+		t.Fatalf("submission dependencies should not be called: storage=%v create=%v outbox=%v", storage.putCalled, submissions.createCalled, submissions.createWithOutboxCalled)
 	}
 }
 
@@ -178,7 +201,7 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, &submissionTestCaseRepository{}, storage)
+	uc := NewSubmissionUsecase(submissions, problems, storage)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      auth.Actor{UserID: "not-a-uuid", Role: domain.UserRoleUser},
@@ -198,7 +221,7 @@ func TestCreateSubmissionDoesNotDependOnQueueAvailability(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, &submissionTestCaseRepository{}, storage)
+	uc := NewSubmissionUsecase(submissions, problems, storage)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -222,7 +245,6 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 	return NewSubmissionUsecase(
 		submissions,
 		problems,
-		&submissionTestCaseRepository{},
 		&fakeSubmissionSourceCodeStorage{},
 	)
 }
@@ -286,15 +308,9 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 }
 
 type fakeSubmissionSourceCodeStorage struct {
-	putCalled       bool
-	putParams       repository.PutSourceCodeParams
-	putErr          error
-	testCasesCalled bool
-}
-
-func (s *fakeSubmissionSourceCodeStorage) PutTestCases(_ context.Context, _ repository.PutTestCasesParams) (string, error) {
-	s.testCasesCalled = true
-	return testCasesArtifactKey, nil
+	putCalled bool
+	putParams repository.PutSourceCodeParams
+	putErr    error
 }
 
 func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
@@ -303,42 +319,12 @@ func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, param
 	return s.putErr
 }
 
-type fakeSubmissionExecutionDispatcher struct {
-	dispatchCalled bool
-	job            repository.ExecutionJob
-	dispatchErr    error
-}
-
-func (d *fakeSubmissionExecutionDispatcher) Dispatch(_ context.Context, job repository.ExecutionJob) error {
-	d.dispatchCalled = true
-	d.job = job
-	return d.dispatchErr
-}
-
 type submissionProblemRepository struct {
-	findCalled bool
-	findID     int64
-	findErr    error
+	findCalled      bool
+	findID          int64
+	findErr         error
+	withoutSnapshot bool
 }
-
-type submissionTestCaseRepository struct{}
-
-func (r *submissionTestCaseRepository) CountByProblemID(context.Context, int64) (int, error) {
-	return 2, nil
-}
-func (r *submissionTestCaseRepository) ListByProblemID(context.Context, int64) ([]domain.TestCase, error) {
-	return []domain.TestCase{{ID: 1, Score: 1}, {ID: 2, Score: 1}}, nil
-}
-func (r *submissionTestCaseRepository) FindByID(context.Context, int64, int64) (*domain.TestCase, error) {
-	return nil, nil
-}
-func (r *submissionTestCaseRepository) Create(context.Context, repository.CreateTestCaseParams) (*domain.TestCase, error) {
-	return nil, nil
-}
-func (r *submissionTestCaseRepository) Update(context.Context, repository.UpdateTestCaseParams) (*domain.TestCase, error) {
-	return nil, nil
-}
-func (r *submissionTestCaseRepository) Delete(context.Context, int64, int64) error { return nil }
 
 func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
 	r.findCalled = true
@@ -346,5 +332,9 @@ func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
-	return &domain.Problem{ID: id, TimeLimitMS: 1000}, nil
+	problem := &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: testCasesArtifactKey}
+	if r.withoutSnapshot {
+		problem.CurrentTestCasesKey = ""
+	}
+	return problem, nil
 }

@@ -700,7 +700,7 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 	testCaseRepo := &fakeRouterTestCaseRepository{}
 	return New(Handlers{
 		Problems:  handler.NewProblemHandler(usecase.NewProblemUsecase(problemRepo, testCaseRepo)),
-		TestCases: handler.NewTestCaseHandler(usecase.NewTestCaseUsecase(problemRepo, testCaseRepo)),
+		TestCases: handler.NewTestCaseHandler(usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, &fakeSourceCodeStorage{})),
 		CodeRuns: handler.NewCodeRunHandler(usecase.NewCodeRunUsecase(
 			&fakeCodeRunRepository{},
 			&fakeSourceCodeStorage{},
@@ -711,7 +711,6 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
 			&fakeSubmissionRepository{},
 			problemRepo,
-			testCaseRepo,
 			&fakeSourceCodeStorage{},
 		)),
 		Me:       handler.NewMeHandler(),
@@ -735,7 +734,7 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, _ repository.ListP
 }
 
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
-	return &domain.Problem{ID: id, TimeLimitMS: 1000, CreatedBy: routerUserID}, nil
+	return &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: "problems/1/testcases/current.json", CreatedBy: routerUserID}, nil
 }
 
 func (r *fakeProblemRepository) FindByID(_ context.Context, id int64) (*domain.Problem, error) {
@@ -775,6 +774,7 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 		ProblemID:     params.ProblemID,
 		Language:      params.Language,
 		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
 		Status:        params.Status,
 		Score:         params.Score,
 	}, nil
@@ -795,7 +795,7 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.
 type fakeSourceCodeStorage struct{}
 
 func (s *fakeSourceCodeStorage) PutTestCases(_ context.Context, _ repository.PutTestCasesParams) (string, error) {
-	return "problems/1/testcases/test.json", nil
+	return "problems/1/testcases/content-hash.json", nil
 }
 
 func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.PutSourceCodeParams) error {
@@ -885,6 +885,10 @@ func (r *fakeProblemRepository) Update(_ context.Context, params repository.Upda
 }
 
 func (r *fakeProblemRepository) Delete(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (r *fakeProblemRepository) SetCurrentTestCasesKey(_ context.Context, _ int64, _ string) error {
 	return nil
 }
 
