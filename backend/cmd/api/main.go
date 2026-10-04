@@ -61,7 +61,9 @@ func run() error {
 	problemUsecase := usecase.NewProblemUsecase(problemRepo, testCaseRepo)
 	testCaseUsecase := usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, sourceCodeStorage)
 	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, executionDispatcher, cfg.CodeRunTimeLimitMS)
-	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, executionDispatcher)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage)
+	outboxPublisher := postgres.NewSubmissionOutboxPublisher(db, executionDispatcher, slog.Default())
+	go outboxPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 

@@ -1,4 +1,4 @@
 [
-  { "input": "hello\n", "expectedOutput": "hello\n" },
-  { "input": "world\n", "expectedOutput": "world\n" }
+  { "testCaseId": 1, "score": 1, "input": "hello\n", "expectedOutput": "hello\n" },
+  { "testCaseId": 2, "score": 1, "input": "world\n", "expectedOutput": "world\n" }
 ]

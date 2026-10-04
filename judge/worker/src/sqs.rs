@@ -8,13 +8,17 @@ use aws_sdk_sqs::{
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use hyper_rustls::HttpsConnectorBuilder;
 
-use crate::models::JudgeJob;
+use crate::{
+    heartbeat::{HeartbeatFuture, VisibilityExtender},
+    models::JudgeJob,
+};
 
 const DEFAULT_REGION: &str = "ap-northeast-1";
 const DEFAULT_QUEUE_NAME: &str = "judge-submissions";
 const MAX_MESSAGES_PER_POLL: i32 = 1;
 // SQS returns as soon as a message is available; this is the maximum wait.
 const WAIT_TIME_SECONDS: i32 = 20;
+const DEFAULT_VISIBILITY_TIMEOUT_SECONDS: i32 = 30;
 
 #[derive(Debug)]
 pub struct ReceivedJudgeJob {
@@ -22,7 +26,7 @@ pub struct ReceivedJudgeJob {
     pub receipt_handle: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SqsQueue {
     client: Client,
     queue_url: String,
@@ -112,6 +116,36 @@ impl SqsQueue {
             .map_err(|error| format!("failed to delete SQS message: {}", error))?;
 
         Ok(())
+    }
+
+    pub async fn extend_visibility(
+        &self,
+        receipt_handle: &str,
+        seconds: i32,
+    ) -> Result<(), String> {
+        self.client
+            .change_message_visibility()
+            .queue_url(&self.queue_url)
+            .receipt_handle(receipt_handle)
+            .visibility_timeout(seconds)
+            .send()
+            .await
+            .map_err(|error| format!("extend SQS message visibility: {error}"))?;
+        Ok(())
+    }
+
+    pub fn default_visibility_timeout_seconds() -> i32 {
+        DEFAULT_VISIBILITY_TIMEOUT_SECONDS
+    }
+}
+
+impl VisibilityExtender for SqsQueue {
+    fn extend_visibility<'a>(
+        &'a self,
+        receipt_handle: &'a str,
+        seconds: i32,
+    ) -> HeartbeatFuture<'a> {
+        Box::pin(async move { SqsQueue::extend_visibility(self, receipt_handle, seconds).await })
     }
 }
 

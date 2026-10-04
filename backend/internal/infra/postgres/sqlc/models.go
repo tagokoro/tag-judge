@@ -74,6 +74,17 @@ type Submission struct {
 	TestCasesKey  string             `json:"test_cases_key"`
 }
 
+type SubmissionJobOutbox struct {
+	SubmissionID int64              `json:"submission_id"`
+	Payload      []byte             `json:"payload"`
+	DispatchedAt pgtype.Timestamptz `json:"dispatched_at"`
+	Attempts     int32              `json:"attempts"`
+	LastError    pgtype.Text        `json:"last_error"`
+	AvailableAt  pgtype.Timestamptz `json:"available_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type SubmissionResult struct {
 	ID              int64              `json:"id"`
 	SubmissionID    int64              `json:"submission_id"`

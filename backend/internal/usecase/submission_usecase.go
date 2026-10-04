@@ -22,20 +22,17 @@ type SubmissionUsecase struct {
 	submissions repository.SubmissionRepository
 	problems    repository.PublicProblemReader
 	storage     repository.SourceCodeStorage
-	dispatcher  repository.ExecutionDispatcher
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.PublicProblemReader,
 	storage repository.SourceCodeStorage,
-	dispatcher repository.ExecutionDispatcher,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
 		submissions: submissions,
 		problems:    problems,
 		storage:     storage,
-		dispatcher:  dispatcher,
 	}
 }
 
@@ -82,32 +79,19 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		return nil, err
 	}
 
-	submission, err := u.submissions.Create(ctx, repository.CreateSubmissionParams{
-		UserID:        input.Actor.UserID,
-		ProblemID:     input.ProblemID,
-		Language:      input.Language,
-		SourceCodeKey: sourceCodeKey,
-		TestCasesKey:  problem.CurrentTestCasesKey,
-		Status:        domain.SubmissionStatusPending,
-		Score:         0,
+	submission, err := u.submissions.CreateWithOutbox(ctx, repository.CreateSubmissionWithOutboxParams{
+		CreateSubmissionParams: repository.CreateSubmissionParams{
+			UserID:        input.Actor.UserID,
+			ProblemID:     input.ProblemID,
+			Language:      input.Language,
+			SourceCodeKey: sourceCodeKey,
+			TestCasesKey:  problem.CurrentTestCasesKey,
+			Status:        domain.SubmissionStatusPending,
+			Score:         0,
+		},
+		TimeLimitMS: problem.TimeLimitMS,
 	})
 	if err != nil {
-		return nil, err
-	}
-
-	reference, err := repository.NewSubmissionExecutionReference(fmt.Sprintf("%d", submission.ID))
-	if err != nil {
-		return nil, err
-	}
-	mode, err := repository.NewProblemExecution(problem.CurrentTestCasesKey, problem.TimeLimitMS)
-	if err != nil {
-		return nil, err
-	}
-	job, err := repository.NewExecutionJob(reference, input.Language, sourceCodeKey, mode)
-	if err != nil {
-		return nil, err
-	}
-	if err := u.dispatcher.Dispatch(ctx, job); err != nil {
 		return nil, err
 	}
 

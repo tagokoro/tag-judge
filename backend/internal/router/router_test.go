@@ -712,7 +712,6 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 			&fakeSubmissionRepository{},
 			problemRepo,
 			&fakeSourceCodeStorage{},
-			&fakeExecutionDispatcher{},
 		)),
 		Me:       handler.NewMeHandler(),
 		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
@@ -779,6 +778,10 @@ func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.C
 		Status:        params.Status,
 		Score:         params.Score,
 	}, nil
+}
+
+func (r *fakeSubmissionRepository) CreateWithOutbox(_ context.Context, params repository.CreateSubmissionWithOutboxParams) (*domain.Submission, error) {
+	return r.Create(context.Background(), params.CreateSubmissionParams)
 }
 
 func (r *fakeSubmissionRepository) FindByID(_ context.Context, id int64) (*domain.Submission, error) {
