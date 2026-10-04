@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -153,6 +154,77 @@ func TestGetSubmissionForbidden(t *testing.T) {
 	if !errors.Is(err, apperror.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden", err)
 	}
+	if submissions.caseResultsCalled {
+		t.Fatal("case results must not be read before authorization")
+	}
+}
+
+func TestGetSubmissionCaseResults(t *testing.T) {
+	runtime := 0
+	memory := 1024
+	want := []domain.SubmissionCaseResult{
+		{TestCaseID: 10, Status: domain.SubmissionStatusAC, ExecutionTimeMS: &runtime, MemoryKB: &memory},
+		{TestCaseID: 12, Status: domain.SubmissionStatusWA},
+	}
+	for _, tc := range []struct {
+		name  string
+		owner string
+		role  domain.UserRole
+	}{
+		{"owner", testUserID, domain.UserRoleUser},
+		{"admin", "another-user", domain.UserRoleAdmin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			submissions := &fakeSubmissionRepository{
+				submission:  domain.Submission{ID: 7, UserID: tc.owner, Status: domain.SubmissionStatusWA, Score: 1},
+				caseResults: want,
+			}
+			uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
+			got, err := uc.Get(context.Background(), GetSubmissionInput{Actor: submissionTestActor(tc.role), SubmissionID: 7})
+			if err != nil {
+				t.Fatalf("Get returned error: %v", err)
+			}
+			if got.ID != 7 || got.Status != domain.SubmissionStatusWA || got.Score != 1 || !reflect.DeepEqual(got.CaseResults, want) {
+				t.Fatalf("detail = %+v, want WA with case results %+v", got, want)
+			}
+			if !submissions.caseResultsCalled || submissions.caseResultsID != 7 {
+				t.Fatalf("queried case results for %d, want 7", submissions.caseResultsID)
+			}
+		})
+	}
+}
+
+func TestGetUnfinishedSubmissionHasNoCaseResults(t *testing.T) {
+	for _, status := range []domain.SubmissionStatus{domain.SubmissionStatusPending, domain.SubmissionStatusRunning} {
+		t.Run(string(status), func(t *testing.T) {
+			submissions := &fakeSubmissionRepository{
+				submission: domain.Submission{UserID: testUserID, Status: status},
+				// Simulate the worker committing after the submission status read.
+				caseResults: []domain.SubmissionCaseResult{{TestCaseID: 1, Status: domain.SubmissionStatusAC}},
+			}
+			uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
+			got, err := uc.Get(context.Background(), GetSubmissionInput{Actor: submissionTestActor(domain.UserRoleUser), SubmissionID: 7})
+			if err != nil {
+				t.Fatalf("Get returned error: %v", err)
+			}
+			if got.Status != status || got.CaseResults == nil || len(got.CaseResults) != 0 || submissions.caseResultsCalled {
+				t.Fatalf("unfinished submission must have an empty result array without querying results: %+v", got)
+			}
+		})
+	}
+}
+
+func TestGetSubmissionCaseResultsFailure(t *testing.T) {
+	want := errors.New("database unavailable")
+	submissions := &fakeSubmissionRepository{
+		submission:     domain.Submission{UserID: testUserID, Status: domain.SubmissionStatusAC},
+		caseResultsErr: want,
+	}
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
+	got, err := uc.Get(context.Background(), GetSubmissionInput{Actor: submissionTestActor(domain.UserRoleUser), SubmissionID: 7})
+	if !errors.Is(err, want) || got != nil {
+		t.Fatalf("Get = %+v, %v; want no partial success and the database error", got, err)
+	}
 }
 
 func TestListSubmissionsDefaults(t *testing.T) {
@@ -259,6 +331,10 @@ type fakeSubmissionRepository struct {
 	findErr                error
 	listCalled             bool
 	listParams             repository.ListSubmissionsParams
+	caseResultsCalled      bool
+	caseResultsID          int64
+	caseResults            []domain.SubmissionCaseResult
+	caseResultsErr         error
 }
 
 func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.CreateSubmissionParams) (*domain.Submission, error) {
@@ -305,6 +381,12 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 	r.listCalled = true
 	r.listParams = params
 	return []domain.Submission{}, nil
+}
+
+func (r *fakeSubmissionRepository) ListCaseResults(_ context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error) {
+	r.caseResultsCalled = true
+	r.caseResultsID = submissionID
+	return r.caseResults, r.caseResultsErr
 }
 
 type fakeSubmissionSourceCodeStorage struct {

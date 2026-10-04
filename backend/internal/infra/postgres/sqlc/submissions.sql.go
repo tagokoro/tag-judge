@@ -119,6 +119,45 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 	return i, err
 }
 
+const listSubmissionCaseResults = `-- name: ListSubmissionCaseResults :many
+SELECT test_case_id, status, execution_time_ms, memory_kb
+FROM submission_results
+WHERE submission_id = $1
+ORDER BY test_case_id, id
+`
+
+type ListSubmissionCaseResultsRow struct {
+	TestCaseID      int64       `json:"test_case_id"`
+	Status          string      `json:"status"`
+	ExecutionTimeMs pgtype.Int4 `json:"execution_time_ms"`
+	MemoryKb        pgtype.Int4 `json:"memory_kb"`
+}
+
+func (q *Queries) ListSubmissionCaseResults(ctx context.Context, submissionID int64) ([]ListSubmissionCaseResultsRow, error) {
+	rows, err := q.db.Query(ctx, listSubmissionCaseResults, submissionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubmissionCaseResultsRow
+	for rows.Next() {
+		var i ListSubmissionCaseResultsRow
+		if err := rows.Scan(
+			&i.TestCaseID,
+			&i.Status,
+			&i.ExecutionTimeMs,
+			&i.MemoryKb,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserSubmissions = `-- name: ListUserSubmissions :many
 SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, created_at, judged_at
 FROM submissions

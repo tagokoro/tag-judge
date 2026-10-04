@@ -236,6 +236,24 @@ func (r *SubmissionRepository) FindByID(ctx context.Context, id int64) (*domain.
 	return &submission, nil
 }
 
+func (r *SubmissionRepository) ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error) {
+	rows, err := r.queries.ListSubmissionCaseResults(ctx, submissionID)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]domain.SubmissionCaseResult, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, domain.SubmissionCaseResult{
+			TestCaseID:      row.TestCaseID,
+			Status:          domain.SubmissionStatus(row.Status),
+			ExecutionTimeMS: optionalInt(row.ExecutionTimeMs),
+			MemoryKB:        optionalInt(row.MemoryKb),
+		})
+	}
+	return results, nil
+}
+
 func (r *SubmissionRepository) ListByUserID(ctx context.Context, params repository.ListSubmissionsParams) ([]domain.Submission, error) {
 	rows, err := r.queries.ListUserSubmissions(ctx, sqlc.ListUserSubmissionsParams{
 		UserID:       params.UserID,

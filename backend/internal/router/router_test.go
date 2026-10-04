@@ -694,6 +694,10 @@ func newTestRouter() http.Handler {
 }
 
 func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
+	return newTestRouterWithRepositories(groups, &fakeSubmissionRepository{})
+}
+
+func newTestRouterWithRepositories(groups repository.GroupRepository, submissions repository.SubmissionRepository) http.Handler {
 	authRepo := &fakeAuthRepository{}
 	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
 	problemRepo := &fakeProblemRepository{}
@@ -709,7 +713,7 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 		)),
 		Groups: handler.NewGroupHandler(usecase.NewGroupUsecase(groups)),
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
-			&fakeSubmissionRepository{},
+			submissions,
 			problemRepo,
 			&fakeSourceCodeStorage{},
 		)),
@@ -765,7 +769,14 @@ func (r *fakeCodeRunRepository) ListByUserID(_ context.Context, _ repository.Lis
 	return []domain.CodeRun{}, nil
 }
 
-type fakeSubmissionRepository struct{}
+type fakeSubmissionRepository struct {
+	submission       *domain.Submission
+	findErr          error
+	caseResults      []domain.SubmissionCaseResult
+	caseResultsCalls int
+	caseResultsErr   error
+	list             []domain.Submission
+}
 
 func (r *fakeSubmissionRepository) Create(_ context.Context, params repository.CreateSubmissionParams) (*domain.Submission, error) {
 	return &domain.Submission{
@@ -785,11 +796,22 @@ func (r *fakeSubmissionRepository) CreateWithOutbox(_ context.Context, params re
 }
 
 func (r *fakeSubmissionRepository) FindByID(_ context.Context, id int64) (*domain.Submission, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	if r.submission != nil {
+		return r.submission, nil
+	}
 	return &domain.Submission{ID: id, UserID: "00000000-0000-4000-8000-000000000001"}, nil
 }
 
+func (r *fakeSubmissionRepository) ListCaseResults(_ context.Context, _ int64) ([]domain.SubmissionCaseResult, error) {
+	r.caseResultsCalls++
+	return r.caseResults, r.caseResultsErr
+}
+
 func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.ListSubmissionsParams) ([]domain.Submission, error) {
-	return []domain.Submission{}, nil
+	return r.list, nil
 }
 
 type fakeSourceCodeStorage struct{}
