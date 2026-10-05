@@ -30,3 +30,9 @@ FROM submissions
 WHERE user_id = ((sqlc.arg(user_id)::text)::uuid)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- name: ListSubmissionCaseResults :many
+SELECT test_case_id, status, execution_time_ms, memory_kb
+FROM submission_results
+WHERE submission_id = $1
+ORDER BY test_case_id, id;

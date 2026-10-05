@@ -68,7 +68,7 @@ func (h *SubmissionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, newSubmissionResponse(*submission))
+	writeJSON(w, http.StatusOK, newSubmissionDetailResponse(*submission))
 }
 
 func (h *SubmissionHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -145,5 +145,33 @@ func newSubmissionResponse(submission domain.Submission) submissionResponse {
 		Score:         submission.Score,
 		CreatedAt:     submission.CreatedAt,
 		JudgedAt:      submission.JudgedAt,
+	}
+}
+
+type submissionDetailResponse struct {
+	submissionResponse
+	CaseResults []submissionCaseResultResponse `json:"case_results"`
+}
+
+type submissionCaseResultResponse struct {
+	TestCaseID      int64  `json:"test_case_id"`
+	Status          string `json:"status"`
+	ExecutionTimeMS *int   `json:"execution_time_ms"`
+	MemoryKB        *int   `json:"memory_kb"`
+}
+
+func newSubmissionDetailResponse(detail domain.SubmissionDetail) submissionDetailResponse {
+	results := make([]submissionCaseResultResponse, 0, len(detail.CaseResults))
+	for _, result := range detail.CaseResults {
+		results = append(results, submissionCaseResultResponse{
+			TestCaseID:      result.TestCaseID,
+			Status:          string(result.Status),
+			ExecutionTimeMS: result.ExecutionTimeMS,
+			MemoryKB:        result.MemoryKB,
+		})
+	}
+	return submissionDetailResponse{
+		submissionResponse: newSubmissionResponse(detail.Submission),
+		CaseResults:        results,
 	}
 }

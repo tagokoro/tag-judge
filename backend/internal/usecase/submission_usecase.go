@@ -103,7 +103,7 @@ type GetSubmissionInput struct {
 	SubmissionID int64
 }
 
-func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (*domain.Submission, error) {
+func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (*domain.SubmissionDetail, error) {
 	if err := validateActor(input.Actor); err != nil {
 		return nil, err
 	}
@@ -119,7 +119,22 @@ func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (
 		return nil, apperror.Forbidden("SUBMISSION_FORBIDDEN", "submission is not accessible")
 	}
 
-	return submission, nil
+	detail := &domain.SubmissionDetail{
+		Submission:  *submission,
+		CaseResults: []domain.SubmissionCaseResult{},
+	}
+	// The worker commits results and the terminal status together. If judging
+	// finishes after this read, return the observed pending/running state with
+	// an empty array; the next poll will fetch the committed results.
+	if submission.Status == domain.SubmissionStatusPending || submission.Status == domain.SubmissionStatusRunning {
+		return detail, nil
+	}
+	results, err := u.submissions.ListCaseResults(ctx, submission.ID)
+	if err != nil {
+		return nil, err
+	}
+	detail.CaseResults = append(detail.CaseResults, results...)
+	return detail, nil
 }
 
 type ListSubmissionsInput struct {

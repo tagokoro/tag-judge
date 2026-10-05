@@ -33,5 +33,6 @@ type SubmissionRepository interface {
 	Create(ctx context.Context, params CreateSubmissionParams) (*domain.Submission, error)
 	CreateWithOutbox(ctx context.Context, params CreateSubmissionWithOutboxParams) (*domain.Submission, error)
 	FindByID(ctx context.Context, id int64) (*domain.Submission, error)
+	ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error)
 	ListByUserID(ctx context.Context, params ListSubmissionsParams) ([]domain.Submission, error)
 }

@@ -34,3 +34,17 @@ type Submission struct {
 	CreatedAt     time.Time
 	JudgedAt      *time.Time
 }
+
+type SubmissionDetail struct {
+	Submission
+	CaseResults []SubmissionCaseResult
+}
+
+// SubmissionCaseResult contains only metadata safe to expose to submitters.
+// Captured output may reveal hidden test inputs and is intentionally excluded.
+type SubmissionCaseResult struct {
+	TestCaseID      int64
+	Status          SubmissionStatus
+	ExecutionTimeMS *int
+	MemoryKB        *int
+}

@@ -359,8 +359,12 @@ paths:
           $ref: "#/components/responses/Error"
   /submissions/{submission_id}:
     get:
-      summary: Get a submission
-      description: The owner and administrators can view a submission.
+      summary: Get a submission with case results
+      description: |
+        The owner and administrators can view a submission and its saved case results.
+        Pending and running submissions return an empty case_results array; poll this
+        endpoint until the status is terminal. Hidden test inputs, expected output,
+        stdout, and stderr are never included, including for administrators.
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
@@ -373,11 +377,11 @@ paths:
             minimum: 1
       responses:
         "200":
-          description: Submission
+          description: Submission and saved case results
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SubmissionResponse"
+                $ref: "#/components/schemas/SubmissionDetailResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -1027,6 +1031,45 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/Submission"
+    SubmissionCaseResult:
+      type: object
+      additionalProperties: false
+      required: [test_case_id, status, execution_time_ms, memory_kb]
+      properties:
+        test_case_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ac, wa, tle, mle, re, ce, ie]
+        execution_time_ms:
+          type: [integer, "null"]
+          minimum: 0
+          description: Execution time in milliseconds, or null if not recorded. Zero is a valid recorded value.
+        memory_kb:
+          type: [integer, "null"]
+          minimum: 0
+          description: Memory usage in KiB, or null if not recorded. The current worker does not record this metric.
+    SubmissionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Submission"
+        - type: object
+          required: [case_results]
+          properties:
+            case_results:
+              type: array
+              description: |
+                Saved results ordered by test_case_id ascending. Empty for pending/running
+                submissions or when no cases ran (for example an early internal error).
+                Cases not executed after an early failure are omitted.
+              items:
+                $ref: "#/components/schemas/SubmissionCaseResult"
+    SubmissionDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/SubmissionDetail"
     SubmissionListResponse:
       type: object
       required: [data]

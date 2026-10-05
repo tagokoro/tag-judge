@@ -119,6 +119,39 @@ export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
 
 同じメッセージをもう一度送っても、終端状態の提出は再判定されずケース別結果も重複しない。`submission_results` の `(submission_id, test_case_id)` 一意制約と、Worker の行ロックがこの保証を担う。
 
+### 提出結果の詳細API
+
+提出者本人または管理者は、既存の詳細取得APIでケース別結果も取得できる。
+
+```sh
+curl -s -b cookies.txt "http://localhost:8080/api/v1/submissions/${SUBMISSION_ID}"
+```
+
+レスポンスの `data` は従来の提出情報に加えて、次のような `case_results` を持つ。
+
+```json
+{
+  "case_results": [
+    {"test_case_id": 1, "status": "ac", "execution_time_ms": 12, "memory_kb": null},
+    {"test_case_id": 2, "status": "wa", "execution_time_ms": 8, "memory_kb": null}
+  ]
+}
+```
+
+- `pending` / `running` は `case_results: []` を返す。完了まで同じAPIをポーリングする。
+- 完了後は保存済みの実行ケースだけを `test_case_id` 昇順で返す。最初の失敗で判定が止まった場合、未実行ケースは含まれない。ケース実行前のIEも空配列になる。
+- 未計測の実行時間・メモリ使用量は `null`。現在のWorkerはメモリ使用量を保存しないため `memory_kb` は `null` となる。
+- 隠しテストを保護するため、入力・期待出力・標準出力・標準エラーは管理者にもこのAPIからは返さない。
+- 他人の提出は管理者以外 `403`、未認証は `401`、存在しない提出は `404`。提出一覧・提出作成レスポンスの形式は従来どおり。
+
+詳細APIのPostgreSQL統合テストは、ローカルのテスト用DBを指定して実行できる。テスト専用schemaへmigrationとfixtureを投入し、終了時にschemaを削除する。指定ユーザーにはschema・extension作成権限が必要。CIではPostgreSQL 16の専用サービスで毎回実行する。
+
+```sh
+cd backend
+SUBMISSION_DETAILS_TEST_DATABASE_URL='postgres://judge_user:judge_pass@localhost:5432/judge?sslmode=disable' \
+  go test ./internal/infra/postgres -run TestSubmissionDetailsPostgres -v
+```
+
 LocalStack へ投入する message body は `ExecutionJob` の JSON とする。problem mode は既存workerとの互換フィールドも含める。
 
 ```json
