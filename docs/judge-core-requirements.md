@@ -1,5 +1,7 @@
 # judge-core 要件定義
 
+この文書は既存のProblem/Submissionサンプルにおけるproblem modeの初期要件を記録する。汎用stdin executionの契約と現在のMVP範囲は [共通実行モデル](sandbox-execution-api.md)、Rustの実装状況は [Rust設計](rust-judge-design.md) を参照する。後述の「初期実装でやらないこと」は当初のcore単体開発の範囲であり、現在のプロダクトからメモリ制限やsandbox検証を除外する意味ではない。
+
 ## 1. 目的
 
 `judge-core` は、提出コードと複数テストケースを受け取り、オンラインジャッジとして必要な判定結果を返す Rust 製の判定エンジンである。
