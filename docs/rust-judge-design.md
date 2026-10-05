@@ -1,32 +1,21 @@
 # Rust Workerとjudge-coreの設計
 
-Rustは、未信頼コードの隔離実行とその結果の回収を担当する。プロダクト全体の目標は [サンドボックス実行API](sandbox-execution-api.md)、配置と実装状況は [インフラ設計](infrastructure-design.md) に従う。本書の「現行」はmain `f8f5e0c` 時点を示す。
+Rustは競プロサービスの問題判定と、CodeRunの動作確認を担当する。[プロダクト設計](competitive-programming-service.md) を基準とし、Problem/Submissionを主要機能として維持する。本書の「現行」はmain `f8f5e0c` 時点を示す。
 
 ## 責務
 
 | コンポーネント | 責務 |
 | --- | --- |
-| Go API | 認証、入力検証、artifact保存、受付とoutbox、公開APIでの結果取得 |
-| judge-worker | queue受信、DBでの開始記録、artifact取得、core呼び出し、DBへの結果保存、保存後ack |
-| judge-core | Python実行、時間計測、制限超過の検出。problem modeでは期待出力比較とverdict集約 |
-| runner | 実行環境の準備、子プロセス起動、入出力回収、停止・cleanup |
+| Go API | 認証・問題へのアクセス、制限値決定、artifact保存、受付とoutbox、結果取得 |
+| judge-worker | queue受信、開始記録、artifact取得、core呼び出し、DBへの結果保存、保存後ack |
+| judge-core | ケース実行、出力比較、verdict集約。stdin modeでは比較せず一度実行 |
+| runner | 隔離環境の準備、子プロセス起動、制限適用、入出力と計測値の回収、cleanup |
 
-WorkerはPostgreSQLへ直接アクセスする。core/runnerはDB、SQS、S3を知らず、Workerから取得済みの入力を受け取る。CLIはcoreを単独検証する入口として維持する。MVPでは別のResult Consumerは設けない。
-
-```mermaid
-flowchart LR
-    Queue["SQS"] --> Worker["judge-worker"]
-    Storage["S3: source / testcase"] --> Worker
-    Worker <-->|"開始記録 / 結果transaction"| DB[("PostgreSQL")]
-    Worker --> Core["judge-core"]
-    Core --> Runner["Linux isolate runner"]
-    Runner -->|"実行結果"| Core
-    Core -->|"集約結果"| Worker
-```
+WorkerはPostgreSQLへ直接結果を保存する。core/runnerにはDB・SQS・S3の責務を持たせない。CLIはcoreを単独検証する入口として維持する。構成図は [インフラ設計](infrastructure-design.md) を参照する。
 
 ## 現行のproblem mode
 
-API側の `ExecutionJob` はreference（submission/code_run）とexecutionMode（problem/stdin）を持つ。ただし現行Rust Workerの `JudgeJob` は次のSubmission向けフィールドを読むため、APIはproblem jobに互換フィールドも含めている。
+API側の `ExecutionJob` はreference（submission/code_run）とexecutionMode（problem/stdin）を持つ。現行Rust Workerの `JudgeJob` は次のSubmission向けフィールドを読むため、APIはproblem jobに互換フィールドも含める。
 
 ```text
 submissionId
@@ -36,40 +25,38 @@ testCasesKey
 timeLimitMs
 ```
 
-Submissionのソースとテストケースは提出時にS3へ保存する。APIはSubmissionとoutboxを同じDB transactionで作り、publisherがSQSへ配送する。WorkerはS3からスナップショットを取得し、coreの `JudgeRequest` に変換する。
+APIはSubmissionのソースを保存し、公開済みのテストケーススナップショットへの参照を確定する。Submissionとoutboxを同じDB transactionで作り、publisherがSQSへ配送する。Workerがsourceとスナップショットを取得してcoreへ渡す。
 
-coreはPythonをケースごとに実行し、末尾の空白・改行を除いた出力を比較する。最初の非ACで止まり、実行したケースだけを返す。Pythonの構文エラーや例外はRE。WA、得点、複数ケースの集約はproblem mode固有であり、stdin executionには適用しない。詳細は [judge-core要件](judge-core-requirements.md) に残す。
+coreはPythonをケースごとに実行し、末尾の空白・改行を除いた出力を比較する。最初の非ACで止まり、実行済みケースだけを返す。Pythonの構文エラーや例外はRE。全ケースACの得点はケース得点の合計、それ以外は0。詳細は [judge-core要件](judge-core-requirements.md) に従う。
 
-Workerは `submissions` と `submission_results` へ判定・ケース結果・得点を一つのtransactionで保存し、その後にSQS messageを削除する。DB/S3の一時障害は再配送の対象とし、終端Submissionの再配送では再判定しない。visibilityは判定中に延長する。ただし現在の行ロックと終端チェックだけでは、複数Workerの実行開始をleaseで排他する仕組みにはなっていない。
+Workerは `submissions` と `submission_results` へ判定・ケース結果・得点を一つのtransactionで保存し、その後にackする。DB/S3の一時障害は再配送し、終端Submissionは再判定しない。visibilityを判定中に延長する。現在の行ロックと終端チェックだけでは実行開始の排他は完成しておらず、#29でleaseと試行tokenを追加する。
 
-## stdin modeで追加するもの
+## CodeRun / stdin mode
 
-現行CodeRun APIはpendingレコードを作り、ソースをS3へ保存してstdin jobを直接dispatchする。source保存やdispatchの失敗時にpendingをrollbackせず、現行Rust Workerもstdin jobを処理できない。
+CodeRunは自分のソースと入力を試す機能として既存APIを維持する。現行APIはpendingレコードを作り、ソースをS3へ保存し、stdin jobを直接dispatchする。失敗時にpendingをrollbackせず、Rust Workerもstdin jobを処理できない。
 
-#26〜#29で、CodeRunを汎用executionの互換入口へ移し、次を実装する。
+#27ではproblem/stdinを判別し、stdin modeにtest casesを要求せず一度実行する。開始時はcode_runsをrunningへ更新し、正常終了ac、非0終了re、timeoutはtle、基盤障害はieとして既存の結果フィールドに保存する。acは正解判定ではなく正常終了を表す。
 
-1. version別jobを読み分け、problem modeを維持しながらstdin modeを受け付ける。
-2. executionをclaimし、DBの不変な実行仕様からソース・stdin・有効な制限値を取得する。
-3. test casesや期待出力を要求せず、runnerを一度呼ぶ。
-4. ユーザープロセスの終了コード、出力、wall clock時間、peak memory、安定したfailure reasonを保存する。
-5. 有効なattempt tokenに対してのみ終端結果を確定し、DB保存成功後にackする。
+終了コード・計測値・内部の失敗理由をrunnerから区別できるようにし、必要なAPI拡張は既存契約を保って追加する。DB保存後にackし、再配送で完了結果を壊さない。新しい公開executionモデルやCodeRun IDの移行は行わない。
 
-状態、nullableな結果値、retry、内部envelopeと互換性は [共通実行モデル](sandbox-execution-api.md) を正とする。現行 `ExecutionOutput` の成功フラグ・runtime・timed_outだけでは新しい結果契約を満たせないため、#27/#28でrunnerのモデルも拡張する。
+#29ではCodeRunにもoutboxと復旧を適用する。冪等性の単位はsubmission/code_runの種別とIDであり、同じ整数IDの異なる種別を混同しない。終端状態は不変とし、古い試行の結果を拒否する。目標遷移は [プロダクト設計](competitive-programming-service.md#4-状態遷移と再配送) を参照する。
 
-## 隔離と資源制限
+## 制限と追加言語
 
-現行Linux runnerはisolateのinit/run/cleanupとboxの排他を扱う。CPU時間は要求値、wall clockは要求値に1秒を加えた値、メモリは固定値で渡している。メモリ使用量は結果に保存しておらず、stdout/stderrを読み込む前の明示的なサイズ制限も完成していない。これらは新APIの目標仕様との差分である。
+現行isolate runnerはinit/run/cleanupとboxの排他を扱う。CPU時間は要求値、wall clockは要求値に1秒を加えた値、memoryは固定値を使う。Problemのmemory_limit_kbはrunnerへ接続されておらず、使用量も結果に保存していない。stdout/stderrの明示的なサイズ制限も未完成である。
 
-#28で要求ごとのCPU/wall/memory制限、出力・生成ファイル・process/thread数の制限、環境変数allowlist、filesystemの限定、外部networkの禁止を接続する。ユーザーコードの停止とcleanupを確認してから通常の結果を確定する。Worker死亡時の復旧は #29、host再起動時の残留処理と運用は #31 に接続する。
+#28でProblem/CodeRunから確定した制限をrunnerへ渡し、memory・output・process/thread・生成ファイルの制限、環境変数allowlist、filesystemの限定、外部network禁止を検証する。未計測値を0で埋めず、MLE等は確認できた制限超過に基づいて返す。CodeRunの既存statusにない制限違反はREとし、必要なら互換性のある理由フィールドで区別する。
 
-非Linux環境のdirect runnerは信頼できるローカルコードの確認だけに使う。未信頼コードの保証はLinux上の攻撃的ケース試験で確認する。isolateの導入自体は完了しているが、公開API向けの安全性検証は別の完了条件である。
+ユーザーコードの停止とcleanupを確認してから通常の結果を保存する。Worker死亡時の復旧は #29、host再起動時の残留処理と運用は #31 につなぐ。non-Linuxのdirect runnerは信頼できる開発コードに限る。
 
-## 維持する境界
+追加言語はC++（#5）を優先し、Rust（#4）を続ける。compileも隔離し、compile timeout・生成物・CEとruntime errorを区別する。言語追加で既存Pythonの判定規則を変えない。
 
-- 公開APIの利用者にS3 keyや内部jobのJSONを渡させない。
-- coreへDB接続やqueue SDKを持ち込まない。
-- problem modeのAC/WAをexecutionのstatusへ持ち込まない。
-- Workerのcredentialを子プロセスに渡さない。
-- 旧Submissionの判定・得点・ケース別結果を回帰テストで維持する。
+## 保持する境界
 
-追加言語とcompile stepは #4/#5 のMVP後の作業とする。技術選定の理由とCloudflare APIとの将来の関係は [ADR-0001](adr/0001-sandbox-execution-api.md) に記録する。
+- 解答者にS3 key、test case参照、Problemの実行制限を指定させない。
+- Workerのcredentialを子プロセスへ渡さない。
+- Submission詳細に隠しテストの本文やstdout/stderrを返さない。
+- stdin modeに問題の正誤比較・得点を持ち込まない。
+- 既存の問題判定・得点・ケース詳細を回帰テストで維持する。
+
+技術選定とCloudflare APIとの将来の関係は [ADR-0001](adr/0001-competitive-programming-service.md) に記録する。

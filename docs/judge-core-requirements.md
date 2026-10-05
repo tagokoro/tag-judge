@@ -1,6 +1,6 @@
 # judge-core 要件定義
 
-この文書は既存のProblem/Submissionサンプルにおけるproblem modeの初期要件を記録する。汎用stdin executionの契約と現在のMVP範囲は [共通実行モデル](sandbox-execution-api.md)、Rustの実装状況は [Rust設計](rust-judge-design.md) を参照する。後述の「初期実装でやらないこと」は当初のcore単体開発の範囲であり、現在のプロダクトからメモリ制限やsandbox検証を除外する意味ではない。
+この文書は競プロサービスの問題判定（problem mode）の初期要件を記録する。サービス全体の範囲は [プロダクト設計](competitive-programming-service.md)、現在のRust実装は [Rust設計](rust-judge-design.md) を参照する。後述の「初期実装でやらないこと」は当初のcore単体開発の範囲であり、公開サービスからメモリ制限やsandbox検証を除外する意味ではない。
 
 ## 1. 目的
 

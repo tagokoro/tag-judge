@@ -14,7 +14,7 @@ S3: LocalStack
 `judge-core` は DB / Queue / AWS を知らない判定エンジンとして保つ。  
 `judge-worker` は Queue / S3 との接続と、PostgreSQLへの判定結果保存を担う。
 
-この手順は現在実装済みのproblem modeを対象とする。新しいexecution APIとstdin modeの目標仕様は [共通実行モデル](sandbox-execution-api.md) を参照する。未信頼コードの隔離検証はLinux上で行い、非Linux環境のdirect runnerには信頼できる開発用コードだけを渡す。
+この手順は現在実装済みのproblem modeを対象とする。競プロサービスの導線とCodeRunの目標仕様は [プロダクト設計](competitive-programming-service.md) を参照する。未信頼コードの隔離検証はLinux上で行い、非Linux環境のdirect runnerには信頼できる開発用コードだけを渡す。
 
 ## 2. 構成
 
@@ -219,4 +219,4 @@ sudo docker compose exec -T localstack awslocal sqs send-message \
 
 現行のAPIとWorkerはPostgreSQLのschemaを共有し、Submissionの受付から結果保存までを接続している。CodeRunはAPIによるstdin jobの生成までで、Workerのstdin処理と結果保存は #27 の対象である。
 
-今後は [プロダクト境界・状態遷移](sandbox-execution-api.md) に従い、Problem/Submissionをサンプルとして維持しながら汎用execution APIを実装する。最新の実装状況と構成図は [インフラ設計](infrastructure-design.md) を参照する。
+今後は [プロダクト設計](competitive-programming-service.md) に従い、Problem/Submissionを中心に問題閲覧・提出・結果の画面とCodeRunの動作確認を完成させる。最新の実装状況と構成図は [インフラ設計](infrastructure-design.md) を参照する。
