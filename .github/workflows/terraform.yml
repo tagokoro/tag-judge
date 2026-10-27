@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: terraform-dev
@@ -26,8 +25,8 @@ env:
   TF_STATE_KEY: tag-judge/dev/terraform.tfstate
 
 jobs:
-  terraform:
-    name: Terraform dev
+  validate:
+    name: Terraform validation
     runs-on: ubuntu-latest
 
     steps:
@@ -36,31 +35,19 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.6
+          terraform_wrapper: false
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
-
-      - name: Check required repository variables
-        run: |
-          test -n "${{ vars.AWS_ROLE_ARN }}"
-          test -n "${{ vars.TF_STATE_BUCKET }}"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform fmt
         run: terraform fmt -check -recursive
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform init
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=${{ env.TF_STATE_KEY }}" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+        run: terraform init -backend=false -input=false
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform validate
@@ -75,11 +62,57 @@ jobs:
         run: tflint
         working-directory: ${{ env.TF_WORKING_DIR }}
 
+      - name: Test worker environment setup
+        run: python3 -B -m unittest discover -s tests -v
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  deploy:
+    name: Terraform dev deployment
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.6
+          terraform_wrapper: false
+
+      - name: Check required repository variables
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          test -n "$AWS_ROLE_ARN"
+          test -n "$TF_STATE_BUCKET"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=$TF_STATE_KEY" \
+            -backend-config="region=$AWS_REGION"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
       - name: Terraform plan
         run: terraform plan -input=false -out=tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: terraform apply -input=false -auto-approve tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
