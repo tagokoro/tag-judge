@@ -16,6 +16,36 @@ The EC2 instance is intended to be accessed through AWS Systems Manager Session 
 
 ## Deploy
 
+### Worker recreation prerequisites
+
+The existing RDS `judge` database must already have the application migrations
+and the dedicated `judge_worker` login and grants. Recreating EC2 does not
+initialize a new database or reset DB passwords.
+
+Before planning, create a Secrets Manager secret named
+`tag-judge/dev/worker-db` (or `<project_name>/<environment>/worker-db`) in the
+deployment region. Its JSON value must contain the existing worker DB login:
+
+```json
+{"username": "judge_worker", "password": "<existing worker DB password>"}
+```
+
+Use the worker password, not the RDS administrator or API password. Do not commit
+the secret value or pass it through Terraform variables. Terraform reads only
+the secret metadata and grants the EC2 role access to this specific secret.
+
+During EC2 setup, cloud-init installs OpenSSL build dependencies and RDS root
+certificates, fetches the secret using the instance role, then atomically creates
+`/etc/tag-judge/worker.env` with mode `0600` inside a root-only directory. Only
+after successful setup does it start the worker service. The secret value is not
+printed to cloud-init logs or embedded in EC2 user data.
+
+Secret changes are not fetched on every service restart. After changing the
+worker DB password, update its secret and regenerate the environment file or
+recreate EC2. RDS administrator password rotation is independent of this login.
+
+### Plan and apply
+
 ```sh
 cd infra/aws/dev
 terraform init
@@ -25,35 +55,26 @@ terraform apply
 
 ## Verify
 
-After `terraform apply`, copy sample artifacts to S3:
-
-```sh
-BUCKET="$(terraform output -raw artifacts_bucket_name)"
-QUEUE_URL="$(terraform output -raw submissions_queue_url)"
-
-printf '%s\n' 'print(input())' | aws s3 cp - "s3://$BUCKET/submissions/sub_aws_001/main.py"
-printf '%s\n' '[{"input":"hello\n","expectedOutput":"hello\n"}]' | aws s3 cp - "s3://$BUCKET/problems/prob_001/testcases.json"
-```
-
-Send a judge job:
-
-```sh
-aws sqs send-message \
-  --queue-url "$QUEUE_URL" \
-  --message-body '{
-    "submissionId": "sub_aws_001",
-    "language": "python",
-    "sourceCodeKey": "submissions/sub_aws_001/main.py",
-    "testCasesKey": "problems/prob_001/testcases.json",
-    "timeLimitMs": 1000
-  }'
-```
-
-Open a Session Manager shell and inspect logs:
+After `terraform apply`, open a Session Manager shell:
 
 ```sh
 aws ssm start-session --target "$(terraform output -raw judge_worker_instance_id)"
-sudo journalctl -u judge-worker -f
 ```
 
-Success means the worker log prints a `WorkerResult` JSON with `verdict: "AC"` and the SQS message is deleted.
+On EC2, check setup completion and service health:
+
+```sh
+sudo cloud-init status --wait
+sudo systemctl is-active judge-worker
+sudo stat -c '%a %U' /etc/tag-judge/worker.env
+sudo journalctl -u judge-worker -n 50 --no-pager
+```
+
+The service should be active and the environment file should be owned by root
+with mode `600`. Inspect file metadata rather than printing its credentials.
+
+For end-to-end verification, create submissions through the API as described in
+the [project README](../../../README.md). The API records the submission and
+immutable test-case snapshot before dispatching a job. Verify an AC submission
+and a WA submission using the submission-detail API, including case results and
+scores. This verifies result persistence as well as code execution.

@@ -51,6 +51,10 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+data "aws_secretsmanager_secret" "worker_db" {
+  name = "${var.project_name}/${var.environment}/worker-db"
+}
+
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
   bucket_name = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
@@ -151,6 +155,12 @@ resource "aws_iam_role_policy" "judge_worker" {
           "sqs:DeleteMessage"
         ]
         Resource = aws_sqs_queue.submissions.arn
+      },
+      {
+        Sid      = "ReadWorkerDBCredentials"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = data.aws_secretsmanager_secret.worker_db.arn
       }
     ]
   })
@@ -187,6 +197,11 @@ resource "aws_security_group" "judge_worker" {
 }
 
 resource "aws_instance" "judge_worker" {
+  depends_on = [
+    aws_iam_role_policy.judge_worker,
+    aws_iam_role_policy_attachment.ssm_managed_instance_core,
+  ]
+
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
   subnet_id                   = local.subnet_id
@@ -195,14 +210,19 @@ resource "aws_instance" "judge_worker" {
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    aws_region      = var.aws_region
-    queue_name      = aws_sqs_queue.submissions.name
-    bucket_name     = aws_s3_bucket.artifacts.bucket
-    repository_url  = var.repository_url
-    repository_ref  = var.repository_ref
-    worker_user     = var.worker_user
-    rust_toolchain  = var.rust_toolchain
-    isolate_git_ref = var.isolate_git_ref
+    aws_region           = var.aws_region
+    queue_name           = aws_sqs_queue.submissions.name
+    bucket_name          = aws_s3_bucket.artifacts.bucket
+    repository_url       = var.repository_url
+    repository_ref       = var.repository_ref
+    worker_user          = var.worker_user
+    rust_toolchain       = var.rust_toolchain
+    isolate_git_ref      = var.isolate_git_ref
+    db_host              = aws_db_instance.default.address
+    db_port              = aws_db_instance.default.port
+    db_name              = aws_db_instance.default.db_name
+    db_secret_arn        = data.aws_secretsmanager_secret.worker_db.arn
+    worker_db_env_script = file("${path.module}/scripts/configure_worker_db.py")
   })
 
   user_data_replace_on_change = true
@@ -218,4 +238,54 @@ resource "aws_instance" "judge_worker" {
     Project     = var.project_name
     Environment = var.environment
   }
+}
+
+resource "aws_security_group" "db" {
+  name        = "${local.name_prefix}-db-sg"
+  description = "Security group for DB"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description     = "Allow inbound access from judge_worker"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.judge_worker.id]
+  }
+
+  tags = {
+    Name        = "${local.name_prefix}-db-sg"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_db_subnet_group" "db" {
+  name       = "${local.name_prefix}-db-subnet"
+  subnet_ids = data.aws_subnets.default.ids
+  tags = {
+    Name        = "${local.name_prefix}-db-subnet"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_db_instance" "default" {
+  identifier                  = "${local.name_prefix}-db"
+  db_name                     = "judge"
+  manage_master_user_password = true
+  storage_encrypted           = true
+  instance_class              = "db.t4g.micro"
+  allocated_storage           = 20
+  storage_type                = "gp3"
+  db_subnet_group_name        = aws_db_subnet_group.db.name
+  vpc_security_group_ids      = [aws_security_group.db.id]
+  engine                      = "postgres"
+  engine_version              = "16"
+  backup_retention_period     = 1
+  skip_final_snapshot         = false
+  final_snapshot_identifier   = "tag-judge-dev-db-final"
+  publicly_accessible         = false
+  multi_az                    = false
+  username                    = "judge_admin"
 }
