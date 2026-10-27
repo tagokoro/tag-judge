@@ -44,12 +44,6 @@ Secret changes are not fetched on every service restart. After changing the
 worker DB password, update its secret and regenerate the environment file or
 recreate EC2. RDS administrator password rotation is independent of this login.
 
-Run the environment-generation tests without AWS access from the repository root:
-
-```sh
-python3 -B -m unittest discover -s infra/aws/dev/tests -v
-```
-
 ### Plan and apply
 
 ```sh

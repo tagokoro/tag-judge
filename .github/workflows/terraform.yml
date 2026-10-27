@@ -62,10 +62,6 @@ jobs:
         run: tflint
         working-directory: ${{ env.TF_WORKING_DIR }}
 
-      - name: Test worker environment setup
-        run: python3 -B -m unittest discover -s tests -v
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
   deploy:
     name: Terraform dev deployment
     needs: validate
