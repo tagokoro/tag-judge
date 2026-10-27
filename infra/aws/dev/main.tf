@@ -219,3 +219,53 @@ resource "aws_instance" "judge_worker" {
     Environment = var.environment
   }
 }
+
+resource "aws_security_group" "db" {
+  name        = "${local.name_prefix}-db-sg"
+  description = "Security group for DB"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description     = "Allow inbound access from judge_worker"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.judge_worker.id]
+  }
+
+  tags = {
+    Name        = "${local.name_prefix}-db-sg"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_db_subnet_group" "db" {
+  name       = "${local.name_prefix}-db-subnet"
+  subnet_ids = data.aws_subnets.default.ids
+  tags = {
+    Name        = "${local.name_prefix}-db-subnet"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_db_instance" "default" {
+  identifier                  = "${local.name_prefix}-db"
+  db_name                     = "judge"
+  manage_master_user_password = true
+  storage_encrypted           = true
+  instance_class              = "db.t4g.micro"
+  allocated_storage           = 20
+  storage_type                = "gp3"
+  db_subnet_group_name        = aws_db_subnet_group.db.name
+  vpc_security_group_ids      = [aws_security_group.db.id]
+  engine                      = "postgres"
+  engine_version              = "16"
+  backup_retention_period     = 1
+  skip_final_snapshot         = false
+  final_snapshot_identifier   = "tag-judge-dev-db-final"
+  publicly_accessible         = false
+  multi_az                    = false
+  username                    = "judge_admin"
+}
