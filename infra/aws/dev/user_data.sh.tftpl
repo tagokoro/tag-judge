@@ -9,7 +9,9 @@ apt-get install -y \
   ca-certificates \
   curl \
   git \
-  python3
+  python3 \
+  python3-boto3 \
+  libssl-dev
 
 swap_file=/swapfile
 if [ ! -f "$swap_file" ]; then
@@ -97,10 +99,84 @@ RestartSec=5
 Environment=AWS_DEFAULT_REGION=${aws_region}
 Environment=JUDGE_SUBMISSIONS_QUEUE_NAME=${queue_name}
 Environment=JUDGE_STORAGE_BUCKET=${bucket_name}
-
+EnvironmentFile=/etc/tag-judge/worker.env
 [Install]
 WantedBy=multi-user.target
 EOF
+
+python3 - "${aws_region}" <<'PY'
+import hashlib
+import re
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+region = sys.argv[1]
+
+# ① AWS公式から、このリージョンの証明書バンドルを取得
+url = (
+    f"https://truststore.pki.rds.amazonaws.com/"
+    f"{region}/{region}-bundle.pem"
+)
+with urllib.request.urlopen(url, timeout=30) as response:
+    bundle = response.read().decode("ascii")
+
+certificates = re.findall(
+    r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+    bundle,
+    re.DOTALL,
+)
+
+trust_dir = Path("/usr/local/share/ca-certificates")
+trust_dir.mkdir(parents=True, exist_ok=True)
+installed = 0
+
+for certificate in certificates:
+    # ② subjectとissuerが同じ、自己署名のルートを選ぶ
+    result = subprocess.run(
+        [
+            "openssl", "x509", "-noout",
+            "-subject", "-issuer", "-nameopt", "RFC2253",
+        ],
+        input=certificate,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    lines = result.stdout.splitlines()
+    subject = lines[0].split("=", 1)[1]
+    issuer = lines[1].split("=", 1)[1]
+
+    if subject != issuer:
+        continue
+
+    fingerprint = hashlib.sha256(certificate.encode()).hexdigest()
+    destination = trust_dir / f"tag-judge-rds-{fingerprint}.crt"
+    destination.write_text(certificate + "\n", encoding="ascii")
+    destination.chmod(0o644)
+    installed += 1
+
+if installed == 0:
+    raise RuntimeError("RDSのルート証明書が見つかりません")
+
+print(f"RDSルート証明書を{installed}件配置しました")
+PY
+
+# ③ Ubuntuの信頼ストアへ反映
+update-ca-certificates
+
+# Only metadata is interpolated here. The secret value stays out of user data
+# and shell tracing; the Python process writes it directly to a root-only file.
+/usr/bin/python3 - \
+  --region "${aws_region}" \
+  --secret-arn "${db_secret_arn}" \
+  --host "${db_host}" \
+  --port "${db_port}" \
+  --database "${db_name}" <<'WORKER_DB_PY'
+${worker_db_env_script}
+WORKER_DB_PY
 
 systemctl daemon-reload
 systemctl enable judge-worker
