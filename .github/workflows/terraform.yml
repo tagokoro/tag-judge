@@ -70,6 +70,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      TF_VAR_api_domain_name: ${{ vars.API_DOMAIN_NAME }}
+      TF_VAR_alarm_sns_topic_arn: ${{ vars.ALARM_SNS_TOPIC_ARN }}
 
     steps:
       - name: Checkout

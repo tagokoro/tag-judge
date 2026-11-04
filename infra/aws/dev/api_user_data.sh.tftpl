@@ -1,0 +1,118 @@
+#!/bin/bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y ca-certificates curl git python3 python3-boto3
+
+curl --retry 3 -fsSL \
+  https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
+  -o /tmp/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/amazon-cloudwatch-agent.deb
+
+if snap list amazon-ssm-agent >/dev/null 2>&1; then
+  snap start --enable amazon-ssm-agent
+elif systemctl list-unit-files amazon-ssm-agent.service --no-legend | grep -q '^amazon-ssm-agent.service'; then
+  systemctl enable --now amazon-ssm-agent
+else
+  curl --retry 3 -fsSL "https://s3.${aws_region}.amazonaws.com/amazon-ssm-${aws_region}/latest/debian_amd64/amazon-ssm-agent.deb" -o /tmp/amazon-ssm-agent.deb
+  dpkg -i /tmp/amazon-ssm-agent.deb
+  systemctl enable --now amazon-ssm-agent
+fi
+
+# Fetch the pinned release and verify its archive against Go's release metadata.
+python3 - '${go_version}' <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+import urllib.request
+
+version = "go" + sys.argv[1]
+with urllib.request.urlopen("https://go.dev/dl/?mode=json&include=all", timeout=60) as response:
+    releases = json.load(response)
+release = next(item for item in releases if item["version"] == version)
+archive = next(item for item in release["files"] if item["os"] == "linux" and item["arch"] == "amd64" and item["kind"] == "archive")
+with urllib.request.urlopen("https://go.dev/dl/" + archive["filename"], timeout=120) as response:
+    data = response.read()
+if hashlib.sha256(data).hexdigest() != archive["sha256"]:
+    raise RuntimeError("Go archive checksum mismatch")
+Path("/tmp/tag-judge-go.tar.gz").write_bytes(data)
+PY
+tar -C /usr/local -xzf /tmp/tag-judge-go.tar.gz
+rm /tmp/tag-judge-go.tar.gz
+
+id -u judge-api >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin judge-api
+install -d -o judge-api -g judge-api /opt/tag-judge-api
+runuser -u judge-api -- git clone '${repository_url}' /opt/tag-judge-api
+runuser -u judge-api -- git -C /opt/tag-judge-api checkout --detach '${repository_ref}'
+cd /opt/tag-judge-api/backend
+runuser -u judge-api -- env GOTOOLCHAIN=local CGO_ENABLED=0 /usr/local/go/bin/go build -mod=readonly -trimpath -o /opt/tag-judge-api/api ./cmd/api
+
+install -d -m 0700 /etc/tag-judge
+install -d -m 0750 /var/log/tag-judge
+curl --retry 3 -fsSL 'https://truststore.pki.rds.amazonaws.com/${aws_region}/${aws_region}-bundle.pem' -o /etc/tag-judge/rds-bundle.pem
+# The service user needs to read only the public CA bundle, not api.env.
+install -m 0644 /etc/tag-judge/rds-bundle.pem /opt/tag-judge-api/rds-bundle.pem
+
+install -d -m 0700 /opt/tag-judge-setup
+cat >/opt/tag-judge-setup/configure_service_env.py <<'SERVICE_ENV_PY'
+${service_env_script}
+SERVICE_ENV_PY
+python3 /opt/tag-judge-setup/configure_service_env.py \
+  --region '${aws_region}' --secret-arn '${secret_arn}' --service api
+
+cat >/etc/systemd/system/judge-api.service <<'SERVICE'
+[Unit]
+Description=tag-judge API server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=judge-api
+Group=judge-api
+WorkingDirectory=/opt/tag-judge-api/backend
+ExecStart=/opt/tag-judge-api/api
+Environment=PORT=8080
+Environment=AWS_DEFAULT_REGION=${aws_region}
+Environment=JUDGE_STORAGE_BUCKET=${bucket_name}
+Environment=JUDGE_SUBMISSIONS_QUEUE_NAME=${queue_name}
+Environment=DEV_HEADER_AUTH=${dev_header_auth}
+Environment=COOKIE_SECURE=${cookie_secure}
+EnvironmentFile=/etc/tag-judge/api.env
+StandardOutput=append:/var/log/tag-judge/api.log
+StandardError=append:/var/log/tag-judge/api.log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable --now judge-api
+
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CLOUDWATCH_CONFIG'
+{
+  "agent": {"run_as_user": "root"},
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [{
+          "file_path": "/var/log/tag-judge/api.log",
+          "log_group_name": "${log_group_name}",
+          "log_stream_name": "{instance_id}",
+          "timezone": "UTC"
+        }]
+      }
+    }
+  }
+}
+CLOUDWATCH_CONFIG
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json

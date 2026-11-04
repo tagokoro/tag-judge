@@ -1,4 +1,184 @@
-# AWS dev judge worker
+# AWS dev API and judge worker
+
+The API runs on a separate EC2 instance with its own IAM role and an inbound-closed
+security group. Access HTTP through SSM port forwarding by default. It shares the
+existing RDS, S3 bucket and SQS queue with the worker. An optional public HTTPS
+endpoint uses an ALB, an existing ACM certificate, and Cloudflare DNS; the instance
+itself is never opened to the internet.
+
+## API deployment prerequisites
+
+Before planning, create a Secrets Manager secret named `tag-judge/dev/api`
+(or `<project_name>/<environment>/api`) in the deployment region:
+
+```json
+{"DATABASE_URL": "postgresql://judge_api:<URL-encoded-password>@<RDS-host>:5432/judge?sslmode=verify-full&sslrootcert=/opt/tag-judge-api/rds-bundle.pem"}
+```
+
+The existing `judge` database must have all application migrations and a dedicated
+`judge_api` login with application table/sequence privileges, including sessions,
+code runs, submission snapshots and the submission job outbox. This stack does not
+create DB users, grant privileges, run migrations, or change passwords. Do not use
+the administrator or worker credentials. Use the default Secrets Manager encryption
+key; a customer-managed key needs a separate scoped `kms:Decrypt` grant.
+
+The shared `scripts/configure_service_env.py` copies the complete URL unchanged;
+it does not build URLs, encode passwords, choose a DB login, or add TLS options.
+Percent-encode reserved characters in usernames/passwords before saving the URL.
+Use the actual RDS endpoint and keep the TLS parameters shown in the examples.
+The API CA bundle is installed at `/opt/tag-judge-api/rds-bundle.pem`; the worker
+uses the system trust store configured during setup.
+
+When migrating from the previous `{username, password}` format, update both
+Secrets **before applying** this change. Old-format secrets are rejected. The
+user-data changes can replace both EC2 instances; inspect the plan first. Existing
+instances keep their old configuration until explicitly reconfigured or replaced.
+Changing the DB endpoint, port, database, or password requires updating the URLs
+in the affected Secrets.
+
+The secret may also include `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REDIRECT_URL` (supply all three together), and
+`AUTH_SUCCESS_REDIRECT_URL`. Without these, Google login is not configured.
+For browser login through the tunnel, use the localhost callback URL and register
+the same URL with Google. When `api_domain_name` is configured, cookies are marked
+Secure and the secret should use `https://<api-domain>/api/v1/auth/google/callback`
+for `GOOGLE_OAUTH_REDIRECT_URL`. Register that exact callback in Google Cloud and
+set `AUTH_SUCCESS_REDIRECT_URL` to the deployed frontend URL. OAuth settings are
+read at instance provisioning time; rotate the secret and rerun the configuration
+helper plus `systemctl restart judge-api`, or replace the instance.
+
+For development header authentication, explicitly set `api_dev_header_auth = true`
+in a local, uncommitted tfvars file. It defaults to false. Use an existing database
+user ID when testing authenticated endpoints. Never enable header authentication
+when exposing the API publicly.
+
+Cloud-init downloads a pinned, checksum-verified Go release and builds
+`backend/cmd/api` at `repository_ref`. The ref must be available in the remote
+repository. The service runs as `judge-api`. Its root-owned environment file is
+generated from Secrets Manager with mode `0600`; DB TLS verifies the RDS hostname
+and CA bundle when the URL above is used. Secrets are not interpolated into Terraform state or user data.
+Secret updates require rerunning configuration and restarting the service, or
+recreating the API instance. Configuration helpers remain in `/opt/tag-judge-setup`.
+
+## Optional public HTTPS endpoint
+
+The default remains SSM-only. Before enabling the ALB, request an ACM certificate
+for the API domain in the deployment region. Add the DNS validation CNAME shown by
+ACM to Cloudflare and wait until the certificate status is `Issued`. Terraform
+looks up the newest issued Amazon certificate for the exact domain; it does not
+manage Cloudflare or the certificate lifecycle.
+
+Then set the domain in an uncommitted tfvars file:
+
+```hcl
+api_domain_name = "api.example.com"
+```
+
+For the automatic `main` deployment, configure the equivalent optional GitHub
+Actions repository variables:
+
+```sh
+gh variable set API_DOMAIN_NAME --body "api.example.com"
+# Optional alarm notifications:
+gh variable set ALARM_SNS_TOPIC_ARN --body "arn:aws:sns:ap-northeast-1:123456789012:tag-judge-alerts"
+```
+
+After apply, configure the API hostname in Cloudflare as a CNAME whose target is:
+
+```sh
+terraform output -raw api_alb_dns_name
+```
+
+Cloudflare proxying may be enabled. Use SSL/TLS mode `Full (strict)` so both the
+browser-to-Cloudflare and Cloudflare-to-ALB connections are authenticated and
+encrypted. Do not use Flexible mode. HTTP redirects to HTTPS, the ALB accepts TLS
+1.2/1.3, and EC2 port 8080 accepts traffic only from the ALB security group. Do not
+enable `api_dev_header_auth` on a public endpoint. The final URL is available as
+`terraform output -raw api_public_url`.
+
+After a separately authorized apply, inspect the API through Session Manager:
+
+```sh
+aws ssm start-session --target "$(terraform output -raw api_instance_id)"
+```
+
+On the API EC2 instance:
+
+```sh
+sudo cloud-init status --wait
+sudo systemctl is-active judge-api
+sudo stat -c '%a %U' /etc/tag-judge/api.env
+sudo journalctl -u judge-api -n 50 --no-pager
+curl -i http://localhost:8080/healthz
+curl -i http://localhost:8080/api/v1/problems
+```
+
+`/healthz` returns 204 but does not check the DB. The problems endpoint additionally
+exercises database access. For local access, run this on your computer (requires
+the AWS CLI Session Manager plugin and permission to start port forwarding):
+
+```sh
+aws ssm start-session \
+  --target "$(terraform output -raw api_instance_id)" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
+```
+
+Then use `http://localhost:8080`. The instance uses a public IP for
+outbound package downloads and AWS API access; its security group has no inbound
+rules unless the optional ALB is enabled, in which case only ALB-to-instance traffic
+is allowed.
+
+## AWS submission smoke test
+
+The smoke test exercises API -> RDS/S3/SQS -> Worker -> RDS -> API with a real
+Python submission. It creates a problem and test case, waits for AC, and returns
+the problem to private visibility. The problem, submission, and artifacts remain as
+test evidence because submissions prevent problem deletion. Run it only through the
+SSM tunnel with
+`api_dev_header_auth = true`; the UUID must identify an existing database user.
+
+```sh
+infra/aws/dev/scripts/aws_submission_smoke_test.sh \
+  http://localhost:8080 <existing-user-uuid>
+```
+
+Keep header authentication disabled for the public ALB. For public-path verification,
+log in through Google OAuth and use the session cookie instead. The smoke script is
+intentionally not run by CI because it mutates the deployed database and requires a
+live worker.
+
+## Logs, alarms, and DLQ recovery
+
+API and worker stdout/stderr are sent to `/tag-judge/dev/api` and
+`/tag-judge/dev/worker` with 14-day retention by default. Terraform creates alarms
+for EC2 status checks, submission queue age, a non-empty DLQ, and (when enabled)
+ALB target 5xx responses. Set `alarm_sns_topic_arn` to an existing SNS topic to
+receive alarm and recovery notifications; without it the alarms remain visible in
+CloudWatch but do not notify.
+
+Inspect the DLQ before replaying it. After fixing the cause, move available messages
+back to the source queue with the generated command:
+
+```sh
+terraform output -raw dlq_redrive_command
+# Review the command and then execute it.
+```
+
+The SQS redrive allow policy restricts replay to the submissions source queue. Watch
+the worker log group and queue/DLQ metrics while replay is active.
+
+Review the plan for unrelated replacements: the existing worker uses a
+`most_recent` AMI. Merging changes under `infra/aws/dev` into `main` triggers
+the repository's automatic Terraform apply workflow.
+
+Local checks for the API environment helper:
+
+```sh
+python3 -B -m unittest discover -s infra/aws/dev/scripts -p 'test_*.py'
+```
+
+## Existing worker setup
 
 This Terraform stack creates the smallest AWS environment needed to verify that the Rust judge worker can consume a job from SQS, read artifacts from S3, and run `judge-core` on EC2.
 
@@ -24,10 +204,10 @@ initialize a new database or reset DB passwords.
 
 Before planning, create a Secrets Manager secret named
 `tag-judge/dev/worker-db` (or `<project_name>/<environment>/worker-db`) in the
-deployment region. Its JSON value must contain the existing worker DB login:
+deployment region. Its JSON value must contain the complete worker connection URL:
 
 ```json
-{"username": "judge_worker", "password": "<existing worker DB password>"}
+{"JUDGE_DATABASE_URL": "postgresql://judge_worker:<URL-encoded-password>@<RDS-host>:5432/judge?sslmode=require"}
 ```
 
 Use the worker password, not the RDS administrator or API password. Do not commit

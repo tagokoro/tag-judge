@@ -13,6 +13,11 @@ apt-get install -y \
   python3-boto3 \
   libssl-dev
 
+curl --retry 3 -fsSL \
+  https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
+  -o /tmp/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/amazon-cloudwatch-agent.deb
+
 swap_file=/swapfile
 if [ ! -f "$swap_file" ]; then
   fallocate -l 4G "$swap_file" || dd if=/dev/zero of="$swap_file" bs=1M count=4096
@@ -100,9 +105,13 @@ Environment=AWS_DEFAULT_REGION=${aws_region}
 Environment=JUDGE_SUBMISSIONS_QUEUE_NAME=${queue_name}
 Environment=JUDGE_STORAGE_BUCKET=${bucket_name}
 EnvironmentFile=/etc/tag-judge/worker.env
+StandardOutput=append:/var/log/tag-judge/worker.log
+StandardError=append:/var/log/tag-judge/worker.log
 [Install]
 WantedBy=multi-user.target
 EOF
+
+install -d -m 0750 /var/log/tag-judge
 
 python3 - "${aws_region}" <<'PY'
 import hashlib
@@ -169,15 +178,34 @@ update-ca-certificates
 
 # Only metadata is interpolated here. The secret value stays out of user data
 # and shell tracing; the Python process writes it directly to a root-only file.
-/usr/bin/python3 - \
-  --region "${aws_region}" \
-  --secret-arn "${db_secret_arn}" \
-  --host "${db_host}" \
-  --port "${db_port}" \
-  --database "${db_name}" <<'WORKER_DB_PY'
-${worker_db_env_script}
-WORKER_DB_PY
+install -d -m 0700 /opt/tag-judge-setup
+cat >/opt/tag-judge-setup/configure_service_env.py <<'SERVICE_ENV_PY'
+${service_env_script}
+SERVICE_ENV_PY
+/usr/bin/python3 /opt/tag-judge-setup/configure_service_env.py \
+  --region "${aws_region}" --secret-arn "${db_secret_arn}" --service worker
 
 systemctl daemon-reload
 systemctl enable judge-worker
 systemctl restart judge-worker
+
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CLOUDWATCH_CONFIG'
+{
+  "agent": {"run_as_user": "root"},
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [{
+          "file_path": "/var/log/tag-judge/worker.log",
+          "log_group_name": "${log_group_name}",
+          "log_stream_name": "{instance_id}",
+          "timezone": "UTC"
+        }]
+      }
+    }
+  }
+}
+CLOUDWATCH_CONFIG
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
