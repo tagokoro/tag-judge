@@ -84,3 +84,72 @@ func TestLoadSourceCodeRoot(t *testing.T) {
 		t.Fatalf("SourceCodeRoot = %q", cfg.SourceCodeRoot)
 	}
 }
+
+func TestLoadAdmissionDefaults(t *testing.T) {
+	t.Setenv("ADMISSION_USER_RATE_LIMIT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.AdmissionUserRateLimit != 10 {
+		t.Fatalf("AdmissionUserRateLimit = %d, want 10", cfg.AdmissionUserRateLimit)
+	}
+	if cfg.AdmissionUserRateWindowSeconds != 60 {
+		t.Fatalf("AdmissionUserRateWindowSeconds = %d, want 60", cfg.AdmissionUserRateWindowSeconds)
+	}
+	if cfg.AdmissionUserOutstandingLimit != 2 {
+		t.Fatalf("AdmissionUserOutstandingLimit = %d, want 2", cfg.AdmissionUserOutstandingLimit)
+	}
+	if cfg.AdmissionGlobalOutstandingLimit != 100 {
+		t.Fatalf("AdmissionGlobalOutstandingLimit = %d, want 100", cfg.AdmissionGlobalOutstandingLimit)
+	}
+	if cfg.AdmissionLockTimeoutMS != 5000 {
+		t.Fatalf("AdmissionLockTimeoutMS = %d, want 5000", cfg.AdmissionLockTimeoutMS)
+	}
+	if cfg.IdempotencyKeyMaxLength != 255 {
+		t.Fatalf("IdempotencyKeyMaxLength = %d, want 255", cfg.IdempotencyKeyMaxLength)
+	}
+}
+
+func TestLoadAdmissionCustomValues(t *testing.T) {
+	t.Setenv("ADMISSION_USER_RATE_LIMIT", "5")
+	t.Setenv("ADMISSION_USER_RATE_WINDOW_SECONDS", "30")
+	t.Setenv("ADMISSION_USER_OUTSTANDING_LIMIT", "3")
+	t.Setenv("ADMISSION_GLOBAL_OUTSTANDING_LIMIT", "50")
+	t.Setenv("ADMISSION_LOCK_TIMEOUT_MS", "2000")
+	t.Setenv("IDEMPOTENCY_KEY_MAX_LENGTH", "128")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.AdmissionUserRateLimit != 5 {
+		t.Fatalf("AdmissionUserRateLimit = %d, want 5", cfg.AdmissionUserRateLimit)
+	}
+	if cfg.AdmissionUserRateWindowSeconds != 30 {
+		t.Fatalf("AdmissionUserRateWindowSeconds = %d, want 30", cfg.AdmissionUserRateWindowSeconds)
+	}
+	if cfg.AdmissionUserOutstandingLimit != 3 {
+		t.Fatalf("AdmissionUserOutstandingLimit = %d, want 3", cfg.AdmissionUserOutstandingLimit)
+	}
+	if cfg.AdmissionGlobalOutstandingLimit != 50 {
+		t.Fatalf("AdmissionGlobalOutstandingLimit = %d, want 50", cfg.AdmissionGlobalOutstandingLimit)
+	}
+	if cfg.AdmissionLockTimeoutMS != 2000 {
+		t.Fatalf("AdmissionLockTimeoutMS = %d, want 2000", cfg.AdmissionLockTimeoutMS)
+	}
+	if cfg.IdempotencyKeyMaxLength != 128 {
+		t.Fatalf("IdempotencyKeyMaxLength = %d, want 128", cfg.IdempotencyKeyMaxLength)
+	}
+}
+
+func TestLoadAdmissionRejectsInvalidValues(t *testing.T) {
+	t.Setenv("ADMISSION_USER_RATE_LIMIT", "0")
+	t.Setenv("ADMISSION_USER_RATE_WINDOW_SECONDS", "-1")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load expected error for invalid admission values")
+	}
+}

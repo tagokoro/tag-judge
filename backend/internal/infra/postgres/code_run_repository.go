@@ -21,26 +21,6 @@ func NewCodeRunRepository(db *pgxpool.Pool) *CodeRunRepository {
 	return &CodeRunRepository{queries: sqlc.New(db)}
 }
 
-func (r *CodeRunRepository) Create(ctx context.Context, params repository.CreateCodeRunParams) (*domain.CodeRun, error) {
-	userID, err := parseUUID(params.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	row, err := r.queries.CreateCodeRun(ctx, sqlc.CreateCodeRunParams{
-		UserID:     userID,
-		Language:   string(params.Language),
-		SourceCode: params.SourceCode,
-		Stdin:      params.Stdin,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	codeRun := newCodeRun(row.ID, row.UserID, row.Language, row.SourceCode, row.Stdin, row.Stdout, row.Stderr, row.Status, row.ExecutionTimeMs, row.MemoryKb, row.CreatedAt)
-	return &codeRun, nil
-}
-
 func (r *CodeRunRepository) FindByID(ctx context.Context, id int64) (*domain.CodeRun, error) {
 	row, err := r.queries.GetCodeRun(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {

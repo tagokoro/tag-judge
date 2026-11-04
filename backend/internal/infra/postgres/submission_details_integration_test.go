@@ -52,7 +52,7 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 	}
 
 	repo := postgres.NewSubmissionRepository(db)
-	h := handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(repo, nil, nil))
+	h := handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(repo, nil, nil, nil, 255))
 	auth := middleware.NewAuthMiddleware(nil, true)
 	router := chi.NewRouter()
 	router.Use(auth.InjectActor)

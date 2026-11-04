@@ -26,69 +26,6 @@ func NewSubmissionRepository(db *pgxpool.Pool) *SubmissionRepository {
 	return &SubmissionRepository{db: db, queries: sqlc.New(db)}
 }
 
-func (r *SubmissionRepository) Create(ctx context.Context, params repository.CreateSubmissionParams) (*domain.Submission, error) {
-	row, err := r.queries.CreateSubmission(ctx, sqlc.CreateSubmissionParams{
-		UserID:        params.UserID,
-		ProblemID:     params.ProblemID,
-		Language:      string(params.Language),
-		SourceCodeKey: params.SourceCodeKey,
-		TestCasesKey:  params.TestCasesKey,
-		Status:        string(params.Status),
-		Score:         int32(params.Score),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
-	return &submission, nil
-}
-
-// CreateWithOutbox makes the database commit the submission and its future SQS
-// message together. S3 objects are immutable and may safely exist before this
-// point; a committed submission can never be lost merely because SQS is down.
-func (r *SubmissionRepository) CreateWithOutbox(ctx context.Context, params repository.CreateSubmissionWithOutboxParams) (*domain.Submission, error) {
-	if params.TimeLimitMS <= 0 {
-		return nil, fmt.Errorf("submission time limit must be positive")
-	}
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin submission outbox transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	row, err := r.queries.WithTx(tx).CreateSubmission(ctx, sqlc.CreateSubmissionParams{
-		UserID:        params.UserID,
-		ProblemID:     params.ProblemID,
-		Language:      string(params.Language),
-		SourceCodeKey: params.SourceCodeKey,
-		TestCasesKey:  params.TestCasesKey,
-		Status:        string(params.Status),
-		Score:         int32(params.Score),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create submission: %w", err)
-	}
-	payload, err := json.Marshal(submissionOutboxPayload{
-		SubmissionID:  fmt.Sprintf("%d", row.ID),
-		Language:      params.Language,
-		SourceCodeKey: params.SourceCodeKey,
-		TestCasesKey:  params.TestCasesKey,
-		TimeLimitMS:   params.TimeLimitMS,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal submission outbox payload: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO submission_job_outbox (submission_id, payload) VALUES ($1, $2::jsonb)`, row.ID, payload); err != nil {
-		return nil, fmt.Errorf("create submission outbox record: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit submission outbox transaction: %w", err)
-	}
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
-	return &submission, nil
-}
-
 type submissionOutboxPayload struct {
 	SubmissionID  string                    `json:"submissionId"`
 	Language      domain.SubmissionLanguage `json:"language"`
@@ -211,16 +148,6 @@ func executionJobFromOutboxPayload(raw []byte) (repository.ExecutionJob, error) 
 		return repository.ExecutionJob{}, err
 	}
 	return repository.NewExecutionJob(reference, payload.Language, payload.SourceCodeKey, mode)
-}
-
-func retryBackoff(attempts int) time.Duration {
-	if attempts < 0 {
-		attempts = 0
-	}
-	if attempts > 6 {
-		attempts = 6
-	}
-	return time.Second * time.Duration(1<<attempts)
 }
 
 func (r *SubmissionRepository) FindByID(ctx context.Context, id int64) (*domain.Submission, error) {

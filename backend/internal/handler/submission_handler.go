@@ -38,10 +38,11 @@ func (h *SubmissionHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	actor, _ := auth.ActorFromContext(r.Context())
 	submission, err := h.submissions.Create(r.Context(), usecase.CreateSubmissionInput{
-		Actor:      actor,
-		ProblemID:  problemID,
-		Language:   domain.SubmissionLanguage(request.Language),
-		SourceCode: request.SourceCode,
+		Actor:          actor,
+		ProblemID:      problemID,
+		Language:       domain.SubmissionLanguage(request.Language),
+		SourceCode:     request.SourceCode,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		WriteError(w, r, err)

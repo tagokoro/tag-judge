@@ -17,30 +17,34 @@ const (
 )
 
 type CodeRunUsecase struct {
-	codeRuns   repository.CodeRunRepository
-	storage    repository.SourceCodeStorage
-	dispatcher repository.ExecutionDispatcher
-	timeLimit  int
+	codeRuns             repository.CodeRunRepository
+	storage              repository.SourceCodeStorage
+	admission            repository.AdmissionControl
+	timeLimit            int
+	idempotencyKeyMaxLen int
 }
 
 func NewCodeRunUsecase(
 	codeRuns repository.CodeRunRepository,
 	storage repository.SourceCodeStorage,
-	dispatcher repository.ExecutionDispatcher,
+	admission repository.AdmissionControl,
 	timeLimitMS int,
+	idempotencyKeyMaxLen int,
 ) *CodeRunUsecase {
 	return &CodeRunUsecase{
-		codeRuns:   codeRuns,
-		storage:    storage,
-		dispatcher: dispatcher,
-		timeLimit:  timeLimitMS,
+		codeRuns:             codeRuns,
+		storage:              storage,
+		admission:            admission,
+		timeLimit:            timeLimitMS,
+		idempotencyKeyMaxLen: idempotencyKeyMaxLen,
 	}
 }
 
 type CreateCodeRunInput struct {
-	Language   domain.ExecutionLanguage
-	SourceCode string
-	Stdin      string
+	Language       domain.ExecutionLanguage
+	SourceCode     string
+	Stdin          string
+	IdempotencyKey string
 }
 
 type ListCodeRunsInput struct {
@@ -59,18 +63,20 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 	if strings.TrimSpace(input.SourceCode) == "" {
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must not be empty")
 	}
-
-	codeRun, err := u.codeRuns.Create(ctx, repository.CreateCodeRunParams{
-		UserID:     actor.UserID,
-		Language:   input.Language,
-		SourceCode: input.SourceCode,
-		Stdin:      input.Stdin,
-	})
+	idempotency, err := u.buildIdempotency(actor.UserID, repository.IdempotencyNamespaceCodeRun, input.IdempotencyKey, codeRunFingerprint(input))
 	if err != nil {
 		return nil, err
 	}
 
-	sourceCodeKey := codeRunSourceCodeKey(*codeRun)
+	// Reserve the ID and store the artifact before the admission transaction.
+	// This guarantees that any accepted CodeRun has an existing artifact before
+	// the publisher can dispatch the job. A rejected admission leaves an orphan
+	// artifact.
+	reservedID, err := u.admission.ReserveCodeRunID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sourceCodeKey := codeRunSourceCodeKey(actor.UserID, reservedID, input.Language)
 	if err := u.storage.PutSourceCode(ctx, repository.PutSourceCodeParams{
 		Key:        sourceCodeKey,
 		Language:   input.Language,
@@ -79,23 +85,51 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 		return nil, err
 	}
 
-	reference, err := repository.NewCodeRunExecutionReference(fmt.Sprintf("%d", codeRun.ID))
+	codeRun, err := u.admission.CreateCodeRun(ctx, repository.CreateCodeRunParams{
+		UserID:        actor.UserID,
+		Language:      input.Language,
+		SourceCode:    input.SourceCode,
+		Stdin:         input.Stdin,
+		SourceCodeKey: sourceCodeKey,
+	}, idempotency, u.timeLimit, reservedID)
 	if err != nil {
-		return nil, err
-	}
-	mode, err := repository.NewStdinExecution(input.Stdin, u.timeLimit)
-	if err != nil {
-		return nil, err
-	}
-	job, err := repository.NewExecutionJob(reference, input.Language, sourceCodeKey, mode)
-	if err != nil {
-		return nil, err
-	}
-	if err := u.dispatcher.Dispatch(ctx, job); err != nil {
 		return nil, err
 	}
 
+	// If the call was an idempotent replay, the returned record is the original
+	// one and the reserved ID was not used. The original artifact already exists,
+	// so there is nothing more to store.
+	if codeRun.ID != reservedID {
+		return codeRun, nil
+	}
+
 	return codeRun, nil
+}
+
+func (u *CodeRunUsecase) buildIdempotency(userID, namespace, key, fingerprint string) (*repository.IdempotencyKeyInfo, error) {
+	if strings.TrimSpace(key) == "" {
+		return nil, nil
+	}
+	if len(key) > u.idempotencyKeyMaxLen {
+		return nil, apperror.InvalidInput("INVALID_IDEMPOTENCY_KEY", "idempotency key is too long")
+	}
+	return &repository.IdempotencyKeyInfo{
+		Namespace:   namespace,
+		Key:         key,
+		Fingerprint: fingerprint,
+	}, nil
+}
+
+func codeRunFingerprint(input CreateCodeRunInput) string {
+	return canonicalFingerprint(struct {
+		Language   string `json:"language"`
+		SourceCode string `json:"source_code"`
+		Stdin      string `json:"stdin"`
+	}{
+		Language:   string(input.Language),
+		SourceCode: input.SourceCode,
+		Stdin:      input.Stdin,
+	})
 }
 
 func (u *CodeRunUsecase) Get(ctx context.Context, actor auth.Actor, id int64) (*domain.CodeRun, error) {
@@ -140,6 +174,6 @@ func (u *CodeRunUsecase) List(ctx context.Context, actor auth.Actor, input ListC
 	})
 }
 
-func codeRunSourceCodeKey(codeRun domain.CodeRun) string {
-	return fmt.Sprintf("code-runs/%s/%d/main%s", codeRun.UserID, codeRun.ID, sourceExtension(codeRun.Language))
+func codeRunSourceCodeKey(userID string, codeRunID int64, language domain.ExecutionLanguage) string {
+	return fmt.Sprintf("code-runs/%s/%d/main%s", userID, codeRunID, language.SourceExtension())
 }

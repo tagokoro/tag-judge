@@ -702,20 +702,24 @@ func newTestRouterWithRepositories(groups repository.GroupRepository, submission
 	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
 	problemRepo := &fakeProblemRepository{}
 	testCaseRepo := &fakeRouterTestCaseRepository{}
+	admission := &fakeRouterAdmissionControl{}
 	return New(Handlers{
 		Problems:  handler.NewProblemHandler(usecase.NewProblemUsecase(problemRepo, testCaseRepo)),
 		TestCases: handler.NewTestCaseHandler(usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, &fakeSourceCodeStorage{})),
 		CodeRuns: handler.NewCodeRunHandler(usecase.NewCodeRunUsecase(
 			&fakeCodeRunRepository{},
 			&fakeSourceCodeStorage{},
-			&fakeExecutionDispatcher{},
+			admission,
 			2500,
+			255,
 		)),
 		Groups: handler.NewGroupHandler(usecase.NewGroupUsecase(groups)),
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
 			submissions,
 			problemRepo,
 			&fakeSourceCodeStorage{},
+			admission,
+			255,
 		)),
 		Me:       handler.NewMeHandler(),
 		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
@@ -828,6 +832,36 @@ type fakeExecutionDispatcher struct{}
 
 func (d *fakeExecutionDispatcher) Dispatch(_ context.Context, _ repository.ExecutionJob) error {
 	return nil
+}
+
+type fakeRouterAdmissionControl struct{}
+
+func (a *fakeRouterAdmissionControl) CreateSubmission(_ context.Context, params repository.CreateSubmissionWithOutboxParams, _ *repository.IdempotencyKeyInfo) (*domain.Submission, error) {
+	return &domain.Submission{
+		ID:            1,
+		UserID:        params.UserID,
+		ProblemID:     params.ProblemID,
+		Language:      params.Language,
+		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
+		Status:        params.Status,
+		Score:         params.Score,
+	}, nil
+}
+
+func (a *fakeRouterAdmissionControl) CreateCodeRun(_ context.Context, params repository.CreateCodeRunParams, _ *repository.IdempotencyKeyInfo, _ int, codeRunID int64) (*domain.CodeRun, error) {
+	return &domain.CodeRun{
+		ID:         codeRunID,
+		UserID:     params.UserID,
+		Language:   params.Language,
+		SourceCode: params.SourceCode,
+		Stdin:      params.Stdin,
+		Status:     domain.CodeRunStatusPending,
+	}, nil
+}
+
+func (a *fakeRouterAdmissionControl) ReserveCodeRunID(_ context.Context) (int64, error) {
+	return 1, nil
 }
 
 type routerGroupRepository struct {

@@ -58,12 +58,25 @@ func run() error {
 		cfg.GoogleOAuthRedirectURL,
 	)
 
+	admissionControl := postgres.NewAdmissionControl(db, postgres.AdmissionLimits{
+		UserRateLimit:          cfg.AdmissionUserRateLimit,
+		UserRateWindow:         time.Duration(cfg.AdmissionUserRateWindowSeconds) * time.Second,
+		UserOutstandingLimit:   cfg.AdmissionUserOutstandingLimit,
+		GlobalOutstandingLimit: cfg.AdmissionGlobalOutstandingLimit,
+		LockTimeout:            time.Duration(cfg.AdmissionLockTimeoutMS) * time.Millisecond,
+	})
+	if err := admissionControl.Validate(); err != nil {
+		return err
+	}
+
 	problemUsecase := usecase.NewProblemUsecase(problemRepo, testCaseRepo)
 	testCaseUsecase := usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, sourceCodeStorage)
-	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, executionDispatcher, cfg.CodeRunTimeLimitMS)
-	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage)
-	outboxPublisher := postgres.NewSubmissionOutboxPublisher(db, executionDispatcher, slog.Default())
-	go outboxPublisher.Run(ctx, time.Second)
+	codeRunUsecase := usecase.NewCodeRunUsecase(codeRunRepo, sourceCodeStorage, admissionControl, cfg.CodeRunTimeLimitMS, cfg.IdempotencyKeyMaxLength)
+	submissionUsecase := usecase.NewSubmissionUsecase(submissionRepo, problemRepo, sourceCodeStorage, admissionControl, cfg.IdempotencyKeyMaxLength)
+	submissionPublisher := postgres.NewSubmissionOutboxPublisher(db, executionDispatcher, slog.Default())
+	codeRunPublisher := postgres.NewCodeRunOutboxPublisher(db, executionDispatcher, slog.Default())
+	go submissionPublisher.Run(ctx, time.Second)
+	go codeRunPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 

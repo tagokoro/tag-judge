@@ -298,9 +298,21 @@ paths:
   /problems/{problem_id}/submissions:
     post:
       summary: Create a submission for a public problem
+      description: |
+        Creates a pending submission and records a durable outbox entry so the
+        job is dispatched even if SQS is temporarily unavailable. The source
+        code is stored before the admission decision; a rejected request may
+        leave an orphan artifact.
+
+        Supplying an `Idempotency-Key` header allows safe retry when the HTTP
+        response is lost. Replays with the same key and identical normalized
+        input return the same submission. A different body for the same key
+        returns `409`. Without a key, duplicate submissions are possible on
+        retry.
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
         - name: problem_id
           in: path
           required: true
@@ -327,6 +339,12 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimitError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /submissions:
     get:
       summary: List the current user's submissions
@@ -393,12 +411,30 @@ paths:
   /code-runs:
     post:
       summary: Create a code run
-      description: Stores a Python code run with pending status and dispatches a stdin execution job.
+      description: |
+        Reserves a CodeRun ID, stores the source artifact, and then atomically
+        creates the pending CodeRun record and durable outbox entry. Because the
+        artifact exists before the record is committed, dispatch can never
+        precede artifact availability. A storage failure before admission
+        creates no CodeRun or outbox row. A rejected admission decision or an
+        idempotent replay of an existing key may leave a pre-stored artifact
+        without a referencing CodeRun; such unreferenced artifacts are retained
+        until a future cleanup job removes them.
+
+        Supplying an `Idempotency-Key` header allows safe retry when the HTTP
+        response is lost. Replays with the same key and identical normalized
+        input return the same code run. A different body for the same key
+        returns `409`. Without a key, duplicate code runs are possible on retry.
+
+        CodeRun execution is not yet implemented in the Rust worker; the
+        durable outbox and admission counts still treat pending CodeRuns as
+        outstanding work.
       security:
         - CookieAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
       requestBody:
         required: true
         content:
@@ -416,8 +452,12 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
-        "500":
+        "409":
           $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimitError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
     get:
       summary: List the current user's code runs
       security:
@@ -592,6 +632,18 @@ components:
       schema:
         type: string
         enum: [user, author, admin]
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Optional opaque key for safe request retry. The same key with the same
+        normalized request body replays the same execution. Keys are retained
+        indefinitely in the current implementation.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
     GroupIDPath:
       name: group_id
       in: path
@@ -624,6 +676,36 @@ components:
   responses:
     Error:
       description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimitError:
+      description: Per-user rate or outstanding execution limit exceeded
+      headers:
+        Retry-After:
+          description: |
+            Estimated integer seconds before the request may succeed. For the
+            rolling rate limit this is based on the oldest accepted request in
+            the window; for the outstanding limit it is an estimate.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailableError:
+      description: |
+        Either the global outstanding execution limit is exceeded
+        (`GLOBAL_OUTSTANDING_LIMIT_EXCEEDED`) or the database/admission lock is
+        temporarily unavailable (`TRANSIENT_DATABASE_ERROR`,
+        `TRANSIENT_COMMIT_FAILURE`). Both cases include an integer `Retry-After`
+        header.
+      headers:
+        Retry-After:
+          description: Estimated integer seconds before the request may succeed.
+          schema:
+            type: integer
       content:
         application/json:
           schema:
