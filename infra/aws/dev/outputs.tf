@@ -37,3 +37,15 @@ output "session_manager_command" {
 output "worker_logs_command" {
   value = "sudo journalctl -u judge-worker -f"
 }
+
+output "api_instance_id" {
+  value = aws_instance.api.id
+}
+
+output "api_session_manager_command" {
+  value = "aws ssm start-session --target ${aws_instance.api.id}"
+}
+
+output "api_port_forward_command" {
+  value = "aws ssm start-session --target ${aws_instance.api.id} --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"8080\"],\"localPortNumber\":[\"8080\"]}'"
+}

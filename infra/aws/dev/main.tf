@@ -200,6 +200,7 @@ resource "aws_instance" "judge_worker" {
   depends_on = [
     aws_iam_role_policy.judge_worker,
     aws_iam_role_policy_attachment.ssm_managed_instance_core,
+    aws_db_instance.default,
   ]
 
   ami                         = data.aws_ami.ubuntu.id
@@ -210,19 +211,16 @@ resource "aws_instance" "judge_worker" {
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    aws_region           = var.aws_region
-    queue_name           = aws_sqs_queue.submissions.name
-    bucket_name          = aws_s3_bucket.artifacts.bucket
-    repository_url       = var.repository_url
-    repository_ref       = var.repository_ref
-    worker_user          = var.worker_user
-    rust_toolchain       = var.rust_toolchain
-    isolate_git_ref      = var.isolate_git_ref
-    db_host              = aws_db_instance.default.address
-    db_port              = aws_db_instance.default.port
-    db_name              = aws_db_instance.default.db_name
-    db_secret_arn        = data.aws_secretsmanager_secret.worker_db.arn
-    worker_db_env_script = file("${path.module}/scripts/configure_worker_db.py")
+    aws_region         = var.aws_region
+    queue_name         = aws_sqs_queue.submissions.name
+    bucket_name        = aws_s3_bucket.artifacts.bucket
+    repository_url     = var.repository_url
+    repository_ref     = var.repository_ref
+    worker_user        = var.worker_user
+    rust_toolchain     = var.rust_toolchain
+    isolate_git_ref    = var.isolate_git_ref
+    db_secret_arn      = data.aws_secretsmanager_secret.worker_db.arn
+    service_env_script = file("${path.module}/scripts/configure_service_env.py")
   })
 
   user_data_replace_on_change = true
@@ -251,6 +249,14 @@ resource "aws_security_group" "db" {
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.judge_worker.id]
+  }
+
+  ingress {
+    description     = "Allow PostgreSQL from the API server"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.api.id]
   }
 
   tags = {

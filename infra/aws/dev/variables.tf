@@ -28,6 +28,29 @@ variable "instance_type" {
   default     = "t3.small"
 }
 
+variable "api_instance_type" {
+  description = "x86_64 EC2 instance type for the API server."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "api_go_version" {
+  description = "Pinned Go release used to build the API (without the go prefix)."
+  type        = string
+  default     = "1.27.3"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.api_go_version))
+    error_message = "Use a release version such as 1.27.3."
+  }
+}
+
+variable "api_dev_header_auth" {
+  description = "Enable X-User-ID authentication for SSM-only development verification. Never enable for public access."
+  type        = bool
+  default     = false
+}
+
 variable "repository_url" {
   description = "Git repository cloned by EC2 user_data."
   type        = string

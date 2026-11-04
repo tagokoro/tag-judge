@@ -169,14 +169,12 @@ update-ca-certificates
 
 # Only metadata is interpolated here. The secret value stays out of user data
 # and shell tracing; the Python process writes it directly to a root-only file.
-/usr/bin/python3 - \
-  --region "${aws_region}" \
-  --secret-arn "${db_secret_arn}" \
-  --host "${db_host}" \
-  --port "${db_port}" \
-  --database "${db_name}" <<'WORKER_DB_PY'
-${worker_db_env_script}
-WORKER_DB_PY
+install -d -m 0700 /opt/tag-judge-setup
+cat >/opt/tag-judge-setup/configure_service_env.py <<'SERVICE_ENV_PY'
+${service_env_script}
+SERVICE_ENV_PY
+/usr/bin/python3 /opt/tag-judge-setup/configure_service_env.py \
+  --region "${aws_region}" --secret-arn "${db_secret_arn}" --service worker
 
 systemctl daemon-reload
 systemctl enable judge-worker
