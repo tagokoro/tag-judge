@@ -52,13 +52,7 @@ variable "api_dev_header_auth" {
 }
 
 variable "api_domain_name" {
-  description = "Optional public DNS name for the API. When set, an HTTPS ALB, ACM certificate, and Route 53 alias are created."
-  type        = string
-  default     = null
-}
-
-variable "route53_zone_id" {
-  description = "Route 53 public hosted zone ID containing api_domain_name. Required when api_domain_name is set."
+  description = "Optional public DNS name for the API. Its issued ACM certificate and Cloudflare DNS records must be prepared separately."
   type        = string
   default     = null
 }

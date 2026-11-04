@@ -55,6 +55,11 @@ output "api_public_url" {
   value       = local.public_api_enabled ? "https://${var.api_domain_name}" : null
 }
 
+output "api_alb_dns_name" {
+  description = "ALB DNS name to configure as the Cloudflare CNAME target."
+  value       = local.public_api_enabled ? aws_lb.api[0].dns_name : null
+}
+
 output "api_log_group_name" {
   value = aws_cloudwatch_log_group.api.name
 }

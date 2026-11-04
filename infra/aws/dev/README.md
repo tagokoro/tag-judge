@@ -3,8 +3,8 @@
 The API runs on a separate EC2 instance with its own IAM role and an inbound-closed
 security group. Access HTTP through SSM port forwarding by default. It shares the
 existing RDS, S3 bucket and SQS queue with the worker. An optional public HTTPS
-endpoint uses an ALB, ACM certificate, and Route 53 alias; the instance itself is
-never opened to the internet.
+endpoint uses an ALB, an existing ACM certificate, and Cloudflare DNS; the instance
+itself is never opened to the internet.
 
 ## API deployment prerequisites
 
@@ -62,12 +62,16 @@ recreating the API instance. Configuration helpers remain in `/opt/tag-judge-set
 
 ## Optional public HTTPS endpoint
 
-The default remains SSM-only. To create the ALB, DNS validation records, ACM
-certificate, and Route 53 alias, set both values in an uncommitted tfvars file:
+The default remains SSM-only. Before enabling the ALB, request an ACM certificate
+for the API domain in the deployment region. Add the DNS validation CNAME shown by
+ACM to Cloudflare and wait until the certificate status is `Issued`. Terraform
+looks up the newest issued Amazon certificate for the exact domain; it does not
+manage Cloudflare or the certificate lifecycle.
+
+Then set the domain in an uncommitted tfvars file:
 
 ```hcl
 api_domain_name = "api.example.com"
-route53_zone_id = "Z0123456789EXAMPLE"
 ```
 
 For the automatic `main` deployment, configure the equivalent optional GitHub
@@ -75,15 +79,21 @@ Actions repository variables:
 
 ```sh
 gh variable set API_DOMAIN_NAME --body "api.example.com"
-gh variable set ROUTE53_ZONE_ID --body "Z0123456789EXAMPLE"
 # Optional alarm notifications:
 gh variable set ALARM_SNS_TOPIC_ARN --body "arn:aws:sns:ap-northeast-1:123456789012:tag-judge-alerts"
 ```
 
-The hosted zone must already exist in the same AWS account. Terraform waits for
-DNS certificate validation. HTTP redirects to HTTPS, the ALB accepts TLS 1.2/1.3,
-and only the ALB security group can reach EC2 port 8080. Do not enable
-`api_dev_header_auth` on a public endpoint. The URL is available as
+After apply, configure the API hostname in Cloudflare as a CNAME whose target is:
+
+```sh
+terraform output -raw api_alb_dns_name
+```
+
+Cloudflare proxying may be enabled. Use SSL/TLS mode `Full (strict)` so both the
+browser-to-Cloudflare and Cloudflare-to-ALB connections are authenticated and
+encrypted. Do not use Flexible mode. HTTP redirects to HTTPS, the ALB accepts TLS
+1.2/1.3, and EC2 port 8080 accepts traffic only from the ALB security group. Do not
+enable `api_dev_header_auth` on a public endpoint. The final URL is available as
 `terraform output -raw api_public_url`.
 
 After a separately authorized apply, inspect the API through Session Manager:

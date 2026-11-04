@@ -43,7 +43,7 @@ flowchart TD
 | S3 | 提出コードと不変なテストケースartifactの保存 |
 | SQS | 提出受付と判定実行の間の待ち行列。失敗ジョブはDLQへ移動 |
 
-ローカルではPostgreSQL 16とLocalStackのS3/SQSをDocker Composeで起動し、Go APIとRust Workerをホスト上で実行します。AWSの開発用Terraformには、EC2上のGo APIとRust Worker、RDS、S3、SQS/DLQ、CloudWatchが含まれます。通常はSSM経由でAPIへ接続し、ドメイン設定時はALB・ACM・Route 53による公開HTTPSエンドポイントも作成できます。
+ローカルではPostgreSQL 16とLocalStackのS3/SQSをDocker Composeで起動し、Go APIとRust Workerをホスト上で実行します。AWSの開発用Terraformには、EC2上のGo APIとRust Worker、RDS、S3、SQS/DLQ、CloudWatchが含まれます。通常はSSM経由でAPIへ接続し、ドメイン設定時はALB・ACMとCloudflare DNSによる公開HTTPSエンドポイントも作成できます。
 
 ## ジャッジの設計
 

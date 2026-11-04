@@ -56,12 +56,11 @@ data "aws_secretsmanager_secret" "worker_db" {
 }
 
 locals {
-  name_prefix          = "${var.project_name}-${var.environment}"
-  bucket_name          = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
-  subnet_id            = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
-  public_api_requested = trimspace(var.api_domain_name == null ? "" : var.api_domain_name) != ""
-  public_api_enabled   = local.public_api_requested && trimspace(var.route53_zone_id == null ? "" : var.route53_zone_id) != ""
-  alarm_actions        = var.alarm_sns_topic_arn == null || var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
+  name_prefix        = "${var.project_name}-${var.environment}"
+  bucket_name        = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  subnet_id          = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
+  public_api_enabled = trimspace(var.api_domain_name == null ? "" : var.api_domain_name) != ""
+  alarm_actions      = var.alarm_sns_topic_arn == null || var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
 }
 
 resource "aws_s3_bucket" "artifacts" {

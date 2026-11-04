@@ -125,11 +125,7 @@ resource "aws_instance" "api" {
 
   lifecycle {
     precondition {
-      condition     = !local.public_api_requested || local.public_api_enabled
-      error_message = "route53_zone_id is required when api_domain_name is set."
-    }
-    precondition {
-      condition     = !local.public_api_requested || !var.api_dev_header_auth
+      condition     = !local.public_api_enabled || !var.api_dev_header_auth
       error_message = "api_dev_header_auth must remain false when api_domain_name exposes the API publicly."
     }
   }
