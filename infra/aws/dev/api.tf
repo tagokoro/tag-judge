@@ -37,6 +37,12 @@ resource "aws_iam_role_policy" "api" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = data.aws_secretsmanager_secret.api.arn
+      },
+      {
+        Sid      = "WriteAPILogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:DescribeLogStreams", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.api.arn}:*"
       }
     ]
   })
@@ -54,7 +60,7 @@ resource "aws_iam_instance_profile" "api" {
 
 resource "aws_security_group" "api" {
   name        = "${local.name_prefix}-api-sg"
-  description = "API access through SSM only; no inbound rules"
+  description = "API access through SSM or the optional ALB only"
   vpc_id      = data.aws_vpc.default.id
 
   egress {
@@ -70,6 +76,17 @@ resource "aws_security_group" "api" {
     Project     = var.project_name
     Environment = var.environment
   }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_from_alb" {
+  count = local.public_api_enabled ? 1 : 0
+
+  security_group_id            = aws_security_group.api.id
+  referenced_security_group_id = aws_security_group.api_alb[0].id
+  description                  = "HTTP from the public API ALB"
+  from_port                    = 8080
+  to_port                      = 8080
+  ip_protocol                  = "tcp"
 }
 
 resource "aws_instance" "api" {
@@ -101,8 +118,21 @@ resource "aws_instance" "api" {
     secret_arn         = data.aws_secretsmanager_secret.api.arn
     dev_header_auth    = var.api_dev_header_auth
     service_env_script = file("${path.module}/scripts/configure_service_env.py")
+    cookie_secure      = local.public_api_enabled
+    log_group_name     = aws_cloudwatch_log_group.api.name
   })
   user_data_replace_on_change = true
+
+  lifecycle {
+    precondition {
+      condition     = !local.public_api_requested || local.public_api_enabled
+      error_message = "route53_zone_id is required when api_domain_name is set."
+    }
+    precondition {
+      condition     = !local.public_api_requested || !var.api_dev_header_auth
+      error_message = "api_dev_header_auth must remain false when api_domain_name exposes the API publicly."
+    }
+  }
 
   root_block_device {
     volume_size = 20

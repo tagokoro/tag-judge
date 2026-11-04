@@ -51,6 +51,35 @@ variable "api_dev_header_auth" {
   default     = false
 }
 
+variable "api_domain_name" {
+  description = "Optional public DNS name for the API. When set, an HTTPS ALB, ACM certificate, and Route 53 alias are created."
+  type        = string
+  default     = null
+}
+
+variable "route53_zone_id" {
+  description = "Route 53 public hosted zone ID containing api_domain_name. Required when api_domain_name is set."
+  type        = string
+  default     = null
+}
+
+variable "cloudwatch_log_retention_days" {
+  description = "Retention period for API and worker application logs."
+  type        = number
+  default     = 14
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.cloudwatch_log_retention_days)
+    error_message = "Use a CloudWatch Logs supported retention period."
+  }
+}
+
+variable "alarm_sns_topic_arn" {
+  description = "Optional SNS topic ARN notified by CloudWatch alarms. Alarms are still created when omitted."
+  type        = string
+  default     = null
+}
+
 variable "repository_url" {
   description = "Git repository cloned by EC2 user_data."
   type        = string

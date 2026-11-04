@@ -1,9 +1,10 @@
 # AWS dev API and judge worker
 
 The API runs on a separate EC2 instance with its own IAM role and an inbound-closed
-security group. Access HTTP through SSM port forwarding. It shares the existing
-RDS, S3 bucket and SQS queue with the worker. This stage does not expose a public
-HTTP/HTTPS endpoint.
+security group. Access HTTP through SSM port forwarding by default. It shares the
+existing RDS, S3 bucket and SQS queue with the worker. An optional public HTTPS
+endpoint uses an ALB, ACM certificate, and Route 53 alias; the instance itself is
+never opened to the internet.
 
 ## API deployment prerequisites
 
@@ -39,7 +40,12 @@ The secret may also include `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRE
 `GOOGLE_OAUTH_REDIRECT_URL` (supply all three together), and
 `AUTH_SUCCESS_REDIRECT_URL`. Without these, Google login is not configured.
 For browser login through the tunnel, use the localhost callback URL and register
-the same URL with Google. Cookies use HTTP settings for this SSM-only stage.
+the same URL with Google. When `api_domain_name` is configured, cookies are marked
+Secure and the secret should use `https://<api-domain>/api/v1/auth/google/callback`
+for `GOOGLE_OAUTH_REDIRECT_URL`. Register that exact callback in Google Cloud and
+set `AUTH_SUCCESS_REDIRECT_URL` to the deployed frontend URL. OAuth settings are
+read at instance provisioning time; rotate the secret and rerun the configuration
+helper plus `systemctl restart judge-api`, or replace the instance.
 
 For development header authentication, explicitly set `api_dev_header_auth = true`
 in a local, uncommitted tfvars file. It defaults to false. Use an existing database
@@ -53,6 +59,32 @@ generated from Secrets Manager with mode `0600`; DB TLS verifies the RDS hostnam
 and CA bundle when the URL above is used. Secrets are not interpolated into Terraform state or user data.
 Secret updates require rerunning configuration and restarting the service, or
 recreating the API instance. Configuration helpers remain in `/opt/tag-judge-setup`.
+
+## Optional public HTTPS endpoint
+
+The default remains SSM-only. To create the ALB, DNS validation records, ACM
+certificate, and Route 53 alias, set both values in an uncommitted tfvars file:
+
+```hcl
+api_domain_name = "api.example.com"
+route53_zone_id = "Z0123456789EXAMPLE"
+```
+
+For the automatic `main` deployment, configure the equivalent optional GitHub
+Actions repository variables:
+
+```sh
+gh variable set API_DOMAIN_NAME --body "api.example.com"
+gh variable set ROUTE53_ZONE_ID --body "Z0123456789EXAMPLE"
+# Optional alarm notifications:
+gh variable set ALARM_SNS_TOPIC_ARN --body "arn:aws:sns:ap-northeast-1:123456789012:tag-judge-alerts"
+```
+
+The hosted zone must already exist in the same AWS account. Terraform waits for
+DNS certificate validation. HTTP redirects to HTTPS, the ALB accepts TLS 1.2/1.3,
+and only the ALB security group can reach EC2 port 8080. Do not enable
+`api_dev_header_auth` on a public endpoint. The URL is available as
+`terraform output -raw api_public_url`.
 
 After a separately authorized apply, inspect the API through Session Manager:
 
@@ -82,10 +114,49 @@ aws ssm start-session \
   --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
 ```
 
-Then use `http://localhost:8080`. Verify AC and WA submissions through this API
-and confirm results from the existing worker. The instance uses a public IP for
+Then use `http://localhost:8080`. The instance uses a public IP for
 outbound package downloads and AWS API access; its security group has no inbound
-rules. Public deployment will need a separate HTTPS and authentication configuration.
+rules unless the optional ALB is enabled, in which case only ALB-to-instance traffic
+is allowed.
+
+## AWS submission smoke test
+
+The smoke test exercises API -> RDS/S3/SQS -> Worker -> RDS -> API with a real
+Python submission. It creates a problem and test case, waits for AC, and returns
+the problem to private visibility. The problem, submission, and artifacts remain as
+test evidence because submissions prevent problem deletion. Run it only through the
+SSM tunnel with
+`api_dev_header_auth = true`; the UUID must identify an existing database user.
+
+```sh
+infra/aws/dev/scripts/aws_submission_smoke_test.sh \
+  http://localhost:8080 <existing-user-uuid>
+```
+
+Keep header authentication disabled for the public ALB. For public-path verification,
+log in through Google OAuth and use the session cookie instead. The smoke script is
+intentionally not run by CI because it mutates the deployed database and requires a
+live worker.
+
+## Logs, alarms, and DLQ recovery
+
+API and worker stdout/stderr are sent to `/tag-judge/dev/api` and
+`/tag-judge/dev/worker` with 14-day retention by default. Terraform creates alarms
+for EC2 status checks, submission queue age, a non-empty DLQ, and (when enabled)
+ALB target 5xx responses. Set `alarm_sns_topic_arn` to an existing SNS topic to
+receive alarm and recovery notifications; without it the alarms remain visible in
+CloudWatch but do not notify.
+
+Inspect the DLQ before replaying it. After fixing the cause, move available messages
+back to the source queue with the generated command:
+
+```sh
+terraform output -raw dlq_redrive_command
+# Review the command and then execute it.
+```
+
+The SQS redrive allow policy restricts replay to the submissions source queue. Watch
+the worker log group and queue/DLQ metrics while replay is active.
 
 Review the plan for unrelated replacements: the existing worker uses a
 `most_recent` AMI. Merging changes under `infra/aws/dev` into `main` triggers

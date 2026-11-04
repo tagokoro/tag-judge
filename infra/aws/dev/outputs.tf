@@ -49,3 +49,25 @@ output "api_session_manager_command" {
 output "api_port_forward_command" {
   value = "aws ssm start-session --target ${aws_instance.api.id} --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"8080\"],\"localPortNumber\":[\"8080\"]}'"
 }
+
+output "api_public_url" {
+  description = "Public HTTPS API URL when api_domain_name is configured."
+  value       = local.public_api_enabled ? "https://${var.api_domain_name}" : null
+}
+
+output "api_log_group_name" {
+  value = aws_cloudwatch_log_group.api.name
+}
+
+output "worker_log_group_name" {
+  value = aws_cloudwatch_log_group.worker.name
+}
+
+output "submissions_dlq_url" {
+  value = aws_sqs_queue.submissions_dlq.url
+}
+
+output "dlq_redrive_command" {
+  description = "Review DLQ messages first, then run this command to move all available messages back to the source queue."
+  value       = "aws sqs start-message-move-task --source-arn ${aws_sqs_queue.submissions_dlq.arn} --destination-arn ${aws_sqs_queue.submissions.arn}"
+}

@@ -56,9 +56,12 @@ data "aws_secretsmanager_secret" "worker_db" {
 }
 
 locals {
-  name_prefix = "${var.project_name}-${var.environment}"
-  bucket_name = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
-  subnet_id   = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
+  name_prefix          = "${var.project_name}-${var.environment}"
+  bucket_name          = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  subnet_id            = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
+  public_api_requested = trimspace(var.api_domain_name == null ? "" : var.api_domain_name) != ""
+  public_api_enabled   = local.public_api_requested && trimspace(var.route53_zone_id == null ? "" : var.route53_zone_id) != ""
+  alarm_actions        = var.alarm_sns_topic_arn == null || var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
 }
 
 resource "aws_s3_bucket" "artifacts" {
@@ -152,6 +155,7 @@ resource "aws_iam_role_policy" "judge_worker" {
           "sqs:GetQueueUrl",
           "sqs:GetQueueAttributes",
           "sqs:ReceiveMessage",
+          "sqs:ChangeMessageVisibility",
           "sqs:DeleteMessage"
         ]
         Resource = aws_sqs_queue.submissions.arn
@@ -161,6 +165,12 @@ resource "aws_iam_role_policy" "judge_worker" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = data.aws_secretsmanager_secret.worker_db.arn
+      },
+      {
+        Sid      = "WriteWorkerLogs"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:DescribeLogStreams", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.worker.arn}:*"
       }
     ]
   })
@@ -221,6 +231,7 @@ resource "aws_instance" "judge_worker" {
     isolate_git_ref    = var.isolate_git_ref
     db_secret_arn      = data.aws_secretsmanager_secret.worker_db.arn
     service_env_script = file("${path.module}/scripts/configure_service_env.py")
+    log_group_name     = aws_cloudwatch_log_group.worker.name
   })
 
   user_data_replace_on_change = true
