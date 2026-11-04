@@ -45,8 +45,6 @@ flowchart TD
 
 ローカルではPostgreSQL 16とLocalStackのS3/SQSをDocker Composeで起動し、Go APIとRust Workerをホスト上で実行します。AWSの開発用Terraformには、EC2上のGo APIとRust Worker、RDS、S3、SQS/DLQ、CloudWatchが含まれます。通常はSSM経由でAPIへ接続し、ドメイン設定時はALB・ACM・Route 53による公開HTTPSエンドポイントも作成できます。
 
-AWS開発環境とローカル開発環境の接続を含む図: [システム構成図（HTML）](docs/diagrams/tag-judge-system.html) · [PNG](docs/diagrams/tag-judge-system.png)
-
 ## ジャッジの設計
 
 ### coreとworkerを分ける
