@@ -456,6 +456,8 @@ paths:
           $ref: "#/components/responses/Error"
         "429":
           $ref: "#/components/responses/RateLimitError"
+        "500":
+          $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
     get:
@@ -638,7 +640,8 @@ components:
       required: false
       description: |
         Optional opaque key for safe request retry. The same key with the same
-        normalized request body replays the same execution. Keys are retained
+        normalized request body replays the same execution. A blank or
+        whitespace-only key is rejected with `400`. Keys are retained
         indefinitely in the current implementation.
       schema:
         type: string

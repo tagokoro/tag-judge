@@ -43,7 +43,7 @@ func TestAdmissionControlPostgres(t *testing.T) {
 
 	limits := postgres.AdmissionLimits{
 		UserRateLimit:          3,
-		UserRateWindow:         2 * time.Second,
+		UserRateWindow:         1 * time.Second,
 		UserOutstandingLimit:   100,
 		GlobalOutstandingLimit: 1000,
 		LockTimeout:            5 * time.Second,
@@ -71,7 +71,9 @@ func TestAdmissionControlPostgres(t *testing.T) {
 			t.Fatalf("Retry-After = %d", appErr.RetryAfter)
 		}
 
-		time.Sleep(limits.UserRateWindow + 500*time.Millisecond)
+		// Sleep well past the window boundary (3x) so CI scheduling jitter
+		// cannot make this rolling-window check flaky.
+		time.Sleep(3 * limits.UserRateWindow)
 		_, err = admission.CreateSubmission(ctx, submissionParams(userID, "rate-after-window"), idempotency(keyBase+"-after", 0, submissionParams(userID, "rate-after-window")))
 		if err != nil {
 			t.Fatalf("create after rolling window failed: %v", err)
@@ -524,13 +526,18 @@ func TestAdmissionConcurrentSlotsPostgres(t *testing.T) {
 
 		var wg sync.WaitGroup
 		successes := atomic.Int32{}
-		errorsCh := make(chan error, 8)
+		errorsCh := make(chan error, 16)
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				params, id := reserveCodeRunParams(ctx, t, admission, userID, fmt.Sprintf("concurrent-user-%d", i))
-				_, err := admission.CreateCodeRun(ctx, params, nil, 1000, id)
+				id, err := admission.ReserveCodeRunID(ctx)
+				if err != nil {
+					errorsCh <- fmt.Errorf("reserve code run id: %w", err)
+					return
+				}
+				params := codeRunParams(userID, fmt.Sprintf("concurrent-user-%d", i), id)
+				_, err = admission.CreateCodeRun(ctx, params, nil, 1000, id)
 				if err == nil {
 					successes.Add(1)
 					return
@@ -578,15 +585,20 @@ func TestAdmissionConcurrentSlotsPostgres(t *testing.T) {
 
 		var wg sync.WaitGroup
 		successes := atomic.Int32{}
-		errorsCh := make(chan error, 8)
+		errorsCh := make(chan error, 16)
 		users := []string{admissionTestUserA, admissionTestUserB, admissionTestUserC}
 		for i := 0; i < 8; i++ {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
 				userID := users[i%len(users)]
-				params, id := reserveCodeRunParams(ctx, t, admission, userID, fmt.Sprintf("concurrent-global-%d", i))
-				_, err := admission.CreateCodeRun(ctx, params, nil, 1000, id)
+				id, err := admission.ReserveCodeRunID(ctx)
+				if err != nil {
+					errorsCh <- fmt.Errorf("reserve code run id: %w", err)
+					return
+				}
+				params := codeRunParams(userID, fmt.Sprintf("concurrent-global-%d", i), id)
+				_, err = admission.CreateCodeRun(ctx, params, nil, 1000, id)
 				if err == nil {
 					successes.Add(1)
 					return

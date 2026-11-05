@@ -51,6 +51,14 @@ func (l AdmissionLimits) Validate() error {
 // checks per-user and global limits, persists durable outbox records, and
 // records idempotency keys. All creation paths for submissions and code runs
 // must go through it.
+//
+// Throughput note: the shared lock row serializes every admission across all
+// API processes, so the system-wide admission rate is bounded by roughly one
+// request per lock-hold duration. The lock is only held for the single
+// combined count query and the insert statements; never for storage, SQS, or
+// other network I/O. If this ceiling is ever hit in production, split the
+// per-user checks onto per-user advisory locks and keep only the global
+// outstanding check on the shared row.
 type AdmissionControl struct {
 	db      *pgxpool.Pool
 	queries *sqlc.Queries
@@ -63,10 +71,12 @@ func NewAdmissionControl(db *pgxpool.Pool, limits AdmissionLimits) *AdmissionCon
 
 // ReserveCodeRunID allocates the next code_runs id outside of any admission
 // transaction so the source-code storage key can be computed and the artifact
-// stored before the atomic record+outbox creation.
+// stored before the atomic record+outbox creation. The sequence is resolved via
+// pg_get_serial_sequence so renames or a move to IDENTITY columns do not break
+// this call.
 func (a *AdmissionControl) ReserveCodeRunID(ctx context.Context) (int64, error) {
 	var id int64
-	if err := a.db.QueryRow(ctx, "SELECT nextval('code_runs_id_seq')").Scan(&id); err != nil {
+	if err := a.db.QueryRow(ctx, "SELECT nextval(pg_get_serial_sequence('code_runs', 'id'))").Scan(&id); err != nil {
 		return 0, classifyDBError(err, "reserve code run id")
 	}
 	return id, nil
@@ -77,6 +87,10 @@ func (a *AdmissionControl) Validate() error {
 }
 
 func (a *AdmissionControl) CreateSubmission(ctx context.Context, params repository.CreateSubmissionWithOutboxParams, idempotency *repository.IdempotencyKeyInfo) (*domain.Submission, error) {
+	if params.TimeLimitMS <= 0 {
+		return nil, apperror.InvalidInput("INVALID_TIME_LIMIT", "submission time limit must be positive")
+	}
+
 	tx, err := a.beginAdmissionTx(ctx)
 	if err != nil {
 		return nil, err
@@ -90,7 +104,7 @@ func (a *AdmissionControl) CreateSubmission(ctx context.Context, params reposito
 		}
 		if existing != nil {
 			if err := tx.Commit(ctx); err != nil {
-				return nil, classifyCommitError(err)
+				return nil, classifyCommitError()
 			}
 			return existing, nil
 		}
@@ -134,7 +148,7 @@ func (a *AdmissionControl) CreateSubmission(ctx context.Context, params reposito
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, classifyCommitError(err)
+		return nil, classifyCommitError()
 	}
 
 	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
@@ -170,7 +184,7 @@ func (a *AdmissionControl) CreateCodeRun(ctx context.Context, params repository.
 		}
 		if existing != nil {
 			if err := tx.Commit(ctx); err != nil {
-				return nil, classifyCommitError(err)
+				return nil, classifyCommitError()
 			}
 			return existing, nil
 		}
@@ -184,15 +198,21 @@ func (a *AdmissionControl) CreateCodeRun(ctx context.Context, params repository.
 	var rowUserID string
 	var rowLanguage, rowStdin string
 	var rowCreatedAt time.Time
-	err = tx.QueryRow(ctx, `
-		INSERT INTO code_runs (id, user_id, language, source_code, stdin, status)
-		VALUES ($1, $2, $3, $4, $5, 'pending')
-		RETURNING id, user_id::text AS user_id, language, stdin, created_at`,
-		codeRunID, userIDUUID, string(params.Language), params.SourceCode, params.Stdin,
-	).Scan(&rowID, &rowUserID, &rowLanguage, &rowStdin, &rowCreatedAt)
+	row, err := a.queries.WithTx(tx).CreateCodeRunWithID(ctx, sqlc.CreateCodeRunWithIDParams{
+		ID:         codeRunID,
+		UserID:     userIDUUID,
+		Language:   string(params.Language),
+		SourceCode: params.SourceCode,
+		Stdin:      params.Stdin,
+	})
 	if err != nil {
 		return nil, classifyDBError(err, "create code run")
 	}
+	rowID = row.ID
+	rowUserID = row.UserID
+	rowLanguage = row.Language
+	rowStdin = row.Stdin
+	rowCreatedAt = row.CreatedAt.Time
 
 	payload, err := json.Marshal(codeRunOutboxPayload{
 		CodeRunID:     fmt.Sprintf("%d", rowID),
@@ -215,7 +235,7 @@ func (a *AdmissionControl) CreateCodeRun(ctx context.Context, params repository.
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, classifyCommitError(err)
+		return nil, classifyCommitError()
 	}
 
 	codeRun := domain.CodeRun{
@@ -252,24 +272,30 @@ func (a *AdmissionControl) beginAdmissionTx(ctx context.Context) (pgx.Tx, error)
 	return tx, nil
 }
 
+// admissionCountsResult holds the three admission checks evaluated in a single
+// query so the global row lock is held for one round trip instead of four.
+type admissionCountsResult struct {
+	rateCount         int64
+	rateRetryAfter    *int
+	userOutstanding   int64
+	globalOutstanding int64
+}
+
 func (a *AdmissionControl) checkAdmission(ctx context.Context, tx pgx.Tx, userID string) error {
-	userRateCount, retryAfterSeconds, err := a.userAcceptedCount(ctx, tx, userID)
+	counts, err := a.admissionCounts(ctx, tx, userID)
 	if err != nil {
 		return err
 	}
-	if userRateCount >= a.limits.UserRateLimit {
+
+	if counts.rateCount >= int64(a.limits.UserRateLimit) {
 		return apperror.RateLimit(
 			"USER_RATE_LIMIT_EXCEEDED",
 			fmt.Sprintf("user creation rate limit exceeded: %d per %v", a.limits.UserRateLimit, a.limits.UserRateWindow),
-			retryAfterSeconds,
+			smallestRetryAfter(a.limits.UserRateWindow, counts.rateRetryAfter),
 		)
 	}
 
-	userOutstanding, err := a.userOutstandingCount(ctx, tx, userID)
-	if err != nil {
-		return err
-	}
-	if userOutstanding >= a.limits.UserOutstandingLimit {
+	if counts.userOutstanding >= int64(a.limits.UserOutstandingLimit) {
 		return apperror.RateLimit(
 			"USER_OUTSTANDING_LIMIT_EXCEEDED",
 			fmt.Sprintf("user outstanding execution limit exceeded: %d", a.limits.UserOutstandingLimit),
@@ -277,11 +303,7 @@ func (a *AdmissionControl) checkAdmission(ctx context.Context, tx pgx.Tx, userID
 		)
 	}
 
-	globalOutstanding, err := a.globalOutstandingCount(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if globalOutstanding >= a.limits.GlobalOutstandingLimit {
+	if counts.globalOutstanding >= int64(a.limits.GlobalOutstandingLimit) {
 		return apperror.OverCapacity(
 			"GLOBAL_OUTSTANDING_LIMIT_EXCEEDED",
 			fmt.Sprintf("global outstanding execution limit exceeded: %d", a.limits.GlobalOutstandingLimit),
@@ -292,87 +314,61 @@ func (a *AdmissionControl) checkAdmission(ctx context.Context, tx pgx.Tx, userID
 	return nil
 }
 
-func (a *AdmissionControl) userAcceptedCount(ctx context.Context, tx pgx.Tx, userID string) (int, int, error) {
-	var subCount, runCount int64
-	var subRetryAfter, runRetryAfter *int
+// admissionCounts evaluates the per-user rolling rate, per-user outstanding,
+// and global outstanding counts in one query. All three decisions must observe
+// the same snapshot while holding the admission lock; consolidating them keeps
+// the lock hold time to a single round trip.
+func (a *AdmissionControl) admissionCounts(ctx context.Context, tx pgx.Tx, userID string) (admissionCountsResult, error) {
+	var counts admissionCountsResult
 	err := tx.QueryRow(ctx, `
-		SELECT count(*),
-			ceil(extract(epoch from ($2::interval - (now() - min(created_at)))))::int
-		FROM submissions
-		WHERE user_id = $1::uuid AND created_at >= now() - $2::interval`,
+		SELECT rate.rate_count, rate.retry_after, outstanding.user_outstanding, outstanding.global_outstanding
+		FROM (
+			SELECT count(*) AS rate_count,
+				ceil(extract(epoch FROM ($2::interval - (now() - min(created_at)))))::int AS retry_after
+			FROM (
+				SELECT created_at FROM submissions
+				WHERE user_id = $1::uuid AND created_at >= now() - $2::interval
+				UNION ALL
+				SELECT created_at FROM code_runs
+				WHERE user_id = $1::uuid AND created_at >= now() - $2::interval
+			) recent
+		) rate
+		CROSS JOIN (
+			SELECT
+				(SELECT count(*) FROM submissions
+					WHERE user_id = $1::uuid AND status IN ('pending', 'running'))
+					+ (SELECT count(*) FROM code_runs
+					WHERE user_id = $1::uuid AND status IN ('pending', 'running')) AS user_outstanding,
+				(SELECT count(*) FROM submissions WHERE status IN ('pending', 'running'))
+					+ (SELECT count(*) FROM code_runs WHERE status IN ('pending', 'running')) AS global_outstanding
+		) outstanding`,
 		userID, a.limits.UserRateWindow,
-	).Scan(&subCount, &subRetryAfter)
+	).Scan(&counts.rateCount, &counts.rateRetryAfter, &counts.userOutstanding, &counts.globalOutstanding)
 	if err != nil {
-		return 0, 0, classifyDBError(err, "count user submission rate")
+		return admissionCountsResult{}, classifyDBError(err, "count admission limits")
 	}
-	err = tx.QueryRow(ctx, `
-		SELECT count(*),
-			ceil(extract(epoch from ($2::interval - (now() - min(created_at)))))::int
-		FROM code_runs
-		WHERE user_id = $1::uuid AND created_at >= now() - $2::interval`,
-		userID, a.limits.UserRateWindow,
-	).Scan(&runCount, &runRetryAfter)
-	if err != nil {
-		return 0, 0, classifyDBError(err, "count user code run rate")
-	}
-	total := int(subCount + runCount)
-	retryAfter := smallestRetryAfter(a.limits.UserRateWindow, subRetryAfter, runRetryAfter)
-	return total, retryAfter, nil
+	return counts, nil
 }
 
 func smallestRetryAfter(window time.Duration, values ...*int) int {
-	min := int(window.Seconds())
+	smallest := int(window.Seconds())
 	found := false
 	for _, v := range values {
 		if v == nil {
 			continue
 		}
 		found = true
-		if *v < min {
-			min = *v
+		if *v < smallest {
+			smallest = *v
 		}
 	}
 	if !found {
 		return int(window.Seconds())
 	}
-	if min < 1 {
+	if smallest < 1 {
 		return 1
 	}
-	return min
-}
-
-func (a *AdmissionControl) userOutstandingCount(ctx context.Context, tx pgx.Tx, userID string) (int, error) {
-	var subCount, runCount int64
-	err := tx.QueryRow(ctx, `
-		SELECT count(*) FROM submissions
-		WHERE user_id = $1::uuid AND status IN ('pending', 'running')`,
-		userID,
-	).Scan(&subCount)
-	if err != nil {
-		return 0, classifyDBError(err, "count user outstanding submissions")
-	}
-	err = tx.QueryRow(ctx, `
-		SELECT count(*) FROM code_runs
-		WHERE user_id = $1::uuid AND status IN ('pending', 'running')`,
-		userID,
-	).Scan(&runCount)
-	if err != nil {
-		return 0, classifyDBError(err, "count user outstanding code runs")
-	}
-	return int(subCount + runCount), nil
-}
-
-func (a *AdmissionControl) globalOutstandingCount(ctx context.Context, tx pgx.Tx) (int, error) {
-	var subCount, runCount int64
-	err := tx.QueryRow(ctx, `SELECT count(*) FROM submissions WHERE status IN ('pending', 'running')`).Scan(&subCount)
-	if err != nil {
-		return 0, classifyDBError(err, "count global outstanding submissions")
-	}
-	err = tx.QueryRow(ctx, `SELECT count(*) FROM code_runs WHERE status IN ('pending', 'running')`).Scan(&runCount)
-	if err != nil {
-		return 0, classifyDBError(err, "count global outstanding code runs")
-	}
-	return int(subCount + runCount), nil
+	return smallest
 }
 
 func (a *AdmissionControl) findIdempotentSubmission(ctx context.Context, tx pgx.Tx, userID, namespace, key, fingerprint string) (*domain.Submission, error) {
@@ -457,11 +453,11 @@ func classifyIdempotencyInsertError(err error) error {
 	return classifyDBError(err, "record idempotency key")
 }
 
-func classifyCommitError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "40001" {
-		return apperror.Transient("TRANSIENT_COMMIT_FAILURE", "the request could not be confirmed; retry with the same idempotency key", 1)
-	}
+// classifyCommitError maps a failed admission commit to a transient error.
+// The transaction runs at READ COMMITTED, so serialization failures do not
+// occur; a failed commit means the connection or the statement was lost, and
+// the client must retry with the same idempotency key.
+func classifyCommitError() error {
 	return apperror.Transient("TRANSIENT_COMMIT_FAILURE", "the request could not be confirmed; retry with the same idempotency key", 1)
 }
 

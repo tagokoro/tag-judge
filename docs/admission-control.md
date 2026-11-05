@@ -37,6 +37,15 @@ is acquired **before** fresh count queries and the execution insert. This makes
 admission decisions serializable across multiple API processes without needing
 per-user locks.
 
+The three limit checks (per-user rate, per-user outstanding, global
+outstanding) are evaluated in a **single combined query**, so the lock hold
+time is one count round trip plus the insert statements. Because the shared
+lock serializes every admission across all API processes, the system-wide
+admission throughput is bounded by roughly one request per lock-hold duration.
+If that ceiling is ever reached in production, split the per-user checks onto
+per-user advisory locks and keep only the global outstanding check on the
+shared row.
+
 S3/SQS/network operations are never performed inside the locked transaction:
 
 - Submissions store source code before the admission transaction.
@@ -59,6 +68,8 @@ The existing JSON error envelope is preserved. Status codes:
 | Global outstanding limit | 503 | `GLOBAL_OUTSTANDING_LIMIT_EXCEEDED` | 5 (estimate) |
 | DB lock timeout / unavailable | 503 | `TRANSIENT_DATABASE_ERROR` | 1 |
 | Changed idempotency payload | 409 | `IDEMPOTENCY_KEY_CONFLICT` | none |
+| Blank idempotency key | 400 | `INVALID_IDEMPOTENCY_KEY` | none |
+| Source artifact storage failure | 500 | `INTERNAL_ERROR` | none |
 | Unexpected internal failure | 500 | `INTERNAL_ERROR` | none |
 
 HTTP success is returned only after the transaction commits. If the client
@@ -74,16 +85,27 @@ committed record instead of creating a duplicate.
 - The server stores a fingerprint of the normalized request body. Replaying the
   same key with the same fingerprint returns the existing execution. Replaying
   the same key with a different fingerprint returns `409`.
+- Keys are validated for length (in characters) and are never logged. A blank
+  or whitespace-only key is rejected with `400` instead of silently disabling
+  idempotency.
 - Keys are retained indefinitely in the current implementation. No retention
-  cleanup is configured yet; premature deletion could allow unwanted duplicates.
-- Keys are validated for length and are never logged.
+  cleanup is configured yet; premature deletion could allow unwanted
+  duplicates. Track table growth (`execution_idempotency_keys` row count) in
+  production and add a retention cleanup job before the table or its unique
+  index grows large; orphan artifacts from rejected admissions have the same
+  constraint.
 
 ## CodeRun Outbox
 
 CodeRuns now use `code_run_job_outbox`, with a publisher started alongside the
 Submission publisher. The publisher retries SQS dispatch with exponential
-backoff and marks records dispatched only after `SendMessage` succeeds. This
-preserves Submission payload compatibility and retry behavior.
+backoff (1 s to 64 s, capped) and marks records dispatched only after
+`SendMessage` succeeds. There is **no maximum attempt count and no
+dead-lettering**: an accepted record is retried forever until it dispatches.
+This preserves the "accepted executions are never lost" guarantee but means
+delivery health must be monitored: alert on rows where `dispatched_at IS NULL`
+and `last_error` is set, and treat a growing backlog as an operational
+incident.
 
 ## Tests
 

@@ -63,7 +63,7 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 	if strings.TrimSpace(input.SourceCode) == "" {
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must not be empty")
 	}
-	idempotency, err := u.buildIdempotency(actor.UserID, repository.IdempotencyNamespaceCodeRun, input.IdempotencyKey, codeRunFingerprint(input))
+	idempotency, err := buildCodeRunIdempotency(actor.UserID, u.idempotencyKeyMaxLen, input)
 	if err != nil {
 		return nil, err
 	}
@@ -106,21 +106,15 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 	return codeRun, nil
 }
 
-func (u *CodeRunUsecase) buildIdempotency(userID, namespace, key, fingerprint string) (*repository.IdempotencyKeyInfo, error) {
-	if strings.TrimSpace(key) == "" {
-		return nil, nil
+func buildCodeRunIdempotency(userID string, maxLen int, input CreateCodeRunInput) (*repository.IdempotencyKeyInfo, error) {
+	fingerprint, err := codeRunFingerprint(input)
+	if err != nil {
+		return nil, err
 	}
-	if len(key) > u.idempotencyKeyMaxLen {
-		return nil, apperror.InvalidInput("INVALID_IDEMPOTENCY_KEY", "idempotency key is too long")
-	}
-	return &repository.IdempotencyKeyInfo{
-		Namespace:   namespace,
-		Key:         key,
-		Fingerprint: fingerprint,
-	}, nil
+	return newIdempotencyKey(userID, repository.IdempotencyNamespaceCodeRun, input.IdempotencyKey, fingerprint, maxLen)
 }
 
-func codeRunFingerprint(input CreateCodeRunInput) string {
+func codeRunFingerprint(input CreateCodeRunInput) (string, error) {
 	return canonicalFingerprint(struct {
 		Language   string `json:"language"`
 		SourceCode string `json:"source_code"`

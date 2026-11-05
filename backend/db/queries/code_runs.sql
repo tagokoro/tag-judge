@@ -1,8 +1,7 @@
--- name: CreateCodeRun :one
-INSERT INTO code_runs (user_id, language, source_code, stdin, status)
-VALUES ($1, $2, $3, $4, 'pending')
-RETURNING id, user_id::text AS user_id, language, source_code, stdin, stdout, stderr, status,
-          execution_time_ms, memory_kb, created_at;
+-- name: CreateCodeRunWithID :one
+INSERT INTO code_runs (id, user_id, language, source_code, stdin, status)
+VALUES ($1, $2, $3, $4, $5, 'pending')
+RETURNING id, user_id::text AS user_id, language, stdin, created_at;
 
 -- name: GetCodeRun :one
 SELECT id, user_id::text AS user_id, language, source_code, stdin, stdout, stderr, status,

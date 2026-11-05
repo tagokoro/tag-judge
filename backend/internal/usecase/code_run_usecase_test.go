@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -158,6 +159,64 @@ func TestCreateCodeRunIdempotencyKeyTooLong(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 	assertCodeRunCreateNotStarted(t, repo, storage, admission)
+}
+
+func TestCreateCodeRunIdempotencyKeyBlank(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: "   ",
+	})
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput for blank key", err)
+	}
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
+}
+
+func TestCreateCodeRunIdempotencyKeyTrimmed(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: "  key-1  ",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if admission.createCodeRunKeyInfo == nil || admission.createCodeRunKeyInfo.Key != "key-1" {
+		t.Fatalf("stored key = %+v, want trimmed \"key-1\"", admission.createCodeRunKeyInfo)
+	}
+}
+
+func TestCreateCodeRunIdempotencyKeyCountsRunes(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	// 200 multibyte runes is 600 bytes but 200 characters; the limit is
+	// checked in characters to match the OpenAPI maxLength contract.
+	longMultibyte := strings.Repeat("あ", 200)
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: longMultibyte,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if admission.createCodeRunKeyInfo == nil || len(admission.createCodeRunKeyInfo.Key) != 600 {
+		t.Fatalf("multibyte key within the character limit was rejected")
+	}
 }
 
 func TestGetCodeRunOwner(t *testing.T) {

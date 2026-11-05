@@ -49,18 +49,14 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			status = http.StatusNotFound
 		case errors.Is(appErr, apperror.ErrConflict):
 			status = http.StatusConflict
-		case errors.Is(appErr, apperror.ErrRateLimit):
-			status = http.StatusTooManyRequests
-			if appErr.RetryAfter > 0 {
-				w.Header().Set("Retry-After", strconv.Itoa(appErr.RetryAfter))
+		case errors.Is(appErr, apperror.ErrRateLimit),
+			errors.Is(appErr, apperror.ErrOverCapacity),
+			errors.Is(appErr, apperror.ErrTransient):
+			if errors.Is(appErr, apperror.ErrRateLimit) {
+				status = http.StatusTooManyRequests
+			} else {
+				status = http.StatusServiceUnavailable
 			}
-		case errors.Is(appErr, apperror.ErrOverCapacity):
-			status = http.StatusServiceUnavailable
-			if appErr.RetryAfter > 0 {
-				w.Header().Set("Retry-After", strconv.Itoa(appErr.RetryAfter))
-			}
-		case errors.Is(appErr, apperror.ErrTransient):
-			status = http.StatusServiceUnavailable
 			if appErr.RetryAfter > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(appErr.RetryAfter))
 			}
