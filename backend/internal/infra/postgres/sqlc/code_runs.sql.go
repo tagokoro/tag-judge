@@ -11,53 +11,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createCodeRun = `-- name: CreateCodeRun :one
-INSERT INTO code_runs (user_id, language, source_code, stdin, status)
-VALUES ($1, $2, $3, $4, 'pending')
-RETURNING id, user_id::text AS user_id, language, source_code, stdin, stdout, stderr, status,
-          execution_time_ms, memory_kb, created_at
+const createCodeRunWithID = `-- name: CreateCodeRunWithID :one
+INSERT INTO code_runs (id, user_id, language, source_code, stdin, status)
+VALUES ($1, $2, $3, $4, $5, 'pending')
+RETURNING id, user_id::text AS user_id, language, stdin, created_at
 `
 
-type CreateCodeRunParams struct {
+type CreateCodeRunWithIDParams struct {
+	ID         int64       `json:"id"`
 	UserID     pgtype.UUID `json:"user_id"`
 	Language   string      `json:"language"`
 	SourceCode string      `json:"source_code"`
 	Stdin      string      `json:"stdin"`
 }
 
-type CreateCodeRunRow struct {
-	ID              int64              `json:"id"`
-	UserID          string             `json:"user_id"`
-	Language        string             `json:"language"`
-	SourceCode      string             `json:"source_code"`
-	Stdin           string             `json:"stdin"`
-	Stdout          string             `json:"stdout"`
-	Stderr          string             `json:"stderr"`
-	Status          string             `json:"status"`
-	ExecutionTimeMs pgtype.Int4        `json:"execution_time_ms"`
-	MemoryKb        pgtype.Int4        `json:"memory_kb"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+type CreateCodeRunWithIDRow struct {
+	ID        int64              `json:"id"`
+	UserID    string             `json:"user_id"`
+	Language  string             `json:"language"`
+	Stdin     string             `json:"stdin"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) CreateCodeRun(ctx context.Context, arg CreateCodeRunParams) (CreateCodeRunRow, error) {
-	row := q.db.QueryRow(ctx, createCodeRun,
+func (q *Queries) CreateCodeRunWithID(ctx context.Context, arg CreateCodeRunWithIDParams) (CreateCodeRunWithIDRow, error) {
+	row := q.db.QueryRow(ctx, createCodeRunWithID,
+		arg.ID,
 		arg.UserID,
 		arg.Language,
 		arg.SourceCode,
 		arg.Stdin,
 	)
-	var i CreateCodeRunRow
+	var i CreateCodeRunWithIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.Language,
-		&i.SourceCode,
 		&i.Stdin,
-		&i.Stdout,
-		&i.Stderr,
-		&i.Status,
-		&i.ExecutionTimeMs,
-		&i.MemoryKb,
 		&i.CreatedAt,
 	)
 	return i, err

@@ -220,3 +220,13 @@ sudo docker compose exec -T localstack awslocal sqs send-message \
 
 Queue は先に用意する。  
 理由は、提出受付と判定実行を分離する設計境界を早い段階で確認できるためである。
+
+## 8. Admission Control と冪等キー
+
+提出・CodeRun 作成 API は共有の admission control を通じて制限されます。環境変数の詳細と挙動は [docs/admission-control.md](admission-control.md) を参照してください。PostgreSQL 統合テストを実行するには `ADMISSION_TEST_DATABASE_URL` を設定します。
+
+```sh
+cd backend
+ADMISSION_TEST_DATABASE_URL='postgres://judge_user:judge_pass@localhost:5432/judge?sslmode=disable' \
+  go test ./internal/infra/postgres -run 'TestAdmission|TestCodeRunOutbox' -v
+```

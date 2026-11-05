@@ -7,10 +7,11 @@ import (
 )
 
 type CreateCodeRunParams struct {
-	UserID     string
-	Language   domain.ExecutionLanguage
-	SourceCode string
-	Stdin      string
+	UserID        string
+	Language      domain.ExecutionLanguage
+	SourceCode    string
+	Stdin         string
+	SourceCodeKey string
 }
 
 type ListCodeRunsParams struct {
@@ -20,7 +21,6 @@ type ListCodeRunsParams struct {
 }
 
 type CodeRunRepository interface {
-	Create(ctx context.Context, params CreateCodeRunParams) (*domain.CodeRun, error)
 	FindByID(ctx context.Context, id int64) (*domain.CodeRun, error)
 	ListByUserID(ctx context.Context, params ListCodeRunsParams) ([]domain.CodeRun, error)
 }

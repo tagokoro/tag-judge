@@ -8,6 +8,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdmissionControlLock struct {
+	ID int32 `json:"id"`
+}
+
 type CodeRun struct {
 	ID              int64              `json:"id"`
 	UserID          pgtype.UUID        `json:"user_id"`
@@ -20,6 +24,28 @@ type CodeRun struct {
 	ExecutionTimeMs pgtype.Int4        `json:"execution_time_ms"`
 	MemoryKb        pgtype.Int4        `json:"memory_kb"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type CodeRunJobOutbox struct {
+	CodeRunID    int64              `json:"code_run_id"`
+	Payload      []byte             `json:"payload"`
+	DispatchedAt pgtype.Timestamptz `json:"dispatched_at"`
+	Attempts     int32              `json:"attempts"`
+	LastError    pgtype.Text        `json:"last_error"`
+	AvailableAt  pgtype.Timestamptz `json:"available_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ExecutionIdempotencyKey struct {
+	ID           int64              `json:"id"`
+	UserID       pgtype.UUID        `json:"user_id"`
+	Namespace    string             `json:"namespace"`
+	Key          string             `json:"key"`
+	Fingerprint  string             `json:"fingerprint"`
+	SubmissionID pgtype.Int8        `json:"submission_id"`
+	CodeRunID    pgtype.Int8        `json:"code_run_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
 type Group struct {

@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -19,8 +21,17 @@ const (
 func TestCreateCodeRun(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storage := &fakeCodeRunStorage{}
-	dispatcher := &fakeCodeRunDispatcher{}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{
+		createCodeRunResult: &domain.CodeRun{
+			ID:         1,
+			UserID:     codeRunUserID,
+			Language:   domain.ExecutionLanguagePython,
+			SourceCode: "print(input())",
+			Stdin:      "hello",
+			Status:     domain.CodeRunStatusPending,
+		},
+	}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
 
 	result, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
 		Language:   domain.ExecutionLanguagePython,
@@ -33,8 +44,11 @@ func TestCreateCodeRun(t *testing.T) {
 	if result.Status != domain.CodeRunStatusPending {
 		t.Fatalf("status = %q, want pending", result.Status)
 	}
-	if repo.createParams.UserID != codeRunUserID || repo.createParams.Stdin != "hello" {
-		t.Fatalf("params = %+v", repo.createParams)
+	if admission.createCodeRunParams.UserID != codeRunUserID || admission.createCodeRunParams.Stdin != "hello" {
+		t.Fatalf("params = %+v", admission.createCodeRunParams)
+	}
+	if admission.createCodeRunTimeLimitMS != 2500 {
+		t.Fatalf("time limit = %d, want 2500", admission.createCodeRunTimeLimitMS)
 	}
 	if storage.params.Key != "code-runs/00000000-0000-4000-8000-000000000001/1/main.py" {
 		t.Fatalf("source key = %q", storage.params.Key)
@@ -42,25 +56,13 @@ func TestCreateCodeRun(t *testing.T) {
 	if storage.params.SourceCode != "print(input())" {
 		t.Fatalf("source code = %q", storage.params.SourceCode)
 	}
-
-	job := dispatcher.job
-	if job.Reference().Kind() != repository.ExecutionReferenceCodeRun || job.Reference().ID() != "1" {
-		t.Fatalf("reference = %s/%s", job.Reference().Kind(), job.Reference().ID())
-	}
-	stdin, ok := job.Mode().Stdin()
-	if !ok || stdin.Stdin != "hello" || stdin.TimeLimitMS != 2500 {
-		t.Fatalf("stdin execution = %+v, ok = %v", stdin, ok)
-	}
-	if job.SourceCodeKey() != storage.params.Key || job.Language() != domain.ExecutionLanguagePython {
-		t.Fatalf("job source/language = %q/%q", job.SourceCodeKey(), job.Language())
-	}
 }
 
 func TestCreateCodeRunLanguage(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storage := &fakeCodeRunStorage{}
-	dispatcher := &fakeCodeRunDispatcher{}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
 
 	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
 		Language:   domain.ExecutionLanguage("go"),
@@ -69,14 +71,14 @@ func TestCreateCodeRunLanguage(t *testing.T) {
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
-	assertCodeRunCreateNotStarted(t, repo, storage, dispatcher)
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
 }
 
 func TestCreateCodeRunSource(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storage := &fakeCodeRunStorage{}
-	dispatcher := &fakeCodeRunDispatcher{}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
 
 	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
 		Language:   domain.ExecutionLanguagePython,
@@ -85,14 +87,14 @@ func TestCreateCodeRunSource(t *testing.T) {
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
-	assertCodeRunCreateNotStarted(t, repo, storage, dispatcher)
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
 }
 
 func TestCreateCodeRunActor(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storage := &fakeCodeRunStorage{}
-	dispatcher := &fakeCodeRunDispatcher{}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
 
 	_, err := uc.Create(context.Background(), codeRunActor("invalid", domain.UserRoleUser), CreateCodeRunInput{
 		Language:   domain.ExecutionLanguagePython,
@@ -101,15 +103,23 @@ func TestCreateCodeRunActor(t *testing.T) {
 	if !errors.Is(err, apperror.ErrUnauthorized) {
 		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
-	assertCodeRunCreateNotStarted(t, repo, storage, dispatcher)
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
 }
 
 func TestCreateCodeRunStorage(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storageErr := errors.New("storage failed")
 	storage := &fakeCodeRunStorage{err: storageErr}
-	dispatcher := &fakeCodeRunDispatcher{}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{
+		createCodeRunResult: &domain.CodeRun{
+			ID:         1,
+			UserID:     codeRunUserID,
+			Language:   domain.ExecutionLanguagePython,
+			SourceCode: "print(1)",
+			Status:     domain.CodeRunStatusPending,
+		},
+	}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
 
 	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
 		Language:   domain.ExecutionLanguagePython,
@@ -118,27 +128,94 @@ func TestCreateCodeRunStorage(t *testing.T) {
 	if !errors.Is(err, storageErr) {
 		t.Fatalf("err = %v, want storage error", err)
 	}
-	if !repo.createCalled || !storage.called || dispatcher.called {
-		t.Fatalf("calls = repo:%v storage:%v dispatcher:%v", repo.createCalled, storage.called, dispatcher.called)
+	if storage.called {
+		expectedKey := fmt.Sprintf("code-runs/%s/1/main.py", codeRunUserID)
+		if storage.params.Key != expectedKey {
+			t.Fatalf("source key = %q, want %q", storage.params.Key, expectedKey)
+		}
+	} else {
+		t.Fatal("storage was not called")
+	}
+	if admission.createCodeRunCalled {
+		t.Fatal("admission.CreateCodeRun should not be called when storage fails")
+	}
+	if !admission.reserveCodeRunIDCalled {
+		t.Fatal("admission.ReserveCodeRunID should be called before storage")
 	}
 }
 
-func TestCreateCodeRunDispatch(t *testing.T) {
+func TestCreateCodeRunIdempotencyKeyTooLong(t *testing.T) {
 	repo := &fakeCodeRunRepository{}
 	storage := &fakeCodeRunStorage{}
-	dispatchErr := errors.New("dispatch failed")
-	dispatcher := &fakeCodeRunDispatcher{err: dispatchErr}
-	uc := NewCodeRunUsecase(repo, storage, dispatcher, 2500)
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 5)
 
 	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
-		Language:   domain.ExecutionLanguagePython,
-		SourceCode: "print(1)",
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: "123456",
 	})
-	if !errors.Is(err, dispatchErr) {
-		t.Fatalf("err = %v, want dispatch error", err)
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
-	if !storage.called || !dispatcher.called {
-		t.Fatalf("calls = storage:%v dispatcher:%v", storage.called, dispatcher.called)
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
+}
+
+func TestCreateCodeRunIdempotencyKeyBlank(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: "   ",
+	})
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput for blank key", err)
+	}
+	assertCodeRunCreateNotStarted(t, repo, storage, admission)
+}
+
+func TestCreateCodeRunIdempotencyKeyTrimmed(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: "  key-1  ",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if admission.createCodeRunKeyInfo == nil || admission.createCodeRunKeyInfo.Key != "key-1" {
+		t.Fatalf("stored key = %+v, want trimmed \"key-1\"", admission.createCodeRunKeyInfo)
+	}
+}
+
+func TestCreateCodeRunIdempotencyKeyCountsRunes(t *testing.T) {
+	repo := &fakeCodeRunRepository{}
+	storage := &fakeCodeRunStorage{}
+	admission := &fakeAdmissionControl{}
+	// 200 multibyte runes is 600 bytes but 200 characters; the limit is
+	// checked in characters to match the OpenAPI maxLength contract.
+	longMultibyte := strings.Repeat("あ", 200)
+	uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+	_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+		Language:       domain.ExecutionLanguagePython,
+		SourceCode:     "print(1)",
+		IdempotencyKey: longMultibyte,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if admission.createCodeRunKeyInfo == nil || len(admission.createCodeRunKeyInfo.Key) != 600 {
+		t.Fatalf("multibyte key within the character limit was rejected")
 	}
 }
 
@@ -234,40 +311,25 @@ func TestListCodeRunsOffset(t *testing.T) {
 }
 
 func newCodeRunUsecase(repo repository.CodeRunRepository) *CodeRunUsecase {
-	return NewCodeRunUsecase(repo, &fakeCodeRunStorage{}, &fakeCodeRunDispatcher{}, 2500)
+	return NewCodeRunUsecase(repo, &fakeCodeRunStorage{}, &fakeAdmissionControl{}, 2500, 255)
 }
 
 func codeRunActor(userID string, role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: userID, Role: role}
 }
 
-func assertCodeRunCreateNotStarted(t *testing.T, repo *fakeCodeRunRepository, storage *fakeCodeRunStorage, dispatcher *fakeCodeRunDispatcher) {
+func assertCodeRunCreateNotStarted(t *testing.T, repo *fakeCodeRunRepository, storage *fakeCodeRunStorage, admission *fakeAdmissionControl) {
 	t.Helper()
-	if repo.createCalled || storage.called || dispatcher.called {
-		t.Fatalf("calls = repo:%v storage:%v dispatcher:%v", repo.createCalled, storage.called, dispatcher.called)
+	if storage.called || admission.createCodeRunCalled || admission.reserveCodeRunIDCalled {
+		t.Fatalf("calls = storage:%v admission:%v reserve=%v", storage.called, admission.createCodeRunCalled, admission.reserveCodeRunIDCalled)
 	}
 }
 
 type fakeCodeRunRepository struct {
-	createCalled bool
-	createParams repository.CreateCodeRunParams
-	findCalled   bool
-	findResult   *domain.CodeRun
-	listCalled   bool
-	listParams   repository.ListCodeRunsParams
-}
-
-func (r *fakeCodeRunRepository) Create(_ context.Context, params repository.CreateCodeRunParams) (*domain.CodeRun, error) {
-	r.createCalled = true
-	r.createParams = params
-	return &domain.CodeRun{
-		ID:         1,
-		UserID:     params.UserID,
-		Language:   params.Language,
-		SourceCode: params.SourceCode,
-		Stdin:      params.Stdin,
-		Status:     domain.CodeRunStatusPending,
-	}, nil
+	findCalled bool
+	findResult *domain.CodeRun
+	listCalled bool
+	listParams repository.ListCodeRunsParams
 }
 
 func (r *fakeCodeRunRepository) FindByID(_ context.Context, _ int64) (*domain.CodeRun, error) {
@@ -291,16 +353,4 @@ func (s *fakeCodeRunStorage) PutSourceCode(_ context.Context, params repository.
 	s.called = true
 	s.params = params
 	return s.err
-}
-
-type fakeCodeRunDispatcher struct {
-	called bool
-	job    repository.ExecutionJob
-	err    error
-}
-
-func (d *fakeCodeRunDispatcher) Dispatch(_ context.Context, job repository.ExecutionJob) error {
-	d.called = true
-	d.job = job
-	return d.err
 }

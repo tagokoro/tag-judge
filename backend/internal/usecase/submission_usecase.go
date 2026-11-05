@@ -19,28 +19,35 @@ const (
 )
 
 type SubmissionUsecase struct {
-	submissions repository.SubmissionRepository
-	problems    repository.PublicProblemReader
-	storage     repository.SourceCodeStorage
+	submissions          repository.SubmissionRepository
+	problems             repository.PublicProblemReader
+	storage              repository.SourceCodeStorage
+	admission            repository.AdmissionControl
+	idempotencyKeyMaxLen int
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
 	problems repository.PublicProblemReader,
 	storage repository.SourceCodeStorage,
+	admission repository.AdmissionControl,
+	idempotencyKeyMaxLen int,
 ) *SubmissionUsecase {
 	return &SubmissionUsecase{
-		submissions: submissions,
-		problems:    problems,
-		storage:     storage,
+		submissions:          submissions,
+		problems:             problems,
+		storage:              storage,
+		admission:            admission,
+		idempotencyKeyMaxLen: idempotencyKeyMaxLen,
 	}
 }
 
 type CreateSubmissionInput struct {
-	Actor      auth.Actor
-	ProblemID  int64
-	Language   domain.SubmissionLanguage
-	SourceCode string
+	Actor          auth.Actor
+	ProblemID      int64
+	Language       domain.SubmissionLanguage
+	SourceCode     string
+	IdempotencyKey string
 }
 
 func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionInput) (*domain.Submission, error) {
@@ -55,6 +62,10 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	}
 	if strings.TrimSpace(input.SourceCode) == "" {
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must not be empty")
+	}
+	idempotency, err := buildSubmissionIdempotency(input.Actor.UserID, u.idempotencyKeyMaxLen, input)
+	if err != nil {
+		return nil, err
 	}
 
 	// Problem access policy belongs here so private/group access can be added
@@ -79,7 +90,7 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 		return nil, err
 	}
 
-	submission, err := u.submissions.CreateWithOutbox(ctx, repository.CreateSubmissionWithOutboxParams{
+	submission, err := u.admission.CreateSubmission(ctx, repository.CreateSubmissionWithOutboxParams{
 		CreateSubmissionParams: repository.CreateSubmissionParams{
 			UserID:        input.Actor.UserID,
 			ProblemID:     input.ProblemID,
@@ -90,12 +101,32 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 			Score:         0,
 		},
 		TimeLimitMS: problem.TimeLimitMS,
-	})
+	}, idempotency)
 	if err != nil {
 		return nil, err
 	}
 
 	return submission, nil
+}
+
+func buildSubmissionIdempotency(userID string, maxLen int, input CreateSubmissionInput) (*repository.IdempotencyKeyInfo, error) {
+	fingerprint, err := submissionFingerprint(input)
+	if err != nil {
+		return nil, err
+	}
+	return newIdempotencyKey(userID, repository.IdempotencyNamespaceSubmission, input.IdempotencyKey, fingerprint, maxLen)
+}
+
+func submissionFingerprint(input CreateSubmissionInput) (string, error) {
+	return canonicalFingerprint(struct {
+		ProblemID  int64  `json:"problem_id"`
+		Language   string `json:"language"`
+		SourceCode string `json:"source_code"`
+	}{
+		ProblemID:  input.ProblemID,
+		Language:   string(input.Language),
+		SourceCode: input.SourceCode,
+	})
 }
 
 type GetSubmissionInput struct {

@@ -19,7 +19,8 @@ func TestCreateSubmission(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, storage)
+	admission := &fakeAdmissionControl{createSubmissionResult: &domain.Submission{ID: 1, UserID: testUserID, ProblemID: 42, Status: domain.SubmissionStatusPending, Score: 0}}
+	uc := NewSubmissionUsecase(submissions, problems, storage, admission, 255)
 
 	got, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -33,23 +34,23 @@ func TestCreateSubmission(t *testing.T) {
 	if problems.findID != 42 {
 		t.Fatalf("problem id = %d, want 42", problems.findID)
 	}
-	if submissions.createWithOutboxParams.UserID != testUserID || submissions.createWithOutboxParams.ProblemID != 42 {
-		t.Fatalf("create params = %+v", submissions.createWithOutboxParams)
+	if admission.createSubmissionParams.UserID != testUserID || admission.createSubmissionParams.ProblemID != 42 {
+		t.Fatalf("create params = %+v", admission.createSubmissionParams)
 	}
-	if submissions.createWithOutboxParams.SourceCodeKey == "" {
+	if admission.createSubmissionParams.SourceCodeKey == "" {
 		t.Fatalf("source code key is empty")
 	}
-	if submissions.createWithOutboxParams.TestCasesKey != testCasesArtifactKey {
-		t.Fatalf("test cases key = %q, want %q", submissions.createWithOutboxParams.TestCasesKey, testCasesArtifactKey)
+	if admission.createSubmissionParams.TestCasesKey != testCasesArtifactKey {
+		t.Fatalf("test cases key = %q, want %q", admission.createSubmissionParams.TestCasesKey, testCasesArtifactKey)
 	}
-	if submissions.createWithOutboxParams.Status != domain.SubmissionStatusPending || submissions.createWithOutboxParams.Score != 0 {
-		t.Fatalf("create params = %+v", submissions.createWithOutboxParams)
+	if admission.createSubmissionParams.Status != domain.SubmissionStatusPending || admission.createSubmissionParams.Score != 0 {
+		t.Fatalf("create params = %+v", admission.createSubmissionParams)
 	}
 	if !storage.putCalled || storage.putParams.SourceCode != "print(42)" {
 		t.Fatalf("storage params = %+v", storage.putParams)
 	}
-	if !submissions.createWithOutboxCalled || submissions.createWithOutboxParams.TimeLimitMS != 1000 {
-		t.Fatalf("outbox params = %+v", submissions.createWithOutboxParams)
+	if !admission.createSubmissionCalled || admission.createSubmissionParams.TimeLimitMS != 1000 {
+		t.Fatalf("outbox params = %+v", admission.createSubmissionParams)
 	}
 	if got.Status != domain.SubmissionStatusPending || got.Score != 0 {
 		t.Fatalf("submission = %+v", got)
@@ -98,7 +99,7 @@ func TestCreateSubmissionRequiresCurrentTestCaseSnapshot(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{withoutSnapshot: true}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, storage)
+	uc := NewSubmissionUsecase(submissions, problems, storage, &fakeAdmissionControl{}, 255)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -273,7 +274,7 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, storage)
+	uc := NewSubmissionUsecase(submissions, problems, storage, &fakeAdmissionControl{}, 255)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      auth.Actor{UserID: "not-a-uuid", Role: domain.UserRoleUser},
@@ -284,8 +285,8 @@ func TestSubmissionAuthenticationRejectsInvalidUserID(t *testing.T) {
 	if !errors.Is(err, apperror.ErrUnauthorized) {
 		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
-	if problems.findCalled || storage.putCalled || submissions.createCalled || submissions.createWithOutboxCalled {
-		t.Fatalf("dependencies should not be called: problem=%v storage=%v repo=%v outbox=%v", problems.findCalled, storage.putCalled, submissions.createCalled, submissions.createWithOutboxCalled)
+	if problems.findCalled || storage.putCalled || submissions.createCalled || submissions.createWithOutboxCalled || uc.admission.(*fakeAdmissionControl).createSubmissionCalled {
+		t.Fatalf("dependencies should not be called: problem=%v storage=%v repo=%v outbox=%v admission=%v", problems.findCalled, storage.putCalled, submissions.createCalled, submissions.createWithOutboxCalled, uc.admission.(*fakeAdmissionControl).createSubmissionCalled)
 	}
 }
 
@@ -293,7 +294,8 @@ func TestCreateSubmissionDoesNotDependOnQueueAvailability(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{}
 	storage := &fakeSubmissionSourceCodeStorage{}
-	uc := NewSubmissionUsecase(submissions, problems, storage)
+	admission := &fakeAdmissionControl{createSubmissionResult: &domain.Submission{ID: 1, UserID: testUserID, ProblemID: 42, Status: domain.SubmissionStatusPending, Score: 0}}
+	uc := NewSubmissionUsecase(submissions, problems, storage, admission, 255)
 
 	_, err := uc.Create(context.Background(), CreateSubmissionInput{
 		Actor:      submissionTestActor(domain.UserRoleUser),
@@ -304,8 +306,8 @@ func TestCreateSubmissionDoesNotDependOnQueueAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if !storage.putCalled || !submissions.createWithOutboxCalled {
-		t.Fatalf("storage=%v outbox=%v, want both called", storage.putCalled, submissions.createWithOutboxCalled)
+	if !storage.putCalled || !admission.createSubmissionCalled {
+		t.Fatalf("storage=%v admission=%v, want both called", storage.putCalled, admission.createSubmissionCalled)
 	}
 }
 
@@ -318,6 +320,8 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 		submissions,
 		problems,
 		&fakeSubmissionSourceCodeStorage{},
+		&fakeAdmissionControl{},
+		255,
 	)
 }
 
@@ -399,6 +403,70 @@ func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, param
 	s.putCalled = true
 	s.putParams = params
 	return s.putErr
+}
+
+type fakeAdmissionControl struct {
+	createSubmissionCalled   bool
+	createSubmissionParams   repository.CreateSubmissionWithOutboxParams
+	createSubmissionKeyInfo  *repository.IdempotencyKeyInfo
+	createSubmissionResult   *domain.Submission
+	createSubmissionErr      error
+	createCodeRunCalled      bool
+	createCodeRunParams      repository.CreateCodeRunParams
+	createCodeRunKeyInfo     *repository.IdempotencyKeyInfo
+	createCodeRunTimeLimitMS int
+	createCodeRunID          int64
+	createCodeRunResult      *domain.CodeRun
+	createCodeRunErr         error
+	reserveCodeRunIDCalled   bool
+	reserveCodeRunIDResult   int64
+	reserveCodeRunIDErr      error
+}
+
+func (a *fakeAdmissionControl) CreateSubmission(_ context.Context, params repository.CreateSubmissionWithOutboxParams, idempotency *repository.IdempotencyKeyInfo) (*domain.Submission, error) {
+	a.createSubmissionCalled = true
+	a.createSubmissionParams = params
+	a.createSubmissionKeyInfo = idempotency
+	if a.createSubmissionResult != nil {
+		return a.createSubmissionResult, a.createSubmissionErr
+	}
+	return &domain.Submission{
+		ID:            1,
+		UserID:        params.UserID,
+		ProblemID:     params.ProblemID,
+		Language:      params.Language,
+		SourceCodeKey: params.SourceCodeKey,
+		TestCasesKey:  params.TestCasesKey,
+		Status:        params.Status,
+		Score:         params.Score,
+	}, a.createSubmissionErr
+}
+
+func (a *fakeAdmissionControl) ReserveCodeRunID(_ context.Context) (int64, error) {
+	a.reserveCodeRunIDCalled = true
+	if a.reserveCodeRunIDResult != 0 || a.reserveCodeRunIDErr != nil {
+		return a.reserveCodeRunIDResult, a.reserveCodeRunIDErr
+	}
+	return 1, nil
+}
+
+func (a *fakeAdmissionControl) CreateCodeRun(_ context.Context, params repository.CreateCodeRunParams, idempotency *repository.IdempotencyKeyInfo, timeLimitMS int, codeRunID int64) (*domain.CodeRun, error) {
+	a.createCodeRunCalled = true
+	a.createCodeRunParams = params
+	a.createCodeRunKeyInfo = idempotency
+	a.createCodeRunTimeLimitMS = timeLimitMS
+	a.createCodeRunID = codeRunID
+	if a.createCodeRunResult != nil {
+		return a.createCodeRunResult, a.createCodeRunErr
+	}
+	return &domain.CodeRun{
+		ID:         codeRunID,
+		UserID:     params.UserID,
+		Language:   params.Language,
+		SourceCode: params.SourceCode,
+		Stdin:      params.Stdin,
+		Status:     domain.CodeRunStatusPending,
+	}, a.createCodeRunErr
 }
 
 type submissionProblemRepository struct {

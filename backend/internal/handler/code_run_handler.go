@@ -40,9 +40,10 @@ func (h *CodeRunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	codeRun, err := h.codeRuns.Create(r.Context(), actor, usecase.CreateCodeRunInput{
-		Language:   domain.ExecutionLanguage(request.Language),
-		SourceCode: request.SourceCode,
-		Stdin:      request.Stdin,
+		Language:       domain.ExecutionLanguage(request.Language),
+		SourceCode:     request.SourceCode,
+		Stdin:          request.Stdin,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		WriteError(w, r, err)

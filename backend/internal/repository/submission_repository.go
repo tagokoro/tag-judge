@@ -30,9 +30,16 @@ type ListSubmissionsParams struct {
 }
 
 type SubmissionRepository interface {
-	Create(ctx context.Context, params CreateSubmissionParams) (*domain.Submission, error)
-	CreateWithOutbox(ctx context.Context, params CreateSubmissionWithOutboxParams) (*domain.Submission, error)
 	FindByID(ctx context.Context, id int64) (*domain.Submission, error)
 	ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error)
 	ListByUserID(ctx context.Context, params ListSubmissionsParams) ([]domain.Submission, error)
+}
+
+// AdmissionControl creates execution records under a shared admission-control
+// transaction. It is the only path that should insert new submissions or code
+// runs, because admission must be serialized across API processes.
+type AdmissionControl interface {
+	CreateSubmission(ctx context.Context, params CreateSubmissionWithOutboxParams, idempotency *IdempotencyKeyInfo) (*domain.Submission, error)
+	CreateCodeRun(ctx context.Context, params CreateCodeRunParams, idempotency *IdempotencyKeyInfo, timeLimitMS int, codeRunID int64) (*domain.CodeRun, error)
+	ReserveCodeRunID(ctx context.Context) (int64, error)
 }

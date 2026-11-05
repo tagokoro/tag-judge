@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 )
@@ -48,6 +49,17 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			status = http.StatusNotFound
 		case errors.Is(appErr, apperror.ErrConflict):
 			status = http.StatusConflict
+		case errors.Is(appErr, apperror.ErrRateLimit),
+			errors.Is(appErr, apperror.ErrOverCapacity),
+			errors.Is(appErr, apperror.ErrTransient):
+			if errors.Is(appErr, apperror.ErrRateLimit) {
+				status = http.StatusTooManyRequests
+			} else {
+				status = http.StatusServiceUnavailable
+			}
+			if appErr.RetryAfter > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(appErr.RetryAfter))
+			}
 		}
 	} else {
 		slog.ErrorContext(r.Context(), "unhandled error", "error", err)

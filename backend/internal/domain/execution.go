@@ -10,6 +10,15 @@ func (l ExecutionLanguage) Valid() bool {
 	return l == ExecutionLanguagePython
 }
 
+func (l ExecutionLanguage) SourceExtension() string {
+	switch l {
+	case ExecutionLanguagePython:
+		return ".py"
+	default:
+		return ".txt"
+	}
+}
+
 type ExecutionStatus string
 
 const (
