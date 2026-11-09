@@ -307,25 +307,36 @@ func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params rep
 }
 
 type LibraryVerificationRepository struct {
-	db      *pgxpool.Pool
-	queries *sqlc.Queries
+	db        *pgxpool.Pool
+	queries   *sqlc.Queries
+	admission *AdmissionControl
 }
 
-func NewLibraryVerificationRepository(db *pgxpool.Pool) *LibraryVerificationRepository {
-	return &LibraryVerificationRepository{db: db, queries: sqlc.New(db)}
+// NewLibraryVerificationRepository builds the verification repository. The
+// AdmissionControl must be constructed from the same pool so that a
+// verification's submission is created under the shared admission lock and
+// obeys the same rate/outstanding limits as origin/main's submission and
+// code-run creation paths.
+func NewLibraryVerificationRepository(db *pgxpool.Pool, admission *AdmissionControl) *LibraryVerificationRepository {
+	return &LibraryVerificationRepository{db: db, queries: sqlc.New(db), admission: admission}
 }
 
 // CreateWithSubmission commits the verification's submission row, existing
-// outbox row, and verification row in one transaction, after re-checking the
-// library visibility and version membership on a locked snapshot. When the
-// re-check fails nothing is committed and the caller sees LIBRARY_NOT_FOUND.
+// outbox row, and verification row in one transaction. The transaction is
+// opened by AdmissionControl.beginAdmissionTx so it holds the same global
+// admission lock as origin/main's submission and code-run creation paths, and
+// checkAdmission enforces the per-user rate, per-user outstanding, and global
+// outstanding limits before any row is written. Library visibility and version
+// membership are re-checked on a locked snapshot. When any check fails nothing
+// is committed; a rejected verification sees LIBRARY_NOT_FOUND or the admission
+// capacity error.
 func (r *LibraryVerificationRepository) CreateWithSubmission(ctx context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, *domain.Submission, error) {
 	if params.TimeLimitMS <= 0 {
-		return nil, nil, fmt.Errorf("submission time limit must be positive")
+		return nil, nil, apperror.InvalidInput("INVALID_TIME_LIMIT", "submission time limit must be positive")
 	}
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.admission.beginAdmissionTx(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("begin verification transaction: %w", err)
+		return nil, nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := r.queries.WithTx(tx)
@@ -355,6 +366,14 @@ func (r *LibraryVerificationRepository) CreateWithSubmission(ctx context.Context
 	}
 	if ownsVersion != 1 {
 		return nil, nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	}
+
+	// The verification submission is a normal execution and must obey the same
+	// admission limits as every other submission/code run. checkAdmission runs
+	// while the admission lock is held and before any row is inserted, so a
+	// rejected verification commits nothing.
+	if err := r.admission.checkAdmission(ctx, tx, params.ActorUserID); err != nil {
+		return nil, nil, err
 	}
 
 	row, err := queries.CreateSubmission(ctx, sqlc.CreateSubmissionParams{
@@ -391,25 +410,21 @@ func (r *LibraryVerificationRepository) CreateWithSubmission(ctx context.Context
 	if err != nil {
 		return nil, nil, fmt.Errorf("create library verification record: %w", err)
 	}
+
+	// Re-read the joined row inside the same transaction so the returned
+	// LibraryVerification carries the full spec 10.4 shape (namespace/library
+	// slugs, version number, starter, status and score) instead of zero values,
+	// and matches exactly what FindByID returns.
+	detail, err := queries.GetLibraryVerification(ctx, verificationRow.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read created library verification: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit verification transaction: %w", err)
 	}
 
 	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
-	verification := &domain.LibraryVerification{
-		ID:               verificationRow.ID,
-		LibraryVersionID: params.LibraryVersionID,
-		VersionNumber:    0,
-		ProblemID:        params.ProblemID,
-		SubmissionID:     row.ID,
-		Language:         params.Language,
-		Status:           domain.SubmissionStatusPending,
-		Score:            0,
-		AdapterSource:    params.AdapterSource,
-		AdapterSHA256:    ContentSHA256(params.AdapterSource),
-		CreatedAt:        verificationRow.CreatedAt.Time,
-	}
-	return verification, &submission, nil
+	return verificationFromDetailRow(detail), &submission, nil
 }
 
 func (r *LibraryVerificationRepository) FindByID(ctx context.Context, id int64) (*domain.LibraryVerification, error) {
@@ -420,7 +435,7 @@ func (r *LibraryVerificationRepository) FindByID(ctx context.Context, id int64) 
 	if err != nil {
 		return nil, err
 	}
-	return verificationFromRow(row.ID, row.LibraryVersionID, row.SubmissionID, row.AdapterSource, row.AdapterSha256, row.CreatedAt, row.ProblemID, row.UserID, row.Status, row.Score, row.JudgedAt, row.VersionNumber, row.LibrarySlug, row.NamespaceSlug), nil
+	return verificationFromDetailRow(row), nil
 }
 
 func (r *LibraryVerificationRepository) ListByUserID(ctx context.Context, params repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
@@ -438,6 +453,16 @@ func (r *LibraryVerificationRepository) ListByUserID(ctx context.Context, params
 		verifications = append(verifications, *verification)
 	}
 	return verifications, nil
+}
+
+// verificationFromDetailRow maps the joined detail row (spec 10.4) into a
+// LibraryVerification. CreateWithSubmission re-reads this same row inside its
+// transaction, so the created object and FindByID are identical.
+func verificationFromDetailRow(row sqlc.GetLibraryVerificationRow) *domain.LibraryVerification {
+	return verificationFromRow(row.ID, row.LibraryVersionID, row.SubmissionID,
+		row.AdapterSource, row.AdapterSha256, row.CreatedAt,
+		row.ProblemID, row.UserID, row.Status, row.Score, row.JudgedAt,
+		row.VersionNumber, row.LibrarySlug, row.NamespaceSlug)
 }
 
 func verificationFromRow(id int64, libraryVersionID string, submissionID int64, adapterSource, adapterSHA256 string, createdAt pgtype.Timestamptz, problemID int64, userID, status string, score int32, judgedAt pgtype.Timestamptz, versionNumber int32, librarySlug, namespaceSlug string) *domain.LibraryVerification {

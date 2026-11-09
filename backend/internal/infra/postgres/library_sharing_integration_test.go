@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
@@ -35,6 +36,74 @@ func assertAppError(t *testing.T, err error, sentinel error, wantCode, wantMessa
 	}
 	if appErr.Message != wantMessage {
 		t.Fatalf("message = %q, want %q", appErr.Message, wantMessage)
+	}
+}
+
+// permissiveAdmissionLimits keeps the behaviour tests unconstrained by
+// rate/outstanding limits. LockTimeout is generous so the visibility TOCTOU
+// test, which deliberately holds a row lock, is not aborted by SET LOCAL
+// lock_timeout while the verification waits on its FOR SHARE lock.
+func permissiveAdmissionLimits() postgres.AdmissionLimits {
+	return postgres.AdmissionLimits{
+		UserRateLimit:          1000,
+		UserRateWindow:         time.Minute,
+		UserOutstandingLimit:   1000,
+		GlobalOutstandingLimit: 1000,
+		LockTimeout:            30 * time.Second,
+	}
+}
+
+// permissiveLibraryVerificationRepo builds a repository whose AdmissionControl
+// is created from the same pool, matching production wiring.
+func permissiveLibraryVerificationRepo(db *pgxpool.Pool) *postgres.LibraryVerificationRepository {
+	return postgres.NewLibraryVerificationRepository(db, postgres.NewAdmissionControl(db, permissiveAdmissionLimits()))
+}
+
+func verificationParams(namespaceID, libraryID, versionID, actorUserID, marker string) repository.CreateLibraryVerificationParams {
+	return repository.CreateLibraryVerificationParams{
+		ActorUserID:      actorUserID,
+		NamespaceID:      namespaceID,
+		LibraryID:        libraryID,
+		LibraryVersionID: versionID,
+		ProblemID:        42,
+		Language:         domain.SubmissionLanguagePython,
+		SourceCodeKey:    "submissions/" + actorUserID + "/problems/42/" + marker + ".py",
+		TestCasesKey:     "problems/42/testcases/abc.json",
+		TimeLimitMS:      2000,
+		AdapterSource:    "print(add(1, 2))\n",
+	}
+}
+
+// assertAdmissionCode checks an origin/main AdmissionControl capacity error.
+func assertAdmissionCode(t *testing.T, err error, sentinel error, wantCode string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an admission error, got nil")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("errors.Is(err, %v) = false, err = %v", sentinel, err)
+	}
+	var appErr *apperror.AppError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("err is not AppError: %v", err)
+	}
+	if appErr.Code != wantCode {
+		t.Fatalf("code = %q, want %q", appErr.Code, wantCode)
+	}
+}
+
+// assertVerificationRowCounts proves that a rejected CreateWithSubmission
+// committed nothing: submissions, outbox and verifications stay in lockstep.
+func assertVerificationRowCounts(t *testing.T, ctx context.Context, db *pgxpool.Pool, want int64) {
+	t.Helper()
+	for _, table := range []string{"submissions", "submission_job_outbox", "library_verifications"} {
+		var got int64
+		if err := db.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if got != want {
+			t.Fatalf("%s count = %d, want %d", table, got, want)
+		}
 	}
 }
 
@@ -325,7 +394,7 @@ func TestLibraryVerificationOutboxPayloadMatchesSubmissionJob(t *testing.T) {
 	namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
 
 	adapter := "a, b = map(int, input().split())\nprint(add(a, b))\n"
-	verifications := postgres.NewLibraryVerificationRepository(db)
+	verifications := permissiveLibraryVerificationRepo(db)
 	verification, submission, err := verifications.CreateWithSubmission(ctx, repository.CreateLibraryVerificationParams{
 		ActorUserID:      actorUserID,
 		NamespaceID:      namespaceID,
@@ -427,7 +496,7 @@ func TestLibraryVerificationRollsBackSubmissionAndOutbox(t *testing.T) {
 		t.Fatalf("flip visibility: %v", err)
 	}
 
-	verifications := postgres.NewLibraryVerificationRepository(db)
+	verifications := permissiveLibraryVerificationRepo(db)
 	_, _, err := verifications.CreateWithSubmission(ctx, repository.CreateLibraryVerificationParams{
 		ActorUserID:      "00000000-0000-4000-8000-000000000002",
 		NamespaceID:      namespaceID,
@@ -503,7 +572,7 @@ VALUES ($1, 'test', 'verify-stranger', 'Stranger', 'stranger@example.test');`, s
 		t.Fatalf("seed stranger: %v", err)
 	}
 
-	verifications := postgres.NewLibraryVerificationRepository(db)
+	verifications := permissiveLibraryVerificationRepo(db)
 	params := repository.CreateLibraryVerificationParams{
 		ActorUserID:      stranger,
 		NamespaceID:      namespaceID,
@@ -588,6 +657,11 @@ func TestLibraryVerificationVisibilityTOCTOU(t *testing.T) {
 		t.Fatalf("open worker database: %v", err)
 	}
 	defer workerDB.Close()
+	// The AdmissionControl must be built from workerDB too: beginAdmissionTx
+	// opens the transaction on its own pool, so using the main pool here would
+	// hide the verification's lock wait from the pg_stat_activity observation.
+	workerAdmission := postgres.NewAdmissionControl(workerDB, permissiveAdmissionLimits())
+	workerRepo := postgres.NewLibraryVerificationRepository(workerDB, workerAdmission)
 
 	conn, err := db.Acquire(ctx)
 	if err != nil {
@@ -615,7 +689,7 @@ func TestLibraryVerificationVisibilityTOCTOU(t *testing.T) {
 	result := make(chan error, 1)
 	go func() {
 		close(verificationStarted)
-		_, _, verifyErr := postgres.NewLibraryVerificationRepository(workerDB).CreateWithSubmission(ctx, repository.CreateLibraryVerificationParams{
+		_, _, verifyErr := workerRepo.CreateWithSubmission(ctx, repository.CreateLibraryVerificationParams{
 			ActorUserID: stranger, NamespaceID: namespaceID, LibraryID: libraryID, LibraryVersionID: versionID,
 			ProblemID: 42, Language: domain.SubmissionLanguagePython,
 			SourceCodeKey: "submissions/" + stranger + "/problems/42/toctou.py",
@@ -675,4 +749,288 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 			t.Fatalf("%s count = %d, want %d after rejected verification", table, got, want)
 		}
 	}
+}
+
+// TestLibraryVerificationCreateReturnsFullDetail verifies that
+// CreateWithSubmission returns the complete spec 10.4 verification object,
+// with real namespace/library slugs, version number, starter and status rather
+// than the zero/empty placeholders it used to return.
+func TestLibraryVerificationCreateReturnsFullDetail(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+	repo := permissiveLibraryVerificationRepo(db)
+
+	adapter := "a, b = map(int, input().split())\nprint(add(a, b))\n"
+	params := verificationParams(namespaceID, libraryID, versionID, actorUserID, "full-detail")
+	params.AdapterSource = adapter
+	verification, submission, err := repo.CreateWithSubmission(ctx, params)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+
+	if verification.ID <= 0 {
+		t.Fatalf("id = %d, want positive", verification.ID)
+	}
+	if verification.LibraryVersionID != versionID {
+		t.Fatalf("library_version_id = %q, want %q", verification.LibraryVersionID, versionID)
+	}
+	if verification.NamespaceSlug != "verify-author" {
+		t.Fatalf("namespace_slug = %q, want verify-author", verification.NamespaceSlug)
+	}
+	if verification.LibrarySlug != "union-find" {
+		t.Fatalf("library_slug = %q, want union-find", verification.LibrarySlug)
+	}
+	if verification.VersionNumber != 1 {
+		t.Fatalf("version_number = %d, want 1", verification.VersionNumber)
+	}
+	if verification.ProblemID != 42 {
+		t.Fatalf("problem_id = %d, want 42", verification.ProblemID)
+	}
+	if verification.SubmissionID != submission.ID {
+		t.Fatalf("submission_id = %d, want %d", verification.SubmissionID, submission.ID)
+	}
+	if verification.UserID != actorUserID {
+		t.Fatalf("user_id = %q, want %q", verification.UserID, actorUserID)
+	}
+	if verification.Language != domain.SubmissionLanguagePython {
+		t.Fatalf("language = %q, want python", verification.Language)
+	}
+	if verification.Status != domain.SubmissionStatusPending {
+		t.Fatalf("status = %q, want pending", verification.Status)
+	}
+	if verification.Score != 0 {
+		t.Fatalf("score = %d, want 0", verification.Score)
+	}
+	if verification.AdapterSource != adapter {
+		t.Fatalf("adapter_source = %q, want %q", verification.AdapterSource, adapter)
+	}
+	if verification.AdapterSHA256 != postgres.ContentSHA256(adapter) {
+		t.Fatalf("adapter_sha256 = %q", verification.AdapterSHA256)
+	}
+	if verification.CreatedAt.IsZero() {
+		t.Fatal("created_at is zero")
+	}
+	if verification.JudgedAt != nil {
+		t.Fatalf("judged_at = %v, want nil for a pending verification", verification.JudgedAt)
+	}
+
+	// The created object must match what FindByID returns for the same row.
+	detail, err := repo.FindByID(ctx, verification.ID)
+	if err != nil {
+		t.Fatalf("find verification: %v", err)
+	}
+	if detail.NamespaceSlug != verification.NamespaceSlug ||
+		detail.LibrarySlug != verification.LibrarySlug ||
+		detail.VersionNumber != verification.VersionNumber ||
+		detail.UserID != verification.UserID ||
+		detail.ProblemID != verification.ProblemID ||
+		detail.SubmissionID != verification.SubmissionID ||
+		detail.LibraryVersionID != verification.LibraryVersionID ||
+		detail.AdapterSHA256 != verification.AdapterSHA256 {
+		t.Fatalf("CreateWithSubmission result does not match FindByID: create=%+v detail=%+v", verification, detail)
+	}
+}
+
+// TestLibraryVerificationAdmissionLimits proves that a verification's
+// submission is created under origin/main's AdmissionControl: it is gated by
+// the per-user rate, per-user outstanding and global outstanding limits, and a
+// rejected verification commits no rows at all (submission/outbox atomicity).
+func TestLibraryVerificationAdmissionLimits(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	t.Run("per-user rate limit", func(t *testing.T) {
+		db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+		namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+		limits := permissiveAdmissionLimits()
+		limits.UserRateLimit = 2
+		admission := postgres.NewAdmissionControl(db, limits)
+		repo := postgres.NewLibraryVerificationRepository(db, admission)
+
+		for i := 0; i < limits.UserRateLimit; i++ {
+			if _, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, fmt.Sprintf("rate-%d", i))); err != nil {
+				t.Fatalf("accepted verification %d failed: %v", i, err)
+			}
+		}
+		_, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, "rate-rejected"))
+		assertAdmissionCode(t, err, apperror.ErrRateLimit, "USER_RATE_LIMIT_EXCEEDED")
+		assertVerificationRowCounts(t, ctx, db, int64(limits.UserRateLimit))
+	})
+
+	t.Run("per-user outstanding limit", func(t *testing.T) {
+		db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+		namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+		limits := permissiveAdmissionLimits()
+		limits.UserOutstandingLimit = 2
+		admission := postgres.NewAdmissionControl(db, limits)
+		repo := postgres.NewLibraryVerificationRepository(db, admission)
+
+		for i := 0; i < limits.UserOutstandingLimit; i++ {
+			if _, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, fmt.Sprintf("outstanding-%d", i))); err != nil {
+				t.Fatalf("accepted verification %d failed: %v", i, err)
+			}
+		}
+		_, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, "outstanding-rejected"))
+		assertAdmissionCode(t, err, apperror.ErrRateLimit, "USER_OUTSTANDING_LIMIT_EXCEEDED")
+		assertVerificationRowCounts(t, ctx, db, int64(limits.UserOutstandingLimit))
+	})
+
+	t.Run("global outstanding limit", func(t *testing.T) {
+		db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+		namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+		limits := permissiveAdmissionLimits()
+		limits.GlobalOutstandingLimit = 1
+		admission := postgres.NewAdmissionControl(db, limits)
+		repo := postgres.NewLibraryVerificationRepository(db, admission)
+
+		if _, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, "global-first")); err != nil {
+			t.Fatalf("first verification failed: %v", err)
+		}
+		_, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, "global-rejected"))
+		assertAdmissionCode(t, err, apperror.ErrOverCapacity, "GLOBAL_OUTSTANDING_LIMIT_EXCEEDED")
+		assertVerificationRowCounts(t, ctx, db, 1)
+	})
+}
+
+// TestLibraryVerificationAdmissionSerializesConcurrentCreations proves the
+// global admission lock is actually held: with a global limit of one, six
+// concurrent verifications must yield exactly one accepted creation. Without
+// beginAdmissionTx's FOR UPDATE lock, several could pass checkAdmission
+// against the same zero snapshot and all commit.
+func TestLibraryVerificationAdmissionSerializesConcurrentCreations(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+	limits := permissiveAdmissionLimits()
+	limits.GlobalOutstandingLimit = 1
+	admission := postgres.NewAdmissionControl(db, limits)
+	repo := postgres.NewLibraryVerificationRepository(db, admission)
+
+	const workers = 6
+	start := make(chan struct{})
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, _, errs[i] = repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, fmt.Sprintf("concurrent-%d", i)))
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	accepted, capacity := 0, 0
+	for i, err := range errs {
+		if err == nil {
+			accepted++
+			continue
+		}
+		if !errors.Is(err, apperror.ErrOverCapacity) {
+			t.Fatalf("worker %d unexpected error: %v", i, err)
+		}
+		capacity++
+	}
+	if accepted != 1 || capacity != workers-1 {
+		t.Fatalf("accepted=%d capacity=%d, want 1 accepted and %d rejected", accepted, capacity, workers-1)
+	}
+	assertVerificationRowCounts(t, ctx, db, 1)
+}
+
+// TestLibraryVerificationSubmissionCountsTowardMainAdmission proves both
+// creation paths share the same admission counting: once a verification leaves
+// one pending submission, origin/main's AdmissionControl.CreateSubmission is
+// rejected by the global outstanding limit.
+func TestLibraryVerificationSubmissionCountsTowardMainAdmission(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+	limits := permissiveAdmissionLimits()
+	limits.GlobalOutstandingLimit = 1
+	admission := postgres.NewAdmissionControl(db, limits)
+	repo := postgres.NewLibraryVerificationRepository(db, admission)
+
+	if _, _, err := repo.CreateWithSubmission(ctx, verificationParams(namespaceID, libraryID, versionID, actorUserID, "verify-first")); err != nil {
+		t.Fatalf("verification: %v", err)
+	}
+	_, err := admission.CreateSubmission(ctx, repository.CreateSubmissionWithOutboxParams{
+		CreateSubmissionParams: repository.CreateSubmissionParams{
+			UserID:        actorUserID,
+			ProblemID:     42,
+			Language:      domain.SubmissionLanguagePython,
+			SourceCodeKey: "submissions/" + actorUserID + "/problems/42/regular.py",
+			TestCasesKey:  "problems/42/testcases/abc.json",
+			Status:        domain.SubmissionStatusPending,
+			Score:         0,
+		},
+		TimeLimitMS: 2000,
+	}, nil)
+	assertAdmissionCode(t, err, apperror.ErrOverCapacity, "GLOBAL_OUTSTANDING_LIMIT_EXCEEDED")
+	assertVerificationRowCounts(t, ctx, db, 1)
+}
+
+// TestLibraryVerificationInsertFailureRollsBackAllRows forces the
+// library_verifications INSERT to fail with a CHECK-constraint violation AFTER
+// the submission and outbox rows have been inserted in the same transaction,
+// and proves that all three tables are rolled back. PR2's usecase validates the
+// adapter before reaching the repository, so this test deliberately bypasses
+// that validation to exercise database-level atomicity.
+func TestLibraryVerificationInsertFailureRollsBackAllRows(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, actorUserID := seedVerificationFixture(t, ctx, db, "public")
+	repo := permissiveLibraryVerificationRepo(db)
+
+	params := verificationParams(namespaceID, libraryID, versionID, actorUserID, "blank-adapter")
+	// A whitespace-only adapter violates library_verifications_adapter_check
+	// (btrim(adapter_source) <> ''). It is the third write in the transaction:
+	// CreateSubmission and the outbox INSERT already ran before it, so the
+	// rollback must remove all of them.
+	params.AdapterSource = "   "
+	_, _, err := repo.CreateWithSubmission(ctx, params)
+	if err == nil {
+		t.Fatal("blank adapter must fail the library_verifications CHECK constraint")
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("expected a PostgreSQL constraint error, got %v", err)
+	}
+	if pgErr.Code != "23514" {
+		t.Fatalf("SQLSTATE = %q, want 23514 (check_violation)", pgErr.Code)
+	}
+	if pgErr.TableName != "library_verifications" {
+		t.Fatalf("failing table = %q, want library_verifications", pgErr.TableName)
+	}
+	if !strings.HasPrefix(pgErr.ConstraintName, "library_verifications_") {
+		t.Fatalf("constraint = %q, want a library_verifications constraint", pgErr.ConstraintName)
+	}
+	// submission + outbox were inserted before the failing verification INSERT;
+	// none of them may survive the rollback.
+	assertVerificationRowCounts(t, ctx, db, 0)
 }

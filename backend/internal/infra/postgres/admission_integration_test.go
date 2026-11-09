@@ -854,6 +854,9 @@ const (
 	admissionTestUserC = "00000000-0000-4000-8000-000000000003"
 )
 
+// admissionTestDatabase uses an isolated schema (plus public for pgcrypto) so
+// every *.up.sql, including 000009_create_library_sharing, can resolve
+// digest() when the extension already lives in public.
 func admissionTestDatabase(t *testing.T, ctx context.Context, databaseURL string) *pgxpool.Pool {
 	t.Helper()
 	admin, err := pgx.Connect(ctx, databaseURL)
@@ -876,7 +879,7 @@ func admissionTestDatabase(t *testing.T, ctx context.Context, databaseURL string
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
