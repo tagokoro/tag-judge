@@ -290,15 +290,22 @@ func (h *LibraryVersionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newLibraryVersionResponse(*version))
 }
 
-// parseVersionNumber keeps the shared version contract: the path value must be
-// a positive integer that fits int32. The library_version queries cast the
-// number to int32, so a larger int64 value (for example 4294967297) would
-// silently alias version 1 in GET and verify; reject it before the repository.
+// maxVersionNumber is the largest version number the int32 sqlc query can
+// represent; values above it would wrap (for example 4294967297 -> version 1).
+const maxVersionNumber = 1<<31 - 1
+
+// parseVersionNumber keeps the shared version contract. Non-numeric or
+// non-positive values keep the exact spec §10 message. Values above
+// maxVersionNumber get a distinct stable 400, because the sqlc query casts
+// version_number to int32 and would otherwise alias an existing version.
 func parseVersionNumber(r *http.Request) (int, error) {
 	raw := chi.URLParam(r, "version_number")
-	value, err := strconv.ParseInt(raw, 10, 32)
+	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value <= 0 {
-		return 0, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer within int32 range")
+		return 0, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
+	}
+	if value > maxVersionNumber {
+		return 0, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number is too large")
 	}
 	return int(value), nil
 }

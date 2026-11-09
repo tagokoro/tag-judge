@@ -1518,6 +1518,46 @@ func TestCreateVerificationAcceptsEscapedMaxSizeAdapter(t *testing.T) {
 	}
 }
 
+// TestLibraryErrorMessagesMatchSpecContract pins the exact spec §10 messages
+// returned to clients: the documented invalid cases (non-numeric/non-positive
+// version, negative offset) keep their exact strings, while int32 overflow uses
+// distinct stable 400 messages.
+func TestLibraryErrorMessagesMatchSpecContract(t *testing.T) {
+	router := newTestRouter()
+	cases := []struct {
+		name        string
+		path        string
+		wantCode    string
+		wantMessage string
+	}{
+		{"non-positive version", "/api/v1/namespaces/seed-author/libraries/union-find/versions/0", "INVALID_VERSION_NUMBER", "version_number must be a positive integer"},
+		{"non-numeric version", "/api/v1/namespaces/seed-author/libraries/union-find/versions/abc", "INVALID_VERSION_NUMBER", "version_number must be a positive integer"},
+		{"version overflow", "/api/v1/namespaces/seed-author/libraries/union-find/versions/4294967297", "INVALID_VERSION_NUMBER", "version_number is too large"},
+		{"negative offset", "/api/v1/namespaces/seed-author/libraries?offset=-1", "INVALID_OFFSET", "offset must be greater than or equal to 0"},
+		{"offset overflow", "/api/v1/namespaces/seed-author/libraries?offset=4294967297", "INVALID_OFFSET", "offset is too large"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400: %s", tc.name, res.Code, res.Body.String())
+		}
+		var body struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatalf("%s: decode response: %v", tc.name, err)
+		}
+		if body.Error.Code != tc.wantCode || body.Error.Message != tc.wantMessage {
+			t.Fatalf("%s: got (%q, %q), want (%q, %q)", tc.name, body.Error.Code, body.Error.Message, tc.wantCode, tc.wantMessage)
+		}
+	}
+}
+
 // TestLibraryListOffsetRejectsInt32Overflow verifies every library list casts
 // its offset to int32; an overflowing offset must produce a stable client error
 // instead of silently wrapping to a different page.

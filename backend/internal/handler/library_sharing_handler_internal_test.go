@@ -25,7 +25,7 @@ func versionNumberRequest(t *testing.T, raw string) (int, error) {
 	return got, gotErr
 }
 
-func assertInvalidVersionNumber(t *testing.T, err error) {
+func assertInvalidVersionNumber(t *testing.T, err error, wantMessage string) {
 	t.Helper()
 	var appErr *apperror.AppError
 	if !errors.As(err, &appErr) || appErr.Code != "INVALID_VERSION_NUMBER" {
@@ -34,12 +34,15 @@ func assertInvalidVersionNumber(t *testing.T, err error) {
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput sentinel", err)
 	}
+	if appErr.Message != wantMessage {
+		t.Fatalf("message = %q, want %q", appErr.Message, wantMessage)
+	}
 }
 
 // TestParseVersionNumberRejectsInt32Overflow pins the fix for the alias bug:
 // the sqlc GetLibraryVersionByNumber query casts version_number to int32, so
-// 4294967297 (2^32+1) would otherwise wrap to version 1. Values above MaxInt32
-// must be rejected before they reach the repository.
+// 4294967297 (2^32+1) would otherwise wrap to version 1. Overflow keeps a
+// distinct stable 400 message; documented invalid cases keep their exact string.
 func TestParseVersionNumberRejectsInt32Overflow(t *testing.T) {
 	for _, raw := range []string{
 		"2147483648",          // MaxInt32 + 1
@@ -50,7 +53,7 @@ func TestParseVersionNumberRejectsInt32Overflow(t *testing.T) {
 		if _, err := versionNumberRequest(t, raw); err == nil {
 			t.Fatalf("version_number %q must be rejected (would wrap int32)", raw)
 		} else {
-			assertInvalidVersionNumber(t, err)
+			assertInvalidVersionNumber(t, err, "version_number is too large")
 		}
 	}
 }
@@ -74,12 +77,15 @@ func TestParseVersionNumberAcceptsInt32Range(t *testing.T) {
 	}
 }
 
+// TestParseVersionNumberRejectsNonPositiveAndGarbage pins the exact spec §10
+// message for the previously documented invalid cases (non-numeric and
+// non-positive values).
 func TestParseVersionNumberRejectsNonPositiveAndGarbage(t *testing.T) {
 	for _, raw := range []string{"0", "-1", "abc", "99999999999999999999999"} {
 		if _, err := versionNumberRequest(t, raw); err == nil {
 			t.Fatalf("version_number %q must be rejected", raw)
 		} else {
-			assertInvalidVersionNumber(t, err)
+			assertInvalidVersionNumber(t, err, "version_number must be a positive integer")
 		}
 	}
 }

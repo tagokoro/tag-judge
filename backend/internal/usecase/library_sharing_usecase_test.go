@@ -971,9 +971,15 @@ func TestListVerificationsRejectsOffsetOverflow(t *testing.T) {
 		&fakeSubmissionReaderForVerify{},
 	)
 
+	// Documented invalid case: a negative offset keeps the exact spec §10 message.
+	_, err := use.List(context.Background(), otherUserActor, 10, true, -1)
+	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset must be greater than or equal to 0")
+
+	// Too-large non-negative offsets are still rejected before the repository,
+	// with a distinct stable 400 message instead of wrapping to another page.
 	for _, offset := range []int{2147483648, 4294967297} {
 		_, err := use.List(context.Background(), otherUserActor, 10, true, offset)
-		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset must be between 0 and 2147483647")
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset is too large")
 	}
 	if verificationRepo.listCalled {
 		t.Fatal("ListByUserID must not be reached for an overflowing offset")

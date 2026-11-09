@@ -18,13 +18,18 @@ const maxNamespaceDisplayNameLength = 64
 const maxPagingOffset = 1<<31 - 1
 
 // validatePaging applies the shared list contract: default limit 20, limits
-// from 1 through 100, and an offset that fits the int32 list queries.
+// from 1 through 100, and an offset that fits the int32 list queries. The exact
+// spec §10 message is kept for negative offsets; a too-large non-negative
+// offset gets a distinct stable 400 before it can wrap to a different page.
 func validatePaging(limit int, limitProvided bool, offset int) (int, int, error) {
 	if limitProvided && (limit <= 0 || limit > 100) {
 		return 0, 0, apperror.InvalidInput("INVALID_LIMIT", "limit must be between 1 and 100")
 	}
-	if offset < 0 || offset > maxPagingOffset {
-		return 0, 0, apperror.InvalidInput("INVALID_OFFSET", "offset must be between 0 and 2147483647")
+	if offset < 0 {
+		return 0, 0, apperror.InvalidInput("INVALID_OFFSET", "offset must be greater than or equal to 0")
+	}
+	if offset > maxPagingOffset {
+		return 0, 0, apperror.InvalidInput("INVALID_OFFSET", "offset is too large")
 	}
 	if !limitProvided {
 		limit = 20
