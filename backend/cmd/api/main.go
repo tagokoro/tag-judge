@@ -48,6 +48,9 @@ func run() error {
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
+	namespaceRepo := postgres.NewNamespaceRepository(db)
+	libraryRepo := postgres.NewLibraryRepository(db)
+	libraryVersionRepo := postgres.NewLibraryVersionRepository(db)
 	sourceCodeStorage, executionDispatcher, err := buildJudgeInfra(ctx, cfg)
 	if err != nil {
 		return err
@@ -79,6 +82,14 @@ func run() error {
 	go codeRunPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
+	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
+	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
+	// Verification submissions must share the very same AdmissionControl used by
+	// origin/main's submission and code-run paths so they hold the same global
+	// admission lock and obey identical rate/outstanding limits.
+	libraryVerificationRepo := postgres.NewLibraryVerificationRepository(db, admissionControl)
+	libraryVerificationUsecase := usecase.NewLibraryVerificationUsecase(libraryVersionUsecase, problemRepo, sourceCodeStorage, libraryVerificationRepo, submissionRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
 	testCaseHandler := handler.NewTestCaseHandler(testCaseUsecase)
@@ -88,18 +99,26 @@ func run() error {
 	meHandler := handler.NewMeHandler()
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
 	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
+	namespaceHandler := handler.NewNamespaceHandler(namespaceUsecase)
+	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
+	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
+	libraryVerificationHandler := handler.NewLibraryVerificationHandler(libraryVerificationUsecase)
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
-			Problems:    problemHandler,
-			TestCases:   testCaseHandler,
-			CodeRuns:    codeRunHandler,
-			Groups:      groupHandler,
-			Submissions: submissionHandler,
-			Me:          meHandler,
-			AuthHTTP:    authHandler,
-			Auth:        authMiddleware,
+			Problems:             problemHandler,
+			TestCases:            testCaseHandler,
+			CodeRuns:             codeRunHandler,
+			Groups:               groupHandler,
+			Submissions:          submissionHandler,
+			Me:                   meHandler,
+			AuthHTTP:             authHandler,
+			Auth:                 authMiddleware,
+			Namespaces:           namespaceHandler,
+			Libraries:            libraryHandler,
+			LibraryVersions:      libraryVersionHandler,
+			LibraryVerifications: libraryVerificationHandler,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,

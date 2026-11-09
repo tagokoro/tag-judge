@@ -10,14 +10,18 @@ import (
 )
 
 type Handlers struct {
-	Problems    *handler.ProblemHandler
-	TestCases   *handler.TestCaseHandler
-	CodeRuns    *handler.CodeRunHandler
-	Groups      *handler.GroupHandler
-	Submissions *handler.SubmissionHandler
-	Me          *handler.MeHandler
-	AuthHTTP    *handler.AuthHandler
-	Auth        *appmiddleware.AuthMiddleware
+	Problems             *handler.ProblemHandler
+	TestCases            *handler.TestCaseHandler
+	CodeRuns             *handler.CodeRunHandler
+	Groups               *handler.GroupHandler
+	Submissions          *handler.SubmissionHandler
+	Me                   *handler.MeHandler
+	AuthHTTP             *handler.AuthHandler
+	Auth                 *appmiddleware.AuthMiddleware
+	Namespaces           *handler.NamespaceHandler
+	Libraries            *handler.LibraryHandler
+	LibraryVersions      *handler.LibraryVersionHandler
+	LibraryVerifications *handler.LibraryVerificationHandler
 }
 
 func New(handlers Handlers) http.Handler {
@@ -55,6 +59,21 @@ func New(handlers Handlers) http.Handler {
 	r.Get("/api/v1/auth/google/login", handlers.AuthHTTP.GoogleLogin)
 	r.Get("/api/v1/auth/google/callback", handlers.AuthHTTP.GoogleCallback)
 	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces", handlers.Namespaces.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/namespace", handlers.Namespaces.GetMine)
+	r.Get("/api/v1/namespaces/{namespace_slug}", handlers.Namespaces.GetBySlug)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.Create)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.List)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Get)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Update)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.Create)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.List)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handlers.LibraryVersions.Get)
+	if handlers.LibraryVerifications != nil {
+		r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications", handlers.LibraryVerifications.Create)
+		r.With(handlers.Auth.RequireAuth).Get("/api/v1/library-verifications/{verification_id}", handlers.LibraryVerifications.Get)
+		r.With(handlers.Auth.RequireAuth).Get("/api/v1/library-verifications", handlers.LibraryVerifications.List)
+	}
 
 	return r
 }

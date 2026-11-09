@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
@@ -668,9 +669,14 @@ func TestAddMemberValidation(t *testing.T) {
 }
 
 const routerUserID = "00000000-0000-4000-8000-000000000001"
+const adminUserID = "00000000-0000-4000-8000-000000000002"
 
 func setAuth(req *http.Request, role string) {
-	req.Header.Set("X-User-ID", routerUserID)
+	setAuthAsUser(req, routerUserID, role)
+}
+
+func setAuthAsUser(req *http.Request, userID string, role string) {
+	req.Header.Set("X-User-ID", userID)
 	req.Header.Set("X-User-Role", role)
 }
 
@@ -698,6 +704,31 @@ func newTestRouterWithGroups(groups repository.GroupRepository) http.Handler {
 }
 
 func newTestRouterWithRepositories(groups repository.GroupRepository, submissions repository.SubmissionRepository) http.Handler {
+	return newTestRouterWithHandlers(newTestRouterOptions(groups, submissions))
+}
+
+type testRouterOptions struct {
+	groups        repository.GroupRepository
+	submissions   repository.SubmissionRepository
+	namespaces    repository.NamespaceRepository
+	libraries     *fakeLibraryRouterRepository
+	versions      *fakeLibraryVersionRouterRepository
+	verifications *fakeLibraryVerificationRouterRepository
+}
+
+func newTestRouterOptions(groups repository.GroupRepository, submissions repository.SubmissionRepository) *testRouterOptions {
+	libraries := newFakeLibraryRouterRepository(domain.LibraryVisibilityPublic)
+	return &testRouterOptions{
+		groups:        groups,
+		submissions:   submissions,
+		namespaces:    newRouterNamespaceRepository(),
+		libraries:     libraries,
+		versions:      newFakeLibraryVersionRouterRepository(),
+		verifications: newFakeLibraryVerificationRouterRepository(),
+	}
+}
+
+func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 	authRepo := &fakeAuthRepository{}
 	authUsecase := usecase.NewAuthUsecase(authRepo, nil, 0)
 	problemRepo := &fakeProblemRepository{}
@@ -713,17 +744,26 @@ func newTestRouterWithRepositories(groups repository.GroupRepository, submission
 			2500,
 			255,
 		)),
-		Groups: handler.NewGroupHandler(usecase.NewGroupUsecase(groups)),
+		Groups: handler.NewGroupHandler(usecase.NewGroupUsecase(options.groups)),
 		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
-			submissions,
+			options.submissions,
 			problemRepo,
 			&fakeSourceCodeStorage{},
 			admission,
 			255,
 		)),
-		Me:       handler.NewMeHandler(),
-		AuthHTTP: handler.NewAuthHandler(authUsecase, false, "/"),
-		Auth:     appmiddleware.NewAuthMiddleware(authRepo, true),
+		Me:         handler.NewMeHandler(),
+		AuthHTTP:   handler.NewAuthHandler(authUsecase, false, "/"),
+		Auth:       appmiddleware.NewAuthMiddleware(authRepo, true),
+		Namespaces: handler.NewNamespaceHandler(usecase.NewNamespaceUsecase(options.namespaces)),
+		Libraries:  handler.NewLibraryHandler(usecase.NewLibraryUsecase(options.namespaces, options.libraries)),
+		LibraryVersions: handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(
+			usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions,
+		)),
+		LibraryVerifications: handler.NewLibraryVerificationHandler(usecase.NewLibraryVerificationUsecase(
+			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions),
+			problemRepo, &fakeSourceCodeStorage{}, options.verifications, options.submissions,
+		)),
 	})
 }
 
@@ -972,4 +1012,664 @@ func (r *fakeRouterTestCaseRepository) Update(_ context.Context, params reposito
 
 func (r *fakeRouterTestCaseRepository) Delete(_ context.Context, _, _ int64) error {
 	return nil
+}
+
+func TestVerificationRoutesAreRegisteredAndProtectData(t *testing.T) {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	router := newTestRouterWithHandlers(options)
+
+	post := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications", bytes.NewBufferString(`{"problem_id":42,"adapter_source":"print(1)"}`))
+	post.Header.Set("Content-Type", "application/json")
+	setAuth(post, "user")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, post)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d: %s", res.Code, res.Body.String())
+	}
+
+	for _, path := range []string{"/api/v1/library-verifications"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		setAuth(req, "user")
+		got := httptest.NewRecorder()
+		router.ServeHTTP(got, req)
+		if got.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d: %s", path, got.Code, got.Body.String())
+		}
+		if strings.Contains(got.Body.String(), "print(1)") {
+			t.Fatalf("adapter_source leaked from %s: %s", path, got.Body.String())
+		}
+	}
+	detailOwner := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
+	setAuth(detailOwner, "user")
+	detailOwnerRes := httptest.NewRecorder()
+	router.ServeHTTP(detailOwnerRes, detailOwner)
+	if !strings.Contains(detailOwnerRes.Body.String(), "print(1)") {
+		t.Fatalf("owner detail should include adapter source: %s", detailOwnerRes.Body.String())
+	}
+	// The fixture belongs to routerUserID. An admin must be a different user so
+	// this assertion proves authorization comes from the admin role, not the
+	// owner check.
+	detailAdmin := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
+	setAuthAsUser(detailAdmin, adminUserID, string(domain.UserRoleAdmin))
+	detailAdminRes := httptest.NewRecorder()
+	router.ServeHTTP(detailAdminRes, detailAdmin)
+	if detailAdminRes.Code != http.StatusOK {
+		t.Fatalf("admin detail status = %d: %s", detailAdminRes.Code, detailAdminRes.Body.String())
+	}
+	if !strings.Contains(detailAdminRes.Body.String(), "adapter_source") || !strings.Contains(detailAdminRes.Body.String(), "print(1)") {
+		t.Fatalf("admin detail should include adapter source: %s", detailAdminRes.Body.String())
+	}
+	detailThirdParty := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
+	setAuth(detailThirdParty, "user")
+	detailThirdParty.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000003")
+	detailThirdPartyRes := httptest.NewRecorder()
+	router.ServeHTTP(detailThirdPartyRes, detailThirdParty)
+	if detailThirdPartyRes.Code != http.StatusForbidden && detailThirdPartyRes.Code != http.StatusNotFound {
+		t.Fatalf("third-party detail status = %d, want 403 or 404: %s", detailThirdPartyRes.Code, detailThirdPartyRes.Body.String())
+	}
+	if strings.Contains(detailThirdPartyRes.Body.String(), "adapter_source") || strings.Contains(detailThirdPartyRes.Body.String(), "print(1)") {
+		t.Fatalf("third-party detail leaked adapter source: %s", detailThirdPartyRes.Body.String())
+	}
+}
+
+func TestNamespaceRoutesRequiredAuth(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/api/v1/namespaces", body: `{"slug":"seed-author","display_name":"Seed Author"}`},
+		{method: http.MethodGet, path: "/api/v1/me/namespace"},
+	}
+	for _, route := range routes {
+		router := newTestRouter()
+		req := httptest.NewRequest(route.method, route.path, bytes.NewBufferString(route.body))
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s status = %d, want %d", route.method, route.path, res.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestCreateNamespaceRoute(t *testing.T) {
+	repo := newRouterNamespaceRepository()
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	options.namespaces = repo
+	router := newTestRouterWithHandlers(options)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewBufferString(`{"slug":"seed-author","display_name":"  Seed Author  "}`))
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if repo.createParams.DisplayName != "Seed Author" || repo.createParams.OwnerUserID != routerUserID {
+		t.Fatalf("params = %+v", repo.createParams)
+	}
+	var body struct {
+		Data struct {
+			ID          string `json:"id"`
+			Slug        string `json:"slug"`
+			DisplayName string `json:"display_name"`
+			OwnerUserID string `json:"owner_user_id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Slug != "seed-author" || body.Data.DisplayName != "Seed Author" || body.Data.OwnerUserID != routerUserID {
+		t.Fatalf("data = %+v", body.Data)
+	}
+}
+
+func TestCreateNamespaceRouteUnknownField(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewBufferString(`{"slug":"seed-author","display_name":"Seed Author","name":"extra"}`))
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusBadRequest)
+	}
+	assertErrorCode(t, res, "INVALID_REQUEST_BODY")
+}
+
+func TestGetMyNamespaceRoute(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/namespace", nil)
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Slug != "seed-author" {
+		t.Fatalf("slug = %q", body.Data.Slug)
+	}
+}
+
+func TestGetMyNamespaceRouteNotFound(t *testing.T) {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	if repo, ok := options.namespaces.(*routerNamespaceRepository); ok {
+		repo.byOwner = nil
+	}
+	router := newTestRouterWithHandlers(options)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/namespace", nil)
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+	assertErrorCode(t, res, "NAMESPACE_NOT_FOUND")
+}
+
+func TestGetNamespaceBySlugRoutePublic(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author", nil)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
+func TestGetNamespaceBySlugRouteNotFound(t *testing.T) {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	if repo, ok := options.namespaces.(*routerNamespaceRepository); ok {
+		repo.bySlug = nil
+	}
+	router := newTestRouterWithHandlers(options)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/missing", nil)
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+	assertErrorCode(t, res, "NAMESPACE_NOT_FOUND")
+}
+
+func TestLibraryRoutes(t *testing.T) {
+	router := newTestRouter()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries", bytes.NewBufferString(`{"slug":"union-find","name":"UnionFind","description":"","visibility":"private"}`))
+	req := create
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req, "author")
+	createRes := httptest.NewRecorder()
+	router.ServeHTTP(createRes, create)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", createRes.Code, createRes.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID            string `json:"id"`
+			NamespaceSlug string `json:"namespace_slug"`
+			Slug          string `json:"slug"`
+			Visibility    string `json:"visibility"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(createRes.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.Data.Slug != "union-find" || created.Data.NamespaceSlug != "seed-author" || created.Data.Visibility != "private" {
+		t.Fatalf("data = %+v", created.Data)
+	}
+
+	patch := httptest.NewRequest(http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find", bytes.NewBufferString(`{"visibility":"public"}`))
+	patch.Header.Set("Content-Type", "application/json")
+	setAuth(patch, "author")
+	patchRes := httptest.NewRecorder()
+	router.ServeHTTP(patchRes, patch)
+	if patchRes.Code != http.StatusOK {
+		t.Fatalf("patch status = %d: %s", patchRes.Code, patchRes.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find", nil)
+	getRes := httptest.NewRecorder()
+	router.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("get status = %d: %s", getRes.Code, getRes.Body.String())
+	}
+
+	list := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries?limit=3", nil)
+	listRes := httptest.NewRecorder()
+	router.ServeHTTP(listRes, list)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list status = %d: %s", listRes.Code, listRes.Body.String())
+	}
+}
+
+func TestLibraryRoutesRequireAuth(t *testing.T) {
+	router := newTestRouter()
+	for _, route := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/api/v1/namespaces/seed-author/libraries", `{"slug":"union-find","name":"UnionFind","visibility":"public"}`},
+		{http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find", `{"visibility":"public"}`},
+	} {
+		req := httptest.NewRequest(route.method, route.path, bytes.NewBufferString(route.body))
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s status = %d, want %d", route.method, route.path, res.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestPrivateLibraryHiddenFromAdminViaHTTP(t *testing.T) {
+	options := newTestRouterWithPrivateLibrary()
+	router := newTestRouterWithHandlers(options)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find", nil)
+	req.Header.Set("X-User-ID", adminUserID)
+	req.Header.Set("X-User-Role", "admin")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+	assertErrorCode(t, res, "LIBRARY_NOT_FOUND")
+
+	list := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries", nil)
+	list.Header.Set("X-User-ID", adminUserID)
+	list.Header.Set("X-User-Role", "admin")
+	listRes := httptest.NewRecorder()
+	router.ServeHTTP(listRes, list)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list status = %d", listRes.Code)
+	}
+	var body struct {
+		Data []struct {
+			Visibility string `json:"visibility"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(listRes.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, library := range body.Data {
+		if library.Visibility == "private" {
+			t.Fatal("private library must not leak into other users' list")
+		}
+	}
+}
+
+func TestLibraryOwnerRequiredViaHTTP(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find", bytes.NewBufferString(`{"visibility":"public"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", adminUserID)
+	req.Header.Set("X-User-Role", "admin")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusForbidden)
+	}
+	assertErrorCode(t, res, "LIBRARY_FORBIDDEN")
+}
+
+func TestLibraryUpdateEmptyAndUnknownFields(t *testing.T) {
+	router := newTestRouter()
+	empty := httptest.NewRequest(http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find", bytes.NewBufferString(`{}`))
+	empty.Header.Set("Content-Type", "application/json")
+	setAuth(empty, "author")
+	emptyRes := httptest.NewRecorder()
+	router.ServeHTTP(emptyRes, empty)
+	if emptyRes.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", emptyRes.Code, http.StatusBadRequest)
+	}
+	assertErrorCode(t, emptyRes, "EMPTY_UPDATE")
+
+	unknown := httptest.NewRequest(http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find", bytes.NewBufferString(`{"slug":"new-slug"}`))
+	unknown.Header.Set("Content-Type", "application/json")
+	setAuth(unknown, "author")
+	unknownRes := httptest.NewRecorder()
+	router.ServeHTTP(unknownRes, unknown)
+	if unknownRes.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", unknownRes.Code, http.StatusBadRequest)
+	}
+	assertErrorCode(t, unknownRes, "INVALID_REQUEST_BODY")
+}
+
+func TestLibraryListPaginationInvalid(t *testing.T) {
+	router := newTestRouter()
+	for _, query := range []string{"?limit=0", "?limit=101", "?offset=-1"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries"+query, nil)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("query = %q, status = %d", query, res.Code)
+		}
+	}
+}
+
+func newTestRouterWithPrivateLibrary() *testRouterOptions {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	repo := newFakeLibraryRouterRepository(domain.LibraryVisibilityPrivate)
+	options.libraries = repo
+	return options
+}
+
+func TestLibraryVersionRoutes(t *testing.T) {
+	router := newTestRouter()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewBufferString(`{"source_code":"def add(a, b):\n    return a + b\n"}`))
+	create.Header.Set("Content-Type", "application/json")
+	setAuth(create, "author")
+	createRes := httptest.NewRecorder()
+	router.ServeHTTP(createRes, create)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", createRes.Code, createRes.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID            string `json:"id"`
+			VersionNumber int    `json:"version_number"`
+			SourceCode    string `json:"source_code"`
+			ContentSHA256 string `json:"content_sha256"`
+			ByteSize      int    `json:"byte_size"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(createRes.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.Data.VersionNumber != 1 || created.Data.SourceCode != "def add(a, b):\n    return a + b\n" || created.Data.ContentSHA256 == "" {
+		t.Fatalf("data = %+v", created.Data)
+	}
+
+	detail := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1", nil)
+	detailRes := httptest.NewRecorder()
+	router.ServeHTTP(detailRes, detail)
+	if detailRes.Code != http.StatusOK {
+		t.Fatalf("detail status = %d: %s", detailRes.Code, detailRes.Body.String())
+	}
+
+	list := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions?limit=2&offset=1", nil)
+	listRes := httptest.NewRecorder()
+	router.ServeHTTP(listRes, list)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list status = %d: %s", listRes.Code, listRes.Body.String())
+	}
+	var listBody struct {
+		Data []struct {
+			VersionNumber int `json:"version_number"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(listRes.Body).Decode(&listBody); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(listBody.Data) != 0 {
+		t.Fatalf("list = %+v", listBody.Data)
+	}
+}
+
+func TestLibraryVersionCreateRequiresAuth(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewBufferString(`{"source_code":"x"}`))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestLibraryVersionDetailNotFound(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/9", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+	assertErrorCode(t, res, "LIBRARY_VERSION_NOT_FOUND")
+}
+
+func TestLibraryVersionNumberValidation(t *testing.T) {
+	router := newTestRouter()
+	for _, raw := range []string{"abc", "0", "-1", "99999999999999999999999"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw, nil)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("version %q status = %d, want 400", raw, res.Code)
+		}
+		assertErrorCode(t, res, "INVALID_VERSION_NUMBER")
+	}
+}
+
+func TestLibraryVersionMethodNotAllowed(t *testing.T) {
+	router := newTestRouter()
+	for _, pair := range []struct{ method, path string }{
+		{http.MethodPatch, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1"},
+		{http.MethodDelete, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1"},
+	} {
+		req := httptest.NewRequest(pair.method, pair.path, nil)
+		setAuth(req, "author")
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s status = %d, want 405", pair.method, res.Code)
+		}
+	}
+}
+
+type routerNamespaceRepository struct {
+	createParams repository.CreateNamespaceParams
+	byOwner      *domain.Namespace
+	bySlug       *domain.Namespace
+	findErr      error
+}
+
+func newRouterNamespaceRepository() *routerNamespaceRepository {
+	return &routerNamespaceRepository{
+		byOwner: &domain.Namespace{
+			ID:          "11111111-1111-4111-8111-111111111111",
+			OwnerUserID: routerUserID,
+			Slug:        "seed-author",
+			DisplayName: "Seed Author",
+		},
+		bySlug: &domain.Namespace{
+			ID:          "11111111-1111-4111-8111-111111111111",
+			OwnerUserID: routerUserID,
+			Slug:        "seed-author",
+			DisplayName: "Seed Author",
+		},
+	}
+}
+
+func (r *routerNamespaceRepository) Create(_ context.Context, params repository.CreateNamespaceParams) (*domain.Namespace, error) {
+	r.createParams = params
+	return &domain.Namespace{
+		ID:          "11111111-1111-4111-8111-111111111111",
+		OwnerUserID: params.OwnerUserID,
+		Slug:        params.Slug,
+		DisplayName: params.DisplayName,
+	}, nil
+}
+
+func (r *routerNamespaceRepository) FindByOwner(_ context.Context, ownerUserID string) (*domain.Namespace, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	if r.byOwner == nil {
+		return nil, apperror.NotFound("NAMESPACE_NOT_FOUND", "namespace not found")
+	}
+	return r.byOwner, nil
+}
+
+func (r *routerNamespaceRepository) FindBySlug(_ context.Context, slug string) (*domain.Namespace, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	if r.bySlug == nil {
+		return nil, apperror.NotFound("NAMESPACE_NOT_FOUND", "namespace not found")
+	}
+	return r.bySlug, nil
+}
+
+type fakeLibraryRouterRepository struct {
+	library      domain.Library
+	updateParams repository.UpdateLibraryParams
+	createParams repository.CreateLibraryParams
+	createErr    error
+	listPublic   []domain.Library
+	listAll      []domain.Library
+}
+
+func newFakeLibraryRouterRepository(visibility domain.LibraryVisibility) *fakeLibraryRouterRepository {
+	return &fakeLibraryRouterRepository{
+		library: domain.Library{
+			ID:            "22222222-2222-4222-8222-222222222222",
+			NamespaceID:   "11111111-1111-4111-8111-111111111111",
+			NamespaceSlug: "seed-author",
+			Slug:          "union-find",
+			Name:          "UnionFind",
+			Visibility:    visibility,
+		},
+	}
+}
+
+func (r *fakeLibraryRouterRepository) Create(_ context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
+	r.createParams = params
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	library := r.library
+	library.Slug = params.Slug
+	library.Name = params.Name
+	library.Description = params.Description
+	library.Visibility = params.Visibility
+	return &library, nil
+}
+
+func (r *fakeLibraryRouterRepository) Update(_ context.Context, params repository.UpdateLibraryParams) (*domain.Library, error) {
+	r.updateParams = params
+	library := r.library
+	if params.Visibility != nil {
+		library.Visibility = domain.LibraryVisibility(*params.Visibility)
+	}
+	if params.Name != nil {
+		library.Name = *params.Name
+	}
+	return &library, nil
+}
+
+func (r *fakeLibraryRouterRepository) FindBySlug(_ context.Context, _, slug string) (*domain.Library, error) {
+	library := r.library
+	library.Slug = slug
+	return &library, nil
+}
+
+func (r *fakeLibraryRouterRepository) ListPublic(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
+	return r.listPublic, nil
+}
+
+func (r *fakeLibraryRouterRepository) ListAll(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
+	return r.listAll, nil
+}
+
+type fakeLibraryVersionRouterRepository struct {
+	createParams repository.CreateLibraryVersionParams
+	createErr    error
+	createCalls  int
+	byNumber     map[int]*domain.LibraryVersion
+	summaries    []domain.LibraryVersion
+	listParams   repository.ListLibraryVersionsParams
+}
+
+type fakeLibraryVerificationRouterRepository struct {
+	verification *domain.LibraryVerification
+}
+
+func newFakeLibraryVerificationRouterRepository() *fakeLibraryVerificationRouterRepository {
+	return &fakeLibraryVerificationRouterRepository{}
+}
+
+func (r *fakeLibraryVerificationRouterRepository) CreateWithSubmission(_ context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, *domain.Submission, error) {
+	r.verification = &domain.LibraryVerification{ID: 1, LibraryVersionID: params.LibraryVersionID, UserID: params.ActorUserID, ProblemID: params.ProblemID, SubmissionID: 1, Status: domain.SubmissionStatusPending, AdapterSource: params.AdapterSource, AdapterSHA256: "sha"}
+	return r.verification, &domain.Submission{ID: 1, UserID: params.ActorUserID, ProblemID: params.ProblemID}, nil
+}
+
+func (r *fakeLibraryVerificationRouterRepository) FindByID(_ context.Context, id int64) (*domain.LibraryVerification, error) {
+	if r.verification == nil {
+		return nil, apperror.NotFound("LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
+	}
+	v := *r.verification
+	v.ID = id
+	return &v, nil
+}
+
+func (r *fakeLibraryVerificationRouterRepository) ListByUserID(_ context.Context, _ repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
+	if r.verification == nil {
+		return []domain.LibraryVerification{}, nil
+	}
+	v := *r.verification
+	// List responses intentionally omit adapter_source at the handler boundary.
+	v.AdapterSource = ""
+	return []domain.LibraryVerification{v}, nil
+}
+
+func newFakeLibraryVersionRouterRepository() *fakeLibraryVersionRouterRepository {
+	return &fakeLibraryVersionRouterRepository{
+		byNumber: map[int]*domain.LibraryVersion{
+			1: {ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, SourceCode: "def add(a, b):\n    return a + b\n", ContentSHA256: "b24916acf9a8670a4e088af2bbc2591d02eca1f33ddad1aec0ed3a41d57568af", ByteSize: 31},
+		},
+	}
+}
+
+func (r *fakeLibraryVersionRouterRepository) Create(_ context.Context, params repository.CreateLibraryVersionParams) (*domain.LibraryVersion, error) {
+	r.createCalls++
+	r.createParams = params
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	return &domain.LibraryVersion{
+		ID:            "33333333-3333-4333-8333-333333333333",
+		LibraryID:     params.LibraryID,
+		VersionNumber: 1,
+		SourceCode:    params.SourceCode,
+		ContentSHA256: params.ContentSHA256,
+		ByteSize:      params.ByteSize,
+		CreatedBy:     params.CreatedBy,
+	}, nil
+}
+
+func (r *fakeLibraryVersionRouterRepository) FindByNumber(_ context.Context, _ string, versionNumber int) (*domain.LibraryVersion, error) {
+	if version, ok := r.byNumber[versionNumber]; ok {
+		return version, nil
+	}
+	return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
+}
+
+func (r *fakeLibraryVersionRouterRepository) ListSummaries(_ context.Context, params repository.ListLibraryVersionsParams) ([]domain.LibraryVersion, error) {
+	r.listParams = params
+	return r.summaries, nil
 }
