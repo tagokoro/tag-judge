@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tag Judge",
-  description: "Tag Judge フロントエンド",
+  title: "Library Sharing Judge",
+  description: "ライブラリ共有ジャッジ MVP フロントエンド",
 };
 
 export default function RootLayout({
