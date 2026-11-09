@@ -163,3 +163,16 @@ test("client logout is a POST to the same-origin /auth/logout", async () => {
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.credentials, "same-origin");
 });
+
+test("withSignal forwards an AbortSignal so in-flight fetches can be cancelled", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+  const controller = new AbortController();
+  const client = createJudgeClient(() => null, fake).withSignal(controller.signal);
+  await client.getLibrary("ns", "lib");
+  assert.equal(calls[0].init.signal, controller.signal);
+  assert.equal(calls[0].init.credentials, "same-origin");
+  // A client without a signal does not attach one.
+  const plain = createJudgeClient(() => null, fake);
+  await plain.getLibrary("ns", "lib");
+  assert.equal(calls[1].init.signal, undefined);
+});

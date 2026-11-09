@@ -1,71 +1,84 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   caseResultsOf,
-  DEFAULT_ADAPTER_SOURCE,
-  DEFAULT_PROBLEM_ID,
   formatCaseResult,
+  isPollTokenCurrent,
   isTerminalStatus,
   isVerificationDetail,
+  nextPollToken,
   pollVerification,
 } from "@/lib/verification";
-import type {
-  Problem,
-  VerificationDetail,
-  VerificationSummary,
-} from "@/lib/types";
+import type { VerificationView } from "@/lib/workspaceState";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
 import { Button, Card, ErrorNote, Field, ResultView, StatusPill } from "./ui";
 
-type VerificationView = VerificationSummary | VerificationDetail;
-
 export function VerificationPanel() {
-  const { client, namespaceSlug, librarySlug, versionNumber } = useWorkspace();
+  const {
+    client,
+    state,
+    effectiveVersion,
+    patchData,
+    selectVerification,
+  } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
 
-  const [problemId, setProblemId] = useState<number>(DEFAULT_PROBLEM_ID);
-  const [problems, setProblems] = useState<Problem[] | null>(null);
-  const [adapter, setAdapter] = useState<string>(DEFAULT_ADAPTER_SOURCE);
-  const [current, setCurrent] = useState<VerificationView | null>(null);
-  const [verifications, setVerifications] = useState<VerificationSummary[] | null>(null);
+  const { namespaceSlug, librarySlug } = state;
+  const {
+    problemId,
+    problems,
+    adapterSource,
+    currentVerification,
+    verifications,
+  } = state.data;
 
   const mountedRef = useRef(true);
   const pollTokenRef = useRef(0);
+
+  // Invalidate polling on EVERY selection (including a terminal one) and on
+  // unmount (which also happens on an actor/auth change via the remount key).
+  const invalidatePolling = useCallback(() => {
+    pollTokenRef.current = nextPollToken(pollTokenRef.current);
+  }, []);
+
   useEffect(
     () => () => {
       mountedRef.current = false;
-      pollTokenRef.current += 1;
+      invalidatePolling();
     },
-    [],
+    [invalidatePolling],
   );
 
   // Poll GET /api/v1/library-verifications/{id} every 1s, at most 30 times,
-  // until a terminal status (MVP §11.5). A token cancels stale polls on unmount
-  // or when a new verification is started.
+  // until a terminal status (MVP §11.5). The token guards both the updates and
+  // shouldContinue, so a superseded poll can never overwrite a newer result.
   const pollFrom = useCallback(
-    async (initial: VerificationView): Promise<void> => {
-      const token = (pollTokenRef.current += 1);
-      setCurrent(initial);
+    async (initial: VerificationView, signal?: AbortSignal): Promise<void> => {
+      invalidatePolling();
+      const token = pollTokenRef.current;
+      selectVerification(initial);
+      const api = signal ? client.withSignal(signal) : client;
       await pollVerification<VerificationView>(
-        () => client.getVerification(initial.id),
+        () => api.getVerification(initial.id),
         initial,
         {
           onUpdate: (value) => {
-            if (mountedRef.current && pollTokenRef.current === token) {
-              setCurrent(value);
+            if (mountedRef.current && isPollTokenCurrent(token, pollTokenRef.current)) {
+              patchData({ currentVerification: value });
             }
           },
-          shouldContinue: () => mountedRef.current && pollTokenRef.current === token,
+          shouldContinue: () =>
+            mountedRef.current && isPollTokenCurrent(token, pollTokenRef.current),
         },
       );
     },
-    [client],
+    [client, patchData, selectVerification, invalidatePolling],
   );
 
   const selectedProblem = problems?.find((problem) => problem.id === problemId) ?? null;
-  const caseResults = current ? caseResultsOf(current) : [];
+  const caseResults = currentVerification ? caseResultsOf(currentVerification) : [];
 
   return (
     <Card
@@ -78,13 +91,13 @@ export function VerificationPanel() {
             type="number"
             min={1}
             value={problemId}
-            onChange={(event) => setProblemId(Number(event.target.value))}
+            onChange={(event) => patchData({ problemId: Number(event.target.value) })}
           />
         </Field>
         <Button
           onClick={() =>
-            run(async () => {
-              setProblems(await client.listProblems());
+            run(async (signal) => {
+              patchData({ problems: await client.withSignal(signal).listProblems() });
             })
           }
           disabled={busy}
@@ -96,7 +109,7 @@ export function VerificationPanel() {
         <Field label="既存 Problem を選択">
           <select
             value={String(problemId)}
-            onChange={(event) => setProblemId(Number(event.target.value))}
+            onChange={(event) => patchData({ problemId: Number(event.target.value) })}
           >
             {problems.map((problem) => (
               <option key={problem.id} value={problem.id}>
@@ -119,8 +132,8 @@ export function VerificationPanel() {
       <Field label="adapter_source（問題別・検証ごとに送信）">
         <textarea
           className="code-input"
-          value={adapter}
-          onChange={(event) => setAdapter(event.target.value)}
+          value={adapterSource}
+          onChange={(event) => patchData({ adapterSource: event.target.value })}
           spellCheck={false}
         />
       </Field>
@@ -128,27 +141,30 @@ export function VerificationPanel() {
         <Button
           variant="primary"
           onClick={() =>
-            run(async () => {
-              if (versionNumber === null) {
+            run(async (signal) => {
+              // Invalidate any in-flight poll BEFORE starting a new verification.
+              invalidatePolling();
+              if (effectiveVersion === null) {
                 throw new Error("先に Version を作成または一覧から選択してください。");
               }
-              const created = await client.createVerification(
+              const api = client.withSignal(signal);
+              const created = await api.createVerification(
                 namespaceSlug,
                 librarySlug,
-                versionNumber,
-                { problem_id: problemId, adapter_source: adapter },
+                effectiveVersion,
+                { problem_id: problemId, adapter_source: adapterSource },
               );
-              await pollFrom(created);
+              await pollFrom(created, signal);
             })
           }
           disabled={busy}
         >
-          検証を開始（{versionNumber ?? "Version 未選択"}）
+          検証を開始（{effectiveVersion ?? "Version 未選択"}）
         </Button>
         <Button
           onClick={() =>
-            run(async () => {
-              setVerifications(await client.listVerifications());
+            run(async (signal) => {
+              patchData({ verifications: await client.withSignal(signal).listVerifications() });
             })
           }
           disabled={busy}
@@ -171,11 +187,15 @@ export function VerificationPanel() {
                     className="list-item"
                     disabled={busy}
                     onClick={() =>
-                      run(async () => {
-                        const detail = await client.getVerification(item.id);
-                        setCurrent(detail);
+                      run(async (signal) => {
+                        // ALWAYS invalidate, even when selecting a terminal
+                        // result: an older poll must not overwrite this detail.
+                        invalidatePolling();
+                        const api = client.withSignal(signal);
+                        const detail = await api.getVerification(item.id);
+                        selectVerification(detail);
                         if (!isTerminalStatus(detail.status)) {
-                          await pollFrom(detail);
+                          await pollFrom(detail, signal);
                         }
                       })
                     }
@@ -194,30 +214,30 @@ export function VerificationPanel() {
         </div>
       ) : null}
 
-      {current ? (
+      {currentVerification ? (
         <div className="detail-block">
-          <span className="result-label">検証 #{current.id}</span>
+          <span className="result-label">検証 #{currentVerification.id}</span>
           <div className="kv">
             <span>ステータス</span>
-            <StatusPill status={current.status} />
+            <StatusPill status={currentVerification.status} />
             <span>スコア</span>
-            <strong>{current.score} / 100</strong>
+            <strong>{currentVerification.score} / 100</strong>
             <span>Problem / Version</span>
             <span className="mono">
-              #{current.problem_id} / v{current.version_number}
+              #{currentVerification.problem_id} / v{currentVerification.version_number}
             </span>
             <span>Submission ID</span>
-            <span className="mono">{current.submission_id}</span>
+            <span className="mono">{currentVerification.submission_id}</span>
             <span>判定日時</span>
-            <span>{current.judged_at ?? "—"}</span>
+            <span>{currentVerification.judged_at ?? "—"}</span>
           </div>
-          {busy && !isTerminalStatus(current.status) ? (
+          {busy && !isTerminalStatus(currentVerification.status) ? (
             <p className="muted">判定完了までポーリング中…（1 秒間隔 / 最大 30 回）</p>
           ) : null}
-          {isVerificationDetail(current) ? (
+          {isVerificationDetail(currentVerification) ? (
             <>
               <span className="result-label">adapter_source（自分の検証のみ・テキスト表示）</span>
-              <pre className="result source-view">{current.adapter_source}</pre>
+              <pre className="result source-view">{currentVerification.adapter_source}</pre>
             </>
           ) : null}
           <span className="result-label">ケース別結果（{caseResults.length} 件）</span>
@@ -234,7 +254,7 @@ export function VerificationPanel() {
               ))}
             </ul>
           )}
-          <ResultView data={current} label="検証詳細 (data)" />
+          <ResultView data={currentVerification} label="検証詳細 (data)" />
         </div>
       ) : null}
       <ErrorNote error={error} />

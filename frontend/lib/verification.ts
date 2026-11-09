@@ -52,6 +52,17 @@ export function caseResultsOf(
   return isVerificationDetail(value) ? value.case_results : [];
 }
 
+// Polling tokens. Every verification selection bumps the token (including a
+// terminal one) so an in-flight poll for a different verification can never
+// overwrite the newly selected result. Kept pure for regression tests.
+export function nextPollToken(token: number): number {
+  return token + 1;
+}
+
+export function isPollTokenCurrent(token: number, current: number): boolean {
+  return token === current;
+}
+
 export const SEED_USERS = [
   { userId: "00000000-0000-4000-8000-000000000001", role: "author" as Role },
   { userId: "00000000-0000-4000-8000-000000000002", role: "admin" as Role },

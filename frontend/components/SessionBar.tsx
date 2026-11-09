@@ -11,11 +11,7 @@ import { Button, Card, ErrorNote, Field, ResultView } from "./ui";
 export function SessionBar() {
   const {
     client,
-    session,
-    cookieChecked,
-    devEnabled,
-    devUserId,
-    devRole,
+    state,
     setDevEnabled,
     setDevUserId,
     setDevRole,
@@ -25,6 +21,8 @@ export function SessionBar() {
   } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
   const [meResult, setMeResult] = useState<Me | null>(null);
+
+  const { session, cookieChecked, devEnabled, devUser } = state;
 
   return (
     <Card
@@ -78,14 +76,14 @@ export function SessionBar() {
               <div className="row">
                 <Field label="ユーザーID">
                   <input
-                    value={devUserId}
+                    value={devUser.userId}
                     onChange={(event) => setDevUserId(event.target.value)}
                     spellCheck={false}
                   />
                 </Field>
                 <Field label="ロール">
                   <select
-                    value={devRole}
+                    value={devUser.role}
                     onChange={(event) => setDevRole(event.target.value as Role)}
                   >
                     <option value="author">author</option>
@@ -96,7 +94,7 @@ export function SessionBar() {
                 <Button onClick={switchDevUser}>ユーザー切替</Button>
               </div>
               <p className="pill">
-                dev 認証中: {devUserId} / {devRole} （切替先: {SEED_USERS[1].userId}）
+                dev 認証中: {devUser.userId} / {devUser.role} （切替先: {SEED_USERS[1].userId}）
               </p>
             </div>
           ) : null}
@@ -106,8 +104,8 @@ export function SessionBar() {
       <div className="row">
         <Button
           onClick={() =>
-            run(async () => {
-              setMeResult(await client.getMe());
+            run(async (signal) => {
+              setMeResult(await client.withSignal(signal).getMe());
             })
           }
           disabled={busy}

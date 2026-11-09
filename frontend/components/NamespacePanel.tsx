@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { DEFAULT_NAMESPACE_SLUG } from "@/lib/verification";
-import type { Namespace } from "@/lib/types";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
 import { Button, Card, ErrorNote, Field, ResultView } from "./ui";
 
 export function NamespacePanel() {
-  const { client, namespaceSlug, setNamespaceSlug } = useWorkspace();
+  const { client, state, setNamespaceSlug, patchData } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
   const [displayName, setDisplayName] = useState("Seed Author");
-  const [result, setResult] = useState<Namespace | null>(null);
+
+  const { namespaceSlug } = state;
+  const result = state.data.namespaceResult;
 
   return (
     <Card
@@ -35,13 +36,14 @@ export function NamespacePanel() {
         <Button
           variant="primary"
           onClick={() =>
-            run(async () => {
-              const created = await client.createNamespace({
+            run(async (signal) => {
+              const api = client.withSignal(signal);
+              const created = await api.createNamespace({
                 slug: namespaceSlug,
                 display_name: displayName,
               });
-              setResult(created);
               setNamespaceSlug(created.slug);
+              patchData({ namespaceResult: created });
             })
           }
           disabled={busy}
@@ -50,8 +52,8 @@ export function NamespacePanel() {
         </Button>
         <Button
           onClick={() =>
-            run(async () => {
-              setResult(await client.getMyNamespace());
+            run(async (signal) => {
+              patchData({ namespaceResult: await client.withSignal(signal).getMyNamespace() });
             })
           }
           disabled={busy}
@@ -61,8 +63,10 @@ export function NamespacePanel() {
         <Button
           variant="ghost"
           onClick={() =>
-            run(async () => {
-              setResult(await client.getNamespace(namespaceSlug));
+            run(async (signal) => {
+              patchData({
+                namespaceResult: await client.withSignal(signal).getNamespace(namespaceSlug),
+              });
             })
           }
           disabled={busy}

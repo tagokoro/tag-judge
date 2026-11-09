@@ -65,7 +65,9 @@ export interface ApiInit extends Omit<RequestInit, "headers"> {
 
 /**
  * Low-level request. `fetchImpl` is injectable so this can be unit-tested with
- * Node's built-in test runner without a browser or a running API.
+ * Node's built-in test runner without a browser or a running API. `signal` (if
+ * present in init) is forwarded to fetch so callers can abort in-flight work on
+ * an actor change / unmount.
  */
 export async function apiRequest<T>(
   path: string,
@@ -162,18 +164,23 @@ export interface JudgeClient {
   ): Promise<VerificationSummary>;
   getVerification(id: number): Promise<VerificationDetail>;
   listVerifications(): Promise<VerificationSummary[]>;
+  /** Return a client whose requests carry `signal` so they can be aborted. */
+  withSignal(signal: AbortSignal | undefined): JudgeClient;
 }
 
 /**
  * Build a client bound to a `getDevHeaders` provider. The provider is called on
  * every request so the latest opt-in state is used (cookie session always wins).
+ * `signal` is an optional default AbortSignal applied to every request.
  */
 export function createJudgeClient(
   getDevHeaders: () => DevHeaders | null,
   fetchImpl?: typeof fetch,
+  signal?: AbortSignal,
 ): JudgeClient {
   function call<T>(path: string, init: ApiInit = {}): Promise<T> {
-    return apiRequest<T>(path, init, getDevHeaders(), fetchImpl ?? fetch);
+    const merged: ApiInit = signal ? { ...init, signal } : init;
+    return apiRequest<T>(path, merged, getDevHeaders(), fetchImpl ?? fetch);
   }
 
   const libraryBase = (namespaceSlug: string, librarySlug: string) =>
@@ -217,5 +224,6 @@ export function createJudgeClient(
       ),
     getVerification: (id) => call<VerificationDetail>(`/library-verifications/${id}`),
     listVerifications: () => call<VerificationSummary[]>(list("/library-verifications")),
+    withSignal: (nextSignal) => createJudgeClient(getDevHeaders, fetchImpl, nextSignal),
   };
 }

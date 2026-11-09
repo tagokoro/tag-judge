@@ -1,19 +1,27 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import type { Dispatch } from "react";
 import type { JudgeClient } from "@/lib/api";
-import type { Me, Role } from "@/lib/types";
+import type {
+  ScopedData,
+  VerificationView,
+  WorkspaceAction,
+  WorkspaceState,
+} from "@/lib/workspaceState";
+import type { Role } from "@/lib/types";
 
 /** Shared state for the whole SPA. Provided by app/page.tsx. */
 export interface WorkspaceValue {
   client: JudgeClient;
 
+  // Whole state lives in one reducer so an actor change clears private data in
+  // a single place. Panels read state.data.* / state.namespaceSlug / etc.
+  state: WorkspaceState;
+  dispatch: Dispatch<WorkspaceAction>;
+  effectiveVersion: number | null;
+
   // Authentication / session
-  session: Me | null; // active cookie session, null = none
-  cookieChecked: boolean;
-  devEnabled: boolean;
-  devUserId: string;
-  devRole: Role;
   setDevEnabled: (value: boolean) => void;
   setDevUserId: (value: string) => void;
   setDevRole: (value: Role) => void;
@@ -22,15 +30,15 @@ export interface WorkspaceValue {
   logout: () => Promise<void>;
 
   // Selection shared across panels
-  namespaceSlug: string;
   setNamespaceSlug: (value: string) => void;
-  librarySlug: string;
   setLibrarySlug: (value: string) => void;
-  versionNumber: number | null;
-  setVersionNumber: (value: number | null) => void;
+  setVersion: (value: number | null) => void;
 
-  // Incremented on an explicit "switch user" so panels can re-fetch (MVP §11).
-  refreshTick: number;
+  // Data helpers. patchData is guarded by authGeneration: a result from a fetch
+  // started under a previous actor is dropped by the reducer.
+  patchData: (patch: Partial<ScopedData>) => void;
+  selectVerification: (value: VerificationView) => void;
+  clearLibraryDetail: () => void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceValue | null>(null);

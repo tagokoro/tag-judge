@@ -41,6 +41,23 @@ API 契約は `backend/docs/openapi.yaml`、機能範囲は
   `<pre>{...}</pre>` で描画し、`innerHTML` / `dangerouslySetInnerHTML` は一切使いません。
   JSON レスポンスも `JSON.stringify` を `<pre>` に表示するだけです。
 
+## 認証・利用者変更時のデータ無効化
+
+画面の状態は `lib/workspaceState.ts` の単一 reducer（React 非依存の純関数）に集約しています。
+cookie ログイン/ログアウト、dev 認証の ON/OFF、dev ユーザー ID / ロールの変更、ユーザー切替などで
+**実効 actor が変わると**、`authGeneration` を進めて次をまとめて行います。
+
+- Namespace / Library 詳細、Library / Version 一覧、Version の `source_code`、adapter、検証一覧・
+  現在の検証結果など、actor に紐づくデータをすべてクリアし、選択 Version をリセット。
+- 選択 Version は Namespace / Library の slug に**バインド**され、slug が変わると
+  `effectiveVersion()` が `null` を返すため、別ライブラリの古い Version 番号を黙って使いません。
+- 各パネルを `authGeneration` で再マウントし、`useAsyncAction` の `AbortController` が実行中の
+  fetch を中止、検証ポーリングもトークン無効化で停止。遅れて届いたレスポンスは `APPLY_DATA` の
+  世代ガードで破棄され、前の actor の private データが復活しません。
+- private Library 詳細の再取得が 404 になった場合は、古い詳細と Version ソースを明示的にクリア。
+- 検証の選択は**終端状態の結果を選ぶ場合も含め**毎回ポーリングトークンを進め、古いポーリングが
+  新しい結果を上書きできません。
+
 ## 必要なもの・起動
 
 - **Node.js 20.9.0 以上** / **npm 10 以上**（`package.json` の `engines`）。
@@ -77,9 +94,14 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 - `lib/api.test.mjs` — `apiRequest` の `{data}` アンラップ、same-origin credentials、`/api/v1` 前缀、
   dev ヘッダーのオプトイン、JSON ボディ、`ApiRequestError`、`204`（logout）、
   `probeCookieSession` が dev ヘッダーを送らないこと、クライアントが組み立てる各エンドポイントの
-  パス・メソッド・ボディ、slug の URL エンコード。
+  パス・メソッド・ボディ、slug の URL エンコード、`withSignal` による `AbortSignal` の伝播。
 - `lib/verification.test.mjs` — 終端状態判定、ケース結果フォーマット、`case_results` の秘匿、
-  ポーリング（即時終了 / pending→running→ac / 最大 30 回 / キャンセル）。
+  ポーリング（即時終了 / pending→running→ac / 最大 30 回 / キャンセル）、トークン無効化による
+  **選択差し替えレース**（終端結果選択時も古いポーリングが上書きできないこと）。
+- `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
+  消去・世代インクリメント・Version リセット、`authGeneration` による遅延レスポンスの破棄、
+  `CLEAR_LIBRARY_DETAIL`（404）の消去、Version の Namespace / Library バインド、
+  同一セッション再確認では消去しないこと、デフォルト値の整合性。
 
 ## 手動 E2E の目安
 

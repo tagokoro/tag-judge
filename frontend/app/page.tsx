@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { createJudgeClient, probeCookieSession } from "@/lib/api";
 import {
-  DEFAULT_LIBRARY_SLUG,
-  DEFAULT_NAMESPACE_SLUG,
-  SEED_USERS,
-} from "@/lib/verification";
+  effectiveVersion,
+  initialWorkspaceState,
+  workspaceReducer,
+  type ScopedData,
+  type VerificationView,
+} from "@/lib/workspaceState";
 import type { DevHeaders, Me, Role } from "@/lib/types";
 import { WorkspaceContext, type WorkspaceValue } from "@/components/workspace";
 import { SessionBar } from "@/components/SessionBar";
@@ -15,44 +17,27 @@ import { LibraryPanel } from "@/components/LibraryPanel";
 import { VersionPanel } from "@/components/VersionPanel";
 import { VerificationPanel } from "@/components/VerificationPanel";
 
-interface DevUser {
-  userId: string;
-  role: Role;
-}
-
 export default function Home() {
-  const [session, setSession] = useState<Me | null>(null);
-  const [cookieChecked, setCookieChecked] = useState(false);
-  const [devEnabled, setDevEnabledState] = useState(false);
-  const [devUser, setDevUser] = useState<DevUser>({
-    userId: SEED_USERS[0].userId,
-    role: SEED_USERS[0].role,
-  });
-
-  const [namespaceSlugState, setNamespaceSlugState] = useState(DEFAULT_NAMESPACE_SLUG);
-  const [librarySlugState, setLibrarySlugState] = useState(DEFAULT_LIBRARY_SLUG);
-  const [versionNumberState, setVersionNumberState] = useState<number | null>(null);
-  const [refreshTick, setRefreshTick] = useState(0);
+  const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState);
 
   // A real cookie session always wins; dev auth is strictly opt-in via the
-  // SessionBar checkbox. This reads state directly (no refs during render).
+  // SessionBar checkbox. Reads reducer state directly (no refs during render).
   const getDevHeaders = useCallback((): DevHeaders | null => {
-    if (session) {
+    if (state.session) {
       return null;
     }
-    if (!devEnabled) {
+    if (!state.devEnabled) {
       return null;
     }
     return {
-      "X-User-ID": devUser.userId,
-      "X-User-Role": devUser.role,
+      "X-User-ID": state.devUser.userId,
+      "X-User-Role": state.devUser.role,
     };
-  }, [session, devEnabled, devUser]);
+  }, [state.session, state.devEnabled, state.devUser]);
 
   const client = useMemo(() => createJudgeClient(getDevHeaders), [getDevHeaders]);
 
   // Pure fetch: resolves with the cookie-session actor, or null on 401.
-  // It contains no setState, so it is safe to start from an effect.
   const fetchSession = useCallback(async (): Promise<Me | null> => {
     try {
       return await probeCookieSession();
@@ -61,14 +46,10 @@ export default function Home() {
     }
   }, []);
 
-  const commitSession = useCallback((me: Me | null) => {
-    setSession(me);
-    // A real cookie session always wins: force dev auth off.
-    if (me) {
-      setDevEnabledState(false);
-    }
-    setCookieChecked(true);
-  }, []);
+  const commitSession = useCallback(
+    (me: Me | null) => dispatch({ type: "SESSION_COMMITTED", session: me }),
+    [dispatch],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -92,74 +73,97 @@ export default function Home() {
     commitSession(await fetchSession());
   }, [client, fetchSession, commitSession]);
 
-  const setDevEnabled = useCallback((value: boolean) => {
-    setDevEnabledState(value);
-  }, []);
-  const setDevUserId = useCallback((value: string) => {
-    setDevUser((previous) => ({ ...previous, userId: value }));
-  }, []);
-  const setDevRole = useCallback((value: Role) => {
-    setDevUser((previous) => ({ ...previous, role: value }));
-  }, []);
-  const switchDevUser = useCallback(() => {
-    setDevUser((previous) =>
-      previous.userId === SEED_USERS[0].userId
-        ? { userId: SEED_USERS[1].userId, role: SEED_USERS[1].role }
-        : { userId: SEED_USERS[0].userId, role: SEED_USERS[0].role },
-    );
-    // Re-run the current library detail fetch so private->404 / public->200 is
-    // observable on the same page (MVP §11.6).
-    setRefreshTick((tick) => tick + 1);
-  }, []);
-
-  const setNamespaceSlug = useCallback((value: string) => setNamespaceSlugState(value), []);
-  const setLibrarySlug = useCallback((value: string) => setLibrarySlugState(value), []);
-  const setVersionNumber = useCallback(
-    (value: number | null) => setVersionNumberState(value),
-    [],
+  const setDevEnabled = useCallback(
+    (value: boolean) => dispatch({ type: "SET_DEV_ENABLED", value }),
+    [dispatch],
   );
+  const setDevUserId = useCallback(
+    (value: string) => dispatch({ type: "SET_DEV_USER_ID", value }),
+    [dispatch],
+  );
+  const setDevRole = useCallback(
+    (value: Role) => dispatch({ type: "SET_DEV_ROLE", value }),
+    [dispatch],
+  );
+  const switchDevUser = useCallback(() => dispatch({ type: "SWITCH_DEV_USER" }), [dispatch]);
+
+  const setNamespaceSlug = useCallback(
+    (slug: string) => dispatch({ type: "SET_NAMESPACE_SLUG", slug }),
+    [dispatch],
+  );
+  const setLibrarySlug = useCallback(
+    (slug: string) => dispatch({ type: "SET_LIBRARY_SLUG", slug }),
+    [dispatch],
+  );
+  const setVersion = useCallback(
+    (version: number | null) => dispatch({ type: "SET_VERSION", version }),
+    [dispatch],
+  );
+
+  // Guarded by the CURRENT authGeneration: a fetch started under a previous
+  // actor is dropped by the reducer instead of restoring private data.
+  const patchData = useCallback(
+    (patch: Partial<ScopedData>) =>
+      dispatch({ type: "APPLY_DATA", patch, guard: { authGeneration: state.authGeneration } }),
+    [dispatch, state.authGeneration],
+  );
+
+  const selectVerification = useCallback(
+    (value: VerificationView) =>
+      dispatch({
+        type: "SELECT_VERIFICATION",
+        value,
+        guard: { authGeneration: state.authGeneration },
+      }),
+    [dispatch, state.authGeneration],
+  );
+  const clearLibraryDetail = useCallback(
+    () =>
+      dispatch({
+        type: "CLEAR_LIBRARY_DETAIL",
+        guard: { authGeneration: state.authGeneration },
+      }),
+    [dispatch, state.authGeneration],
+  );
+
+  const version = effectiveVersion(state);
 
   const value: WorkspaceValue = useMemo(
     () => ({
       client,
-      session,
-      cookieChecked,
-      devEnabled,
-      devUserId: devUser.userId,
-      devRole: devUser.role,
+      state,
+      dispatch,
+      effectiveVersion: version,
       setDevEnabled,
       setDevUserId,
       setDevRole,
       switchDevUser,
       refreshSession,
       logout,
-      namespaceSlug: namespaceSlugState,
       setNamespaceSlug,
-      librarySlug: librarySlugState,
       setLibrarySlug,
-      versionNumber: versionNumberState,
-      setVersionNumber,
-      refreshTick,
+      setVersion,
+      patchData,
+      selectVerification,
+      clearLibraryDetail,
     }),
     [
       client,
-      session,
-      cookieChecked,
-      devEnabled,
-      devUser,
+      state,
+      dispatch,
+      version,
       setDevEnabled,
       setDevUserId,
       setDevRole,
       switchDevUser,
       refreshSession,
       logout,
-      namespaceSlugState,
       setNamespaceSlug,
-      librarySlugState,
       setLibrarySlug,
-      versionNumberState,
-      setVersionNumber,
-      refreshTick,
+      setVersion,
+      patchData,
+      selectVerification,
+      clearLibraryDetail,
     ],
   );
 
@@ -174,11 +178,17 @@ export default function Home() {
           <p className="note">
             すべての API 呼び出しは同一オリジンの <code>/api/v1/*</code> に対して <code>credentials: &quot;same-origin&quot;</code> で行います。Google ログインも同一オリジンのリンクです。dev ヘッダー認証はチェックを入れたときだけ有効になるローカル開発専用の機能です。
           </p>
+          <p className="note">
+            認証・利用者の切替があったときは、表示中の Namespace / Library 詳細・Version ソース・adapter・検証結果をすべてクリアし、選択 Version をリセットし、実行中の取得とポーリングを無効化します。
+          </p>
         </header>
 
-        <SessionBar />
+        {/* Keying by authGeneration remounts every panel on an actor change:
+            local UI state, in-flight fetches (AbortController cleanup) and
+            polling are reset, and the reducer has already cleared state.data. */}
+        <SessionBar key={state.authGeneration} />
 
-        <div className="grid">
+        <div className="grid" key={state.authGeneration}>
           <NamespacePanel />
           <LibraryPanel />
           <VersionPanel />

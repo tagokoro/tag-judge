@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_LIBRARY_SLUG } from "@/lib/verification";
-import type { Library, Visibility } from "@/lib/types";
+import type { Visibility } from "@/lib/types";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
 import {
@@ -17,34 +17,49 @@ import {
 export function LibraryPanel() {
   const {
     client,
-    namespaceSlug,
-    librarySlug,
+    state,
     setLibrarySlug,
-    refreshTick,
+    patchData,
+    clearLibraryDetail,
   } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
 
+  // Pure input widgets: they are reset by the authGeneration remount on an
+  // actor change, so nothing identity-scoped is kept in component-local state.
   const [name, setName] = useState("UnionFind");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("private");
-  const [patchVisibility, setPatchVisibility] = useState<Visibility>("private");
-  const [libraries, setLibraries] = useState<Library[] | null>(null);
-  const [detail, setDetail] = useState<Library | null>(null);
 
-  const showDetail = useCallback((library: Library) => {
-    setDetail(library);
-    setPatchVisibility(library.visibility);
-  }, []);
+  const { namespaceSlug, librarySlug } = state;
+  const { libraries, libraryDetail, patchVisibility } = state.data;
 
-  const loadDetail = useCallback(async () => {
-    showDetail(await client.getLibrary(namespaceSlug, librarySlug));
-  }, [client, namespaceSlug, librarySlug, showDetail]);
+  // On a failed (e.g. 404 private) detail refetch, clear the old detail AND the
+  // displayed version source instead of leaving the previous actor's data up.
+  const loadDetail = useCallback(
+    async (signal?: AbortSignal): Promise<void> => {
+      const api = signal ? client.withSignal(signal) : client;
+      try {
+        const library = await api.getLibrary(namespaceSlug, librarySlug);
+        patchData({ libraryDetail: library, patchVisibility: library.visibility });
+      } catch (caught) {
+        if (!signal?.aborted) {
+          clearLibraryDetail();
+        }
+        throw caught;
+      }
+    },
+    [client, namespaceSlug, librarySlug, patchData, clearLibraryDetail],
+  );
 
-  const loadList = useCallback(async () => {
-    setLibraries(await client.listLibraries(namespaceSlug));
-  }, [client, namespaceSlug]);
+  const loadList = useCallback(
+    async (signal?: AbortSignal): Promise<void> => {
+      const api = signal ? client.withSignal(signal) : client;
+      patchData({ libraries: await api.listLibraries(namespaceSlug) });
+    },
+    [client, namespaceSlug, patchData],
+  );
 
-  // "switch user" re-runs the current library detail fetch (MVP §11): private
+  // "switch user" re-runs the current Library detail fetch (MVP §11): private
   // libraries must 404 for other users and become 200 once made public. The ref
   // is synced in an effect so it is never read/written during render.
   const loadDetailRef = useRef(loadDetail);
@@ -52,13 +67,13 @@ export function LibraryPanel() {
     loadDetailRef.current = loadDetail;
   }, [loadDetail]);
   useEffect(() => {
-    if (refreshTick === 0) {
+    if (state.refreshTick === 0) {
       return;
     }
-    void run(async () => {
-      await loadDetailRef.current();
+    void run(async (signal) => {
+      await loadDetailRef.current(signal);
     });
-  }, [refreshTick, run]);
+  }, [state.refreshTick, run]);
 
   return (
     <Card
@@ -94,16 +109,20 @@ export function LibraryPanel() {
         <Button
           variant="primary"
           onClick={() =>
-            run(async () => {
-              const created = await client.createLibrary(namespaceSlug, {
+            run(async (signal) => {
+              const api = client.withSignal(signal);
+              const created = await api.createLibrary(namespaceSlug, {
                 slug: librarySlug,
                 name,
                 description,
                 visibility,
               });
               setLibrarySlug(created.slug);
-              showDetail(created);
-              await loadList();
+              patchData({
+                libraryDetail: created,
+                patchVisibility: created.visibility,
+                libraries: await api.listLibraries(namespaceSlug),
+              });
             })
           }
           disabled={busy}
@@ -112,8 +131,8 @@ export function LibraryPanel() {
         </Button>
         <Button
           onClick={() =>
-            run(async () => {
-              await loadList();
+            run(async (signal) => {
+              await loadList(signal);
             })
           }
           disabled={busy}
@@ -123,8 +142,8 @@ export function LibraryPanel() {
         <Button
           variant="ghost"
           onClick={() =>
-            run(async () => {
-              await loadDetail();
+            run(async (signal) => {
+              await loadDetail(signal);
             })
           }
           disabled={busy}
@@ -137,7 +156,9 @@ export function LibraryPanel() {
         <Field label="公開範囲を更新（PATCH）">
           <select
             value={patchVisibility}
-            onChange={(event) => setPatchVisibility(event.target.value as Visibility)}
+            onChange={(event) =>
+              patchData({ patchVisibility: event.target.value as Visibility })
+            }
           >
             <option value="private">private</option>
             <option value="public">public</option>
@@ -145,13 +166,16 @@ export function LibraryPanel() {
         </Field>
         <Button
           onClick={() =>
-            run(async () => {
-              showDetail(
-                await client.updateLibrary(namespaceSlug, librarySlug, {
-                  visibility: patchVisibility,
-                }),
-              );
-              await loadList();
+            run(async (signal) => {
+              const api = client.withSignal(signal);
+              const updated = await api.updateLibrary(namespaceSlug, librarySlug, {
+                visibility: patchVisibility,
+              });
+              patchData({
+                libraryDetail: updated,
+                patchVisibility: updated.visibility,
+                libraries: await api.listLibraries(namespaceSlug),
+              });
             })
           }
           disabled={busy}
@@ -172,10 +196,16 @@ export function LibraryPanel() {
                   <button
                     type="button"
                     className="list-item"
+                    disabled={busy}
                     onClick={() =>
-                      run(async () => {
+                      run(async (signal) => {
+                        const api = client.withSignal(signal);
                         setLibrarySlug(library.slug);
-                        showDetail(await client.getLibrary(namespaceSlug, library.slug));
+                        const detail = await api.getLibrary(namespaceSlug, library.slug);
+                        patchData({
+                          libraryDetail: detail,
+                          patchVisibility: detail.visibility,
+                        });
                       })
                     }
                   >
@@ -190,15 +220,15 @@ export function LibraryPanel() {
         </div>
       ) : null}
 
-      {detail ? (
+      {libraryDetail ? (
         <div className="detail-block">
           <span className="result-label">Library 詳細</span>
           <p>
-            <VisibilityBadge visibility={detail.visibility} />{" "}
-            <span className="mono">{detail.slug}</span> — {detail.name}
+            <VisibilityBadge visibility={libraryDetail.visibility} />{" "}
+            <span className="mono">{libraryDetail.slug}</span> — {libraryDetail.name}
           </p>
-          <p className="text-block">{detail.description || "（説明なし）"}</p>
-          <ResultView data={detail} label="レスポンス (data)" />
+          <p className="text-block">{libraryDetail.description || "（説明なし）"}</p>
+          <ResultView data={libraryDetail} label="レスポンス (data)" />
         </div>
       ) : null}
       <ErrorNote error={error} />

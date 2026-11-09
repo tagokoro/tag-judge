@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   caseResultsOf,
   formatCaseResult,
+  isPollTokenCurrent,
   isTerminalStatus,
   isVerificationDetail,
+  nextPollToken,
   pollVerification,
   statusLabel,
 } from "./verification.ts";
@@ -121,4 +123,60 @@ test("pollVerification honours shouldContinue cancellation", async () => {
     },
   );
   assert.equal(fetches, 0);
+});
+
+test("nextPollToken / isPollTokenCurrent detect a superseded selection", () => {
+  const token = 5;
+  const current = nextPollToken(token);
+  assert.equal(isPollTokenCurrent(token, current), false);
+  assert.equal(isPollTokenCurrent(current, current), true);
+});
+
+test("bumping the token mid-poll stops it and prevents a stale overwrite", async () => {
+  const holder = { token: 3 };
+  let fetches = 0;
+  const updates = [];
+  const result = await pollVerification(
+    async () => {
+      fetches += 1;
+      return { status: "running", id: 1 };
+    },
+    { status: "pending", id: 1 },
+    {
+      sleep: async () => {
+        // Simulate the user selecting ANOTHER verification (terminal or not)
+        // while the poll is waiting between GETs.
+        holder.token = nextPollToken(holder.token);
+      },
+      shouldContinue: () => isPollTokenCurrent(3, holder.token),
+      onUpdate: (value) => updates.push(value.status),
+      maxAttempts: 5,
+    },
+  );
+  assert.equal(fetches, 0, "no detail GET should run after invalidation");
+  assert.equal(result.status, "pending");
+  assert.deepEqual(updates, ["pending"], "only the initial update; no late poll overwrite");
+});
+
+test("selecting a TERMINAL result still invalidates an in-flight poll", async () => {
+  const holder = { token: 1 };
+  let onUpdateCalls = 0;
+  const result = await pollVerification(
+    async () => ({ status: "ac", id: 2 }),
+    { status: "pending", id: 2 },
+    {
+      sleep: async () => {
+        // A terminal selection also bumps the token, so the running poll must
+        // not deliver its late `ac` value over the user's chosen result.
+        holder.token = nextPollToken(holder.token);
+      },
+      shouldContinue: () => isPollTokenCurrent(1, holder.token),
+      onUpdate: () => {
+        onUpdateCalls += 1;
+      },
+      maxAttempts: 3,
+    },
+  );
+  assert.equal(result.status, "pending");
+  assert.equal(onUpdateCalls, 1, "only the initial update; stale poll cannot overwrite");
 });
