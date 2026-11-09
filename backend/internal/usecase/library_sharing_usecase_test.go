@@ -955,3 +955,75 @@ func TestListVerificationsUsesCallersOwnList(t *testing.T) {
 		t.Fatalf("verifications = %+v", verifications)
 	}
 }
+
+// TestListVerificationsRejectsOffsetOverflow checks that an offset larger than
+// the int32 list query can represent is rejected before the repository is
+// reached, instead of wrapping to a different page.
+func TestListVerificationsRejectsOffsetOverflow(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	versionRepo := &fakeLibraryVersionRepository{}
+	verificationRepo := &fakeVerificationRepository{}
+	use := usecase.NewLibraryVerificationUsecase(
+		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
+		&fakeProblemReaderForVerify{},
+		&fakeVerificationStorage{},
+		verificationRepo,
+		&fakeSubmissionReaderForVerify{},
+	)
+
+	for _, offset := range []int{2147483648, 4294967297} {
+		_, err := use.List(context.Background(), otherUserActor, 10, true, offset)
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset must be between 0 and 2147483647")
+	}
+	if verificationRepo.listCalled {
+		t.Fatal("ListByUserID must not be reached for an overflowing offset")
+	}
+
+	// The MaxInt32 boundary is still a valid offset and reaches the repository.
+	if _, err := use.List(context.Background(), otherUserActor, 10, true, 2147483647); err != nil {
+		t.Fatalf("MaxInt32 offset must be accepted: %v", err)
+	}
+	if !verificationRepo.listCalled {
+		t.Fatal("ListByUserID must be reached for a MaxInt32 offset")
+	}
+}
+
+// TestGetVerificationNonterminalSkipsCaseResults mirrors the submission detail
+// contract: a pending/running verification must return an empty result array
+// without reading case results, so a committed result can never be observed
+// alongside a stale nonterminal status.
+func TestGetVerificationNonterminalSkipsCaseResults(t *testing.T) {
+	for _, status := range []domain.SubmissionStatus{domain.SubmissionStatusPending, domain.SubmissionStatusRunning} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versionRepo := &fakeLibraryVersionRepository{}
+		verificationRepo := &fakeVerificationRepository{
+			byID: map[int64]*domain.LibraryVerification{
+				15: {ID: 15, AdapterSource: "adapter", SubmissionID: 7, Status: status, ProblemID: 42, UserID: authorUserID},
+			},
+		}
+		submissions := &fakeSubmissionReaderForVerify{
+			results: []domain.SubmissionCaseResult{{TestCaseID: 10, Status: domain.SubmissionStatusAC}},
+		}
+		use := usecase.NewLibraryVerificationUsecase(
+			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
+			&fakeProblemReaderForVerify{},
+			&fakeVerificationStorage{},
+			verificationRepo,
+			submissions,
+		)
+
+		verification, results, err := use.Get(context.Background(), authorActor(), 15)
+		if err != nil {
+			t.Fatalf("status %s: Get: %v", status, err)
+		}
+		if results == nil || len(results) != 0 {
+			t.Fatalf("status %s: results = %+v, want an empty non-nil slice", status, results)
+		}
+		if submissions.caseResultsCalls != 0 {
+			t.Fatalf("status %s: ListCaseResults called %d times, want 0", status, submissions.caseResultsCalls)
+		}
+		if verification.AdapterSource != "adapter" {
+			t.Fatalf("status %s: adapter_source must still be returned: %+v", status, verification)
+		}
+	}
+}

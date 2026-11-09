@@ -130,6 +130,13 @@ func (u *LibraryVerificationUsecase) Get(ctx context.Context, actor auth.Actor, 
 	if actor.UserID != verification.UserID && actor.Role != domain.UserRoleAdmin {
 		return nil, nil, apperror.Forbidden("LIBRARY_VERIFICATION_FORBIDDEN", "library verification is not accessible")
 	}
+	// The worker commits case results together with the terminal status. Reading
+	// them while the verification is still pending/running can observe a
+	// committed result alongside a stale nonterminal status; mirror the
+	// submission detail contract and return an empty array for those states.
+	if verification.Status == domain.SubmissionStatusPending || verification.Status == domain.SubmissionStatusRunning {
+		return verification, []domain.SubmissionCaseResult{}, nil
+	}
 	results, err := u.submissions.ListCaseResults(ctx, verification.SubmissionID)
 	if err != nil {
 		return nil, nil, err

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -224,5 +226,98 @@ func TestLibraryVersionRequestBodyShape(t *testing.T) {
 	}
 	if versions.created != nil {
 		t.Fatal("invalid body must not reach the repository")
+	}
+}
+
+// TestCreateLibraryVersionAcceptsEscapedMaxSizeSource is the regression for the
+// raw-byte body cap: a decoded source may be up to MaxSourceBytes bytes, but
+// JSON escaping can expand it to ~6x that many raw bytes. The old 300001
+// raw-byte cap rejected such a valid request; the bounded library decoder must
+// accept it while the submission endpoint keeps its original contract.
+func TestCreateLibraryVersionAcceptsEscapedMaxSizeSource(t *testing.T) {
+	router, versions := newVersionRouter()
+	source := strings.Repeat("<", librarycombine.MaxSourceBytes) // 100000 decoded bytes
+	body, err := json.Marshal(struct {
+		SourceCode string `json:"source_code"`
+	}{SourceCode: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 300001 {
+		t.Fatalf("escaped body is only %d bytes; the regression needs a body over 300001", len(body))
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", handlerAuthorID)
+	req.Header.Set("X-User-Role", "author")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", res.Code, res.Body.String())
+	}
+	if versions.created == nil || versions.created.SourceCode != source {
+		t.Fatalf("source did not round-trip: %+v", versions.created)
+	}
+}
+
+func TestCreateLibraryVersionRejectsOversizedBody(t *testing.T) {
+	router, versions := newVersionRouter()
+	valid, err := json.Marshal(struct {
+		SourceCode string `json:"source_code"`
+	}{SourceCode: "print(1)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Trailing whitespace is valid JSON but pushes the raw body past the bound.
+	body := append(valid, []byte(strings.Repeat(" ", 700000))...)
+	if int64(len(body)) <= 6*librarycombine.MaxSourceBytes+64*1024 {
+		t.Fatalf("body is too small to exercise the cap: %d", len(body))
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", handlerAuthorID)
+	req.Header.Set("X-User-Role", "author")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.Code)
+	}
+	var errBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&errBody); err != nil {
+		t.Fatal(err)
+	}
+	if errBody.Error.Code != "INVALID_REQUEST_BODY" {
+		t.Fatalf("error code = %q, want INVALID_REQUEST_BODY", errBody.Error.Code)
+	}
+	if versions.created != nil {
+		t.Fatal("oversized body must not reach the repository")
+	}
+}
+
+// TestOpenAPINullableFieldsUseUnionTypes guards the OpenAPI 3.1 fix: the 3.0
+// "nullable" keyword is invalid in 3.1 and would not describe the actual null
+// responses emitted for these fields.
+func TestOpenAPINullableFieldsUseUnionTypes(t *testing.T) {
+	content, err := os.ReadFile("../../docs/openapi.yaml")
+	if err != nil {
+		t.Fatalf("read openapi.yaml: %v", err)
+	}
+	text := string(content)
+	if strings.Contains(text, "nullable:") {
+		t.Fatal("OpenAPI 3.1 schemas must use type unions, not the 3.0 nullable keyword")
+	}
+	start := strings.Index(text, "    VerificationCaseResult:")
+	end := strings.Index(text, "    ErrorResponse:")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("verification schemas region not found in openapi.yaml")
+	}
+	block := text[start:end]
+	if got := strings.Count(block, `type: [integer, "null"]`); got != 2 {
+		t.Fatalf("execution_time_ms/memory_kb union types = %d, want 2", got)
+	}
+	if got := strings.Count(block, `type: [string, "null"]`); got != 1 {
+		t.Fatalf("judged_at union type = %d, want 1", got)
 	}
 }

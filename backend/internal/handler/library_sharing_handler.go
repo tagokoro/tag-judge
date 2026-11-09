@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,8 +12,31 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
+	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
+
+// maxLibraryRequestBytes bounds the raw JSON body for library-sharing endpoints
+// that accept a large source/adapter string. The usecases cap a decoded source
+// at librarycombine.MaxSourceBytes bytes, but JSON escaping can expand one
+// decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a fully escaped
+// valid body is still admitted while memory stays bounded. Submission and
+// code-run endpoints keep decodeJSON's original unbounded contract.
+const maxLibraryRequestBytes = 6*librarycombine.MaxSourceBytes + 64*1024
+
+// decodeLibraryJSON bounds a request body before the shared decoder runs so an
+// oversized body gets a stable 400 rather than being silently truncated.
+func decodeLibraryJSON(r *http.Request, target any) error {
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxLibraryRequestBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxLibraryRequestBytes {
+		return errors.New("request body too large")
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	return decodeJSON(r, target)
+}
 
 type NamespaceHandler struct {
 	namespaces *usecase.NamespaceUsecase
@@ -31,7 +57,7 @@ func (h *NamespaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Slug        string `json:"slug"`
 		DisplayName string `json:"display_name"`
 	}
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeLibraryJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
@@ -105,7 +131,7 @@ type createLibraryRequest struct {
 func (h *LibraryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request createLibraryRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeLibraryJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
@@ -164,7 +190,7 @@ func (h *LibraryHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *LibraryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request updateLibraryRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeLibraryJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
@@ -207,7 +233,7 @@ func (h *LibraryVersionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		SourceCode string `json:"source_code"`
 	}
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeLibraryJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
@@ -265,14 +291,16 @@ func (h *LibraryVersionHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseVersionNumber keeps the shared version contract: the path value must be
-// a positive integer within int range.
+// a positive integer that fits int32. The library_version queries cast the
+// number to int32, so a larger int64 value (for example 4294967297) would
+// silently alias version 1 in GET and verify; reject it before the repository.
 func parseVersionNumber(r *http.Request) (int, error) {
 	raw := chi.URLParam(r, "version_number")
-	value, err := strconv.Atoi(raw)
+	value, err := strconv.ParseInt(raw, 10, 32)
 	if err != nil || value <= 0 {
-		return 0, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
+		return 0, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer within int32 range")
 	}
-	return value, nil
+	return int(value), nil
 }
 
 type libraryVersionResponse struct {
@@ -319,7 +347,7 @@ func (h *LibraryVerificationHandler) Create(w http.ResponseWriter, r *http.Reque
 		ProblemID     int64  `json:"problem_id"`
 		AdapterSource string `json:"adapter_source"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeLibraryJSON(r, &req); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}

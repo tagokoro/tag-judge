@@ -1691,10 +1691,10 @@ components:
       type: object
       required: [test_case_id, status]
       properties:
-         test_case_id: {type: integer, minimum: 1}
-         status: {type: string, enum: [pending, running, ac, wa, tle, mle, re, ce, ie]}
-         execution_time_ms: {type: integer, minimum: 0, nullable: true}
-         memory_kb: {type: integer, minimum: 0, nullable: true}
+        test_case_id: {type: integer, minimum: 1}
+        status: {type: string, enum: [pending, running, ac, wa, tle, mle, re, ce, ie]}
+        execution_time_ms: {type: [integer, "null"], minimum: 0}
+        memory_kb: {type: [integer, "null"], minimum: 0}
     VerificationSummary:
       type: object
       required: [id, library_version_id, namespace_slug, library_slug, version_number, problem_id, submission_id, status, score, adapter_sha256, created_at, judged_at]
@@ -1710,7 +1710,7 @@ components:
         score: {type: integer, minimum: 0, maximum: 100}
         adapter_sha256: {type: string, minLength: 64, maxLength: 64, pattern: '^[0-9a-f]{64}$'}
         created_at: {type: string, format: date-time}
-        judged_at: {type: string, format: date-time, nullable: true}
+        judged_at: {type: [string, "null"], format: date-time}
     VerificationDetail:
       allOf:
         - $ref: '#/components/schemas/VerificationSummary'

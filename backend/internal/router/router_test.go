@@ -13,6 +13,7 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -1462,6 +1463,81 @@ func TestLibraryVersionNumberValidation(t *testing.T) {
 			t.Fatalf("version %q status = %d, want 400", raw, res.Code)
 		}
 		assertErrorCode(t, res, "INVALID_VERSION_NUMBER")
+	}
+}
+
+// TestLibraryVersionNumberRejectsInt32Overflow guards both paths that feed a
+// version number to the repository. The sqlc query casts version_number to
+// int32, so 4294967297 would wrap to version 1 without the handler bound.
+func TestLibraryVersionNumberRejectsInt32Overflow(t *testing.T) {
+	router := newTestRouter()
+	for _, raw := range []string{"2147483648", "4294967296", "4294967297"} {
+		getReq := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw, nil)
+		getRes := httptest.NewRecorder()
+		router.ServeHTTP(getRes, getReq)
+		if getRes.Code != http.StatusBadRequest {
+			t.Fatalf("GET version %q status = %d, want 400", raw, getRes.Code)
+		}
+		assertErrorCode(t, getRes, "INVALID_VERSION_NUMBER")
+
+		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/verifications", bytes.NewBufferString(`{"problem_id":42,"adapter_source":"print(1)"}`))
+		verifyReq.Header.Set("Content-Type", "application/json")
+		setAuth(verifyReq, "user")
+		verifyRes := httptest.NewRecorder()
+		router.ServeHTTP(verifyRes, verifyReq)
+		if verifyRes.Code != http.StatusBadRequest {
+			t.Fatalf("verify version %q status = %d, want 400: %s", raw, verifyRes.Code, verifyRes.Body.String())
+		}
+		assertErrorCode(t, verifyRes, "INVALID_VERSION_NUMBER")
+	}
+}
+
+// TestCreateVerificationAcceptsEscapedMaxSizeAdapter covers the other large
+// string field: a decoded adapter of MaxSourceBytes bytes JSON-escapes to a raw
+// body far above the old 300001 cap and must still be accepted.
+func TestCreateVerificationAcceptsEscapedMaxSizeAdapter(t *testing.T) {
+	router := newTestRouter()
+	adapter := strings.Repeat("<", librarycombine.MaxSourceBytes)
+	body, err := json.Marshal(struct {
+		ProblemID     int64  `json:"problem_id"`
+		AdapterSource string `json:"adapter_source"`
+	}{ProblemID: 42, AdapterSource: adapter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 300001 {
+		t.Fatalf("escaped body is only %d bytes; the regression needs a body over 300001", len(body))
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req, "user")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", res.Code, res.Body.String())
+	}
+}
+
+// TestLibraryListOffsetRejectsInt32Overflow verifies every library list casts
+// its offset to int32; an overflowing offset must produce a stable client error
+// instead of silently wrapping to a different page.
+func TestLibraryListOffsetRejectsInt32Overflow(t *testing.T) {
+	router := newTestRouter()
+	for _, path := range []string{
+		"/api/v1/namespaces/seed-author/libraries",
+		"/api/v1/namespaces/seed-author/libraries/union-find/versions",
+		"/api/v1/library-verifications",
+	} {
+		for _, raw := range []string{"2147483648", "4294967297"} {
+			req := httptest.NewRequest(http.MethodGet, path+"?offset="+raw, nil)
+			setAuth(req, "user")
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("%s?offset=%s status = %d, want 400: %s", path, raw, res.Code, res.Body.String())
+			}
+			assertErrorCode(t, res, "INVALID_OFFSET")
+		}
 	}
 }
 
