@@ -64,7 +64,7 @@ test: ## Run Go tests
 
 .PHONY: run-api
 run-api: ## Run the API server
-	cd $(BACKEND_DIR) && PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" go run ./cmd/api
+	cd $(BACKEND_DIR) && PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" FRONTEND_DIR="$(CURDIR)/frontend" go run ./cmd/api
 
 .PHONY: api-smoke
 api-smoke: ## Check API health and public problems

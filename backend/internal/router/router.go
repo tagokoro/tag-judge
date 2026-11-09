@@ -1,7 +1,9 @@
 package router
 
 import (
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -18,6 +20,12 @@ type Handlers struct {
 	Me          *handler.MeHandler
 	AuthHTTP    *handler.AuthHandler
 	Auth        *appmiddleware.AuthMiddleware
+
+	Namespaces           *handler.NamespaceHandler
+	Libraries            *handler.LibraryHandler
+	LibraryVersions      *handler.LibraryVersionHandler
+	LibraryVerifications *handler.LibraryVerificationHandler
+	FrontendDir          string
 }
 
 func New(handlers Handlers) http.Handler {
@@ -55,6 +63,34 @@ func New(handlers Handlers) http.Handler {
 	r.Get("/api/v1/auth/google/login", handlers.AuthHTTP.GoogleLogin)
 	r.Get("/api/v1/auth/google/callback", handlers.AuthHTTP.GoogleCallback)
 	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces", handlers.Namespaces.Create)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/namespace", handlers.Namespaces.GetMine)
+	r.Get("/api/v1/namespaces/{namespace_slug}", handlers.Namespaces.GetBySlug)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.Create)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.List)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Get)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Update)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.Create)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.List)
+	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handlers.LibraryVersions.Get)
+	if handlers.LibraryVerifications != nil {
+		r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications", handlers.LibraryVerifications.Create)
+		r.With(handlers.Auth.RequireAuth).Get("/api/v1/library-verifications/{verification_id}", handlers.LibraryVerifications.Get)
+		r.With(handlers.Auth.RequireAuth).Get("/api/v1/library-verifications", handlers.LibraryVerifications.List)
+	}
+	if handlers.FrontendDir != "" {
+		if info, err := os.Stat(handlers.FrontendDir); err == nil && info.IsDir() {
+			r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+				http.ServeFile(w, req, handlers.FrontendDir+"/index.html")
+			})
+			r.Get("/app.js", func(w http.ResponseWriter, req *http.Request) { http.ServeFile(w, req, handlers.FrontendDir+"/app.js") })
+			r.Get("/styles.css", func(w http.ResponseWriter, req *http.Request) {
+				http.ServeFile(w, req, handlers.FrontendDir+"/styles.css")
+			})
+		} else {
+			slog.Warn("FRONTEND_DIR is missing or not a directory", "path", handlers.FrontendDir, "error", err)
+		}
+	}
 
 	return r
 }

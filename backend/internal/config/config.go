@@ -27,6 +27,7 @@ type Config struct {
 	AWSEndpointURL         string
 	JudgeStorageBucket     string
 	JudgeSubmissionsQueue  string
+	FrontendDir            string
 }
 
 func Load() (Config, error) {
@@ -49,6 +50,7 @@ func Load() (Config, error) {
 		AWSEndpointURL:         os.Getenv("AWS_ENDPOINT_URL"),
 		JudgeStorageBucket:     os.Getenv("JUDGE_STORAGE_BUCKET"),
 		JudgeSubmissionsQueue:  os.Getenv("JUDGE_SUBMISSIONS_QUEUE_NAME"),
+		FrontendDir:            os.Getenv("FRONTEND_DIR"),
 	}
 
 	if cfg.DatabaseURL == "" {

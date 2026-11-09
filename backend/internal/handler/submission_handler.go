@@ -103,6 +103,8 @@ func (h *SubmissionHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeJSON(r *http.Request, target any) error {
+	// Keep request bodies bounded even when a handler has a large string field.
+	r.Body = io.NopCloser(io.LimitReader(r.Body, 300001))
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

@@ -12,7 +12,11 @@ Pythonの提出コードを複数のテストケースで判定する、オン�
 - グループの作成・取得・メンバー追加
 - 任意の標準入力で実行するCodeRun APIの受付・取得
 
-Submissionの判定経路はWorkerまで実装されています。CodeRunはAPIから実行ジョブを送信できますが、現在のRust WorkerはSubmission用のproblem実行に対応しており、CodeRunの実行・結果保存は未対応です。フロントエンドはmainには含まれていません。
+Submissionの判定経路はWorkerまで実装されています。CodeRunはAPIから実行ジョブを送信できますが、現在のRust WorkerはSubmission用のproblem実行に対応しており、CodeRunの実行・結果保存は未対応です。
+
+### Library sharing フロント手動確認
+
+`FRONTEND_DIR=$PWD/frontend` を設定してAPIを起動し、ブラウザで `http://localhost:8080/` を開きます。Cookie認証を使う場合はGoogle loginからログインし、ローカル開発用のヘッダー認証を使う場合だけ画面の `dev auth` を有効にします。Namespace/Library/Versionを作成し、Library詳細GET・visibility PATCH・Verifyを実行すると、Verify結果は最大30回ポーリングされケース結果まで表示されます。
 
 ## 全体構成
 

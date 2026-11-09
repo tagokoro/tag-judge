@@ -38,6 +38,46 @@ type GroupMember struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Library struct {
+	ID          pgtype.UUID        `json:"id"`
+	NamespaceID pgtype.UUID        `json:"namespace_id"`
+	Slug        string             `json:"slug"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Visibility  string             `json:"visibility"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type LibraryVerification struct {
+	ID               int64              `json:"id"`
+	LibraryVersionID pgtype.UUID        `json:"library_version_id"`
+	SubmissionID     int64              `json:"submission_id"`
+	AdapterSource    string             `json:"adapter_source"`
+	AdapterSha256    string             `json:"adapter_sha256"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type LibraryVersion struct {
+	ID            pgtype.UUID        `json:"id"`
+	LibraryID     pgtype.UUID        `json:"library_id"`
+	VersionNumber int32              `json:"version_number"`
+	SourceCode    string             `json:"source_code"`
+	ContentSha256 string             `json:"content_sha256"`
+	ByteSize      int32              `json:"byte_size"`
+	CreatedBy     pgtype.UUID        `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type Namespace struct {
+	ID          pgtype.UUID        `json:"id"`
+	OwnerUserID pgtype.UUID        `json:"owner_user_id"`
+	Slug        string             `json:"slug"`
+	DisplayName string             `json:"display_name"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Problem struct {
 	ID                  int64              `json:"id"`
 	Title               string             `json:"title"`

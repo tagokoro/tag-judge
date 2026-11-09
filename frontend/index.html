@@ -1,0 +1,9 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Library sharing</title><link rel="stylesheet" href="/styles.css"></head><body>
+<main><h1>Library sharing MVP</h1><p>Cookie認証が優先されます。ローカル開発時だけdev authを有効にしてください。</p><button id="google-login">Google login</button><button id="me">GET /me</button><pre id="me-result"></pre>
+<label>ユーザーID <input id="dev-user-id" value="00000000-0000-4000-8000-000000000001"></label><label>ロール <input id="dev-user-role" value="author"></label><label><input id="use-dev-auth" type="checkbox"> dev auth</label><button id="switch-user">ユーザー切替</button>
+<section><input id="namespace-slug" value="seed-author"><input id="namespace-display-name" value="Seed Author"><button id="create-namespace">Namespace作成</button><pre id="namespace-result"></pre></section>
+ <section><input id="library-slug" value="union-find"><input id="library-name" value="UnionFind"><textarea id="library-description"></textarea><select id="library-visibility"><option>private</option><option>public</option></select><button id="create-library">Library作成</button><button id="library-get">詳細GET</button><button id="library-patch">visibility PATCH</button><pre id="library-result"></pre><pre id="library-detail"></pre></section>
+<section><textarea id="version-source">def add(a, b):
+    return a + b</textarea><button id="create-version">Version作成</button><pre id="version-result"></pre></section>
+<section><input id="problem-id" value="1"><textarea id="adapter-source">a, b = map(int, input().split())
+print(add(a, b))</textarea><button id="start-verification">Verify</button><pre id="verification-result"></pre></section></main><script src="/app.js"></script></body></html>
