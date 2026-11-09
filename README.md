@@ -12,7 +12,7 @@ Pythonの提出コードを複数のテストケースで判定する、オン�
 - グループの作成・取得・メンバー追加
 - 任意の標準入力で実行するCodeRun APIの受付・取得
 
-Submissionの判定経路はWorkerまで実装されています。CodeRunはAPIから実行ジョブを送信できますが、現在のRust WorkerはSubmission用のproblem実行に対応しており、CodeRunの実行・結果保存は未対応です。フロントエンドはmainには含まれていません。
+Submissionの判定経路はWorkerまで実装されています。CodeRunはAPIから実行ジョブを送信できますが、現在のRust WorkerはSubmission用のproblem実行に対応しており、CodeRunの実行・結果保存は未対応です。フロントエンドは `frontend/` の Next.js（App Router + TypeScript）プロジェクトとして追加済みで、Go API とは別プロセス（`localhost:3000`）で起動します。この段階の画面はプレースホルダーのみで、ライブラリ共有の UI は未実装です。
 
 ## 全体構成
 
@@ -37,6 +37,7 @@ flowchart TD
 | コンポーネント | 役割 |
 | --- | --- |
 | `backend/` | HTTP API、認証・認可、問題管理、提出保存、Outboxの発行 |
+| `frontend/` | Next.js（App Router + TypeScript）。`/api/:path*` を Go API へ rewrite する別プロセス（`localhost:3000`）。画面はプレースホルダー |
 | `judge/worker/` | SQS受信、S3取得、core呼び出し、得点計算、DBへの結果保存 |
 | `judge/core/` | ケースの実行、時間制限の判定、出力比較、verdict生成 |
 | PostgreSQL | ユーザー・問題・テストケース・提出・Outbox・判定結果の永続化 |
@@ -160,7 +161,7 @@ DBにはstdout/stderrも保存しますが、隠しテストを保護するた�
 
 ## ローカルで動かす
 
-必要なものはDocker Compose、Go（`backend/go.mod`に従う）、Rust stable（edition 2024対応）、Python 3、golang-migrateの`migrate`コマンドです。Linuxでジャッジを動かす場合はisolateも用意します。
+必要なものはDocker Compose、Go（`backend/go.mod`に従う）、Rust stable（edition 2024対応）、Python 3、golang-migrateの`migrate`コマンドです。フロントエンドを動かす場合は加えて **Node.js 20.9.0 以上** と **npm 10 以上** が必要です（Next.js 16 の最小要件。`frontend/package.json` の `engines` と [frontend/README.md](frontend/README.md) を参照）。Linuxでジャッジを動かす場合はisolateも用意します。
 
 ### APIと外部依存の起動
 
@@ -197,6 +198,25 @@ cargo run --manifest-path judge/worker/Cargo.toml
 ```
 
 WorkerのDB接続先は`JUDGE_DATABASE_URL`、未設定時は`DATABASE_URL`です。APIとWorkerで同じDB・bucket・queueを指定します。
+
+### Next.js フロントエンドの起動（別プロセス）
+
+Go API（`localhost:8080`）と Next.js（`localhost:3000`）は**独立したプロセス**として起動します。片方が画面を静的配信することはなく、Go API は API のみを提供します。Node.js 20.9.0 以上 / npm 10 以上を用意し、ルートで実行します。
+
+```sh
+make frontend-install   # 初回のみ: npm ci（exact lockfile から再現可能にインストール）
+make run-frontend       # 別ターミナルで http://localhost:3000/ を起動
+```
+
+ブラウザは `http://localhost:3000/` を開き、API 呼び出しはすべて同じ origin の `/api/:path*` に対して行います。[frontend/next.config.ts](frontend/next.config.ts) の rewrite がサーバー側で `API_SERVER_ORIGIN`（開発既定 `http://localhost:8080`）の Go API へ転送します。`API_SERVER_ORIGIN` は `NEXT_PUBLIC_` を付けない**サーバー側専用**の変数で、ブラウザには公開されません。`/api/v1/auth/google/callback` も同じ rewrite を通るため、`.env` には次を設定します（既存の HttpOnly / SameSite=Lax セッション cookie は変更せず、同一 origin で機能します）。
+
+```text
+GOOGLE_OAUTH_REDIRECT_URL=http://localhost:3000/api/v1/auth/google/callback
+AUTH_SUCCESS_REDIRECT_URL=http://localhost:3000/
+API_SERVER_ORIGIN=http://localhost:8080
+```
+
+この段階の `frontend/` は root layout・プレースホルダーページ・スタイル基盤・scripts・rewrite だけを含む環境構築であり、ライブラリ共有の画面は後続の PR で実装します。フロントの lint / 型チェック / ビルドは `make frontend-check` で確認できます。
 
 ### 提出して確認する
 
@@ -250,6 +270,9 @@ make test
 # Rustのテスト
 cargo test --manifest-path judge/core/Cargo.toml
 cargo test --manifest-path judge/worker/Cargo.toml
+
+# フロントエンドの lint / 型チェック / ビルド
+make frontend-check
 ```
 
 提出詳細のPostgreSQL統合テストは`SUBMISSION_DETAILS_TEST_DATABASE_URL`を指定した場合に実行されます。CIでは専用のPostgreSQLサービスを用意して実行します。その他の統合テストの有効化条件は各テストファイルを参照してください。
@@ -264,5 +287,6 @@ cargo test --manifest-path judge/worker/Cargo.toml
 | Workerの状態遷移と結果保存 | [orchestrator.rs](judge/worker/src/orchestrator.rs)、[result_sink.rs](judge/worker/src/result_sink.rs) |
 | 判定規則と実行方式 | [judge.rs](judge/core/src/judge.rs)、[runner/mod.rs](judge/core/src/runner/mod.rs) |
 | HTTP APIの仕様 | [OpenAPI](backend/docs/openapi.yaml) |
+| フロントの API rewrite とサーバー側 proxy 先 | [next.config.ts](frontend/next.config.ts) |
 
 関連資料は[ローカル開発](docs/local-development.md)、[Rust Judge設計方針](docs/rust-judge-design.md)、[judge-core要件](docs/judge-core-requirements.md)、[AWS開発環境](infra/aws/dev/README.md)、[Terraform CI/CD](docs/terraform-cicd.md)を参照してください。設計資料には初期構想も含まれるため、現在の動作はこのREADMEと実装を基準に確認してください。

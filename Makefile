@@ -11,6 +11,7 @@ PORT ?= 8080
 
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 BACKEND_DIR ?= backend
+WEB_DIR ?= frontend
 MIGRATIONS_DIR ?= $(BACKEND_DIR)/db/migrations
 SEED_FILE ?= $(BACKEND_DIR)/db/seeds/development.sql
 
@@ -63,10 +64,39 @@ test: ## Run Go tests
 	cd $(BACKEND_DIR) && go test ./...
 
 .PHONY: run-api
-run-api: ## Run the API server
+run-api: ## Run the Go API server (localhost:8080, API only; frontend is a separate process)
 	cd $(BACKEND_DIR) && PORT=$(PORT) DATABASE_URL="$(DATABASE_URL)" go run ./cmd/api
 
 .PHONY: api-smoke
 api-smoke: ## Check API health and public problems
 	curl -i http://localhost:$(PORT)/healthz
 	curl -s http://localhost:$(PORT)/api/v1/problems
+
+# --- Next.js frontend (separate process on localhost:3000) ---
+# Requires Node.js >= 20.9.0 and npm >= 10. See frontend/README.md.
+.PHONY: frontend-install
+frontend-install: ## Install frontend dependencies from the exact lockfile
+	cd $(WEB_DIR) && npm ci
+
+.PHONY: run-frontend
+run-frontend: ## Run the Next.js dev server (localhost:3000)
+	cd $(WEB_DIR) && npm run dev
+
+.PHONY: frontend-start
+frontend-start: ## Serve the production Next.js build (localhost:3000)
+	cd $(WEB_DIR) && npm run start
+
+.PHONY: frontend-lint
+frontend-lint: ## Run frontend ESLint
+	cd $(WEB_DIR) && npm run lint
+
+.PHONY: frontend-typecheck
+frontend-typecheck: ## Run frontend TypeScript check
+	cd $(WEB_DIR) && npm run typecheck
+
+.PHONY: frontend-build
+frontend-build: ## Build the Next.js app
+	cd $(WEB_DIR) && npm run build
+
+.PHONY: frontend-check
+frontend-check: frontend-lint frontend-typecheck frontend-build ## Run frontend lint, typecheck, and build
