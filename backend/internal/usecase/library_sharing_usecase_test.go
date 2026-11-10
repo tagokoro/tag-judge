@@ -9,7 +9,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
@@ -478,6 +477,10 @@ type fakeLibraryVersionRepository struct {
 	findErr      error
 	summaries    []domain.LibraryVersion
 	listParams   repository.ListLibraryVersionsParams
+	// findActorID captures the actor user id threaded into FindByNumber so the
+	// RED-GREEN wiring tests can assert the fetch is actor-scoped, not
+	// unconditional.
+	findActorID string
 }
 
 func (r *fakeLibraryVersionRepository) Create(_ context.Context, params repository.CreateLibraryVersionParams) (*domain.LibraryVersion, error) {
@@ -497,7 +500,8 @@ func (r *fakeLibraryVersionRepository) Create(_ context.Context, params reposito
 	}, nil
 }
 
-func (r *fakeLibraryVersionRepository) FindByNumber(_ context.Context, _ string, versionNumber int) (*domain.LibraryVersion, error) {
+func (r *fakeLibraryVersionRepository) FindByNumber(_ context.Context, _ string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error) {
+	r.findActorID = actorUserID
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
@@ -606,430 +610,53 @@ func TestListLibraryVersionSummaries(t *testing.T) {
 	}
 }
 
-type fakeProblemReaderForVerify struct {
-	problem *domain.Problem
-	err     error
-}
-
-func (r *fakeProblemReaderForVerify) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.problem, nil
-}
-
-type fakeVerificationStorage struct {
-	put      repository.PutSourceCodeParams
-	putErr   error
-	putCalls int
-}
-
-func (s *fakeVerificationStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
-	s.putCalls++
-	s.put = params
-	return s.putErr
-}
-
-type fakeSubmissionReaderForVerify struct {
-	results          []domain.SubmissionCaseResult
-	resultsErr       error
-	caseResultsCalls int
-	submission       *domain.Submission
-	findErr          error
-}
-
-func (r *fakeSubmissionReaderForVerify) FindByID(_ context.Context, id int64) (*domain.Submission, error) {
-	if r.findErr != nil {
-		return nil, r.findErr
-	}
-	if r.submission != nil {
-		return r.submission, nil
-	}
-	return &domain.Submission{ID: id, ProblemID: 42, Status: domain.SubmissionStatusPending}, nil
-}
-
-func (r *fakeSubmissionReaderForVerify) ListCaseResults(_ context.Context, _ int64) ([]domain.SubmissionCaseResult, error) {
-	r.caseResultsCalls++
-	return r.results, r.resultsErr
-}
-
-type fakeVerificationRepository struct {
-	createParams repository.CreateLibraryVerificationParams
-	createErr    error
-	createCalls  int
-
-	byID       map[int64]*domain.LibraryVerification
-	findIDErr  error
-	findCalls  int
-	listUser   []domain.LibraryVerification
-	listCalled bool
-	listErr    error
-}
-
-func (r *fakeVerificationRepository) CreateWithSubmission(_ context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, *domain.Submission, error) {
-	r.createCalls++
-	r.createParams = params
-	if r.createErr != nil {
-		return nil, nil, r.createErr
-	}
-	verification := &domain.LibraryVerification{
-		ID:               15,
-		LibraryVersionID: params.LibraryVersionID,
-		NamespaceSlug:    "seed-author",
-		LibrarySlug:      "union-find",
-		ProblemID:        params.ProblemID,
-		SubmissionID:     7,
-		UserID:           params.ActorUserID,
-		Language:         params.Language,
-		Status:           domain.SubmissionStatusPending,
-		Score:            0,
-		AdapterSource:    params.AdapterSource,
-		AdapterSHA256:    librarycombine.ContentSHA256(params.AdapterSource),
-		VersionNumber:    1,
-	}
-	submission := &domain.Submission{ID: 7, UserID: params.ActorUserID, ProblemID: params.ProblemID, Language: params.Language, Status: domain.SubmissionStatusPending}
-	return verification, submission, nil
-}
-
-func (r *fakeVerificationRepository) FindByID(_ context.Context, id int64) (*domain.LibraryVerification, error) {
-	r.findCalls++
-	if r.findIDErr != nil {
-		return nil, r.findIDErr
-	}
-	if verification, ok := r.byID[id]; ok {
-		return verification, nil
-	}
-	return nil, apperror.NotFound("LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
-}
-
-func (r *fakeVerificationRepository) ListByUserID(_ context.Context, _ repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
-	r.listCalled = true
-	return r.listUser, r.listErr
-}
-
-var versionUnderTest = &domain.LibraryVersion{
-	ID:            "33333333-3333-4333-8333-333333333333",
-	LibraryID:     "22222222-2222-4222-8222-222222222222",
-	VersionNumber: 1,
-	SourceCode:    "def add(a, b):\n    return a + b\n\nif __name__ == \"__main__\":\n    print(\"library-main\")\n",
-}
-
-func newVerificationUsecase(visibility domain.LibraryVisibility, problem domain.Problem, problemErr error) (*usecase.LibraryVerificationUsecase, *fakeLibraryVersionRepository, *fakeVerificationStorage, *fakeVerificationRepository, *fakeProblemReaderForVerify) {
-	namespaces, libraries := libraryFixture(visibility)
-	versionRepo := &fakeLibraryVersionRepository{
-		byNumber: map[int]*domain.LibraryVersion{1: copyLibraryVersion(versionUnderTest)},
-	}
-	storage := &fakeVerificationStorage{}
-	verificationRepo := &fakeVerificationRepository{}
-	reader := &fakeProblemReaderForVerify{problem: &problem, err: problemErr}
-	use := usecase.NewLibraryVerificationUsecase(
-		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
-		reader,
-		storage,
-		verificationRepo,
-		&fakeSubmissionReaderForVerify{},
-	)
-	return use, versionRepo, storage, verificationRepo, reader
-}
-
-func copyLibraryVersion(version *domain.LibraryVersion) *domain.LibraryVersion {
-	copied := *version
-	return &copied
-}
-
-var otherUserActor = auth.Actor{UserID: "00000000-0000-4000-8000-000000000007", Role: domain.UserRoleUser}
-
-func publicProblem() domain.Problem {
-	return domain.Problem{ID: 42, TimeLimitMS: 2000, CurrentTestCasesKey: "problems/42/testcases/abc.json"}
-}
-
-func TestVerifyPublicLibraryUsesExistingSubmissionPath(t *testing.T) {
-	use, _, storage, repo, _ := newVerificationUsecase(domain.LibraryVisibilityPublic, publicProblem(), nil)
-
-	adapter := "a, b = map(int, input().split())\nprint(add(a, b))\n"
-	verification, err := use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 1, 42, adapter)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	expectedCombined, combineErr := librarycombine.Combine(versionUnderTest.SourceCode, adapter)
-	if combineErr != nil {
-		t.Fatalf("Combine: %v", combineErr)
-	}
-	if storage.putCalls != 1 {
-		t.Fatalf("storage put calls = %d", storage.putCalls)
-	}
-	if storage.put.SourceCode != expectedCombined {
-		t.Fatalf("storage source mismatch:\n%s", storage.put.SourceCode)
-	}
-	if len(storage.put.Key) == 0 {
-		t.Fatal("storage key must not be empty")
-	}
-
-	params := repo.createParams
-	if params.ActorUserID != otherUserActor.UserID {
-		t.Fatalf("actor user id = %q", params.ActorUserID)
-	}
-	if params.TestCasesKey != "problems/42/testcases/abc.json" {
-		t.Fatalf("test cases key = %q", params.TestCasesKey)
-	}
-	if params.TimeLimitMS != 2000 {
-		t.Fatalf("time limit = %d", params.TimeLimitMS)
-	}
-	if params.Language != domain.SubmissionLanguagePython || params.ProblemID != 42 {
-		t.Fatalf("params = %+v", params)
-	}
-	if params.AdapterSource != adapter {
-		t.Fatalf("adapter passed through = %q", params.AdapterSource)
-	}
-	if params.LibraryVersionID != versionUnderTest.ID {
-		t.Fatalf("version id = %q", params.LibraryVersionID)
-	}
-
-	if verification == nil || verification.Status != domain.SubmissionStatusPending || verification.Score != 0 {
-		t.Fatalf("verification = %+v", verification)
-	}
-	if verification.ProblemID != 42 || verification.NamespaceSlug != "seed-author" || verification.LibrarySlug != "union-find" || verification.VersionNumber != 1 {
-		t.Fatalf("verification = %+v", verification)
-	}
-	if verification.AdapterSHA256 != librarycombine.ContentSHA256(adapter) {
-		t.Fatalf("adapter sha = %q", verification.AdapterSHA256)
-	}
-}
-
-func TestVerifyPrivateLibraryIsHiddenFromAdmin(t *testing.T) {
-	use, _, storage, repo, _ := newVerificationUsecase(domain.LibraryVisibilityPrivate, publicProblem(), nil)
-
-	adapter := "print(add(1, 2))\n"
-	_, err := use.Create(context.Background(), adminActor(), "seed-author", "union-find", 1, 42, adapter)
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
-	if storage.putCalls != 0 || repo.createCalls != 0 {
-		t.Fatal("storage and repository must not be touched for a hidden library")
-	}
-}
-
-func TestVerifyRejectsProblemWithoutCases(t *testing.T) {
-	problem := publicProblem()
-	problem.CurrentTestCasesKey = ""
-	use, _, storage, repo, _ := newVerificationUsecase(domain.LibraryVisibilityPublic, problem, nil)
-
-	_, err := use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 1, 42, "print(add(1, 2))\n")
-	assertAppError(t, err, apperror.ErrConflict, "PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
-	if storage.putCalls != 0 || repo.createCalls != 0 {
-		t.Fatal("nothing may be stored when the problem has no test cases")
-	}
-
-	// A private or missing problem never reaches storage either.
-	use, _, storage, repo, _ = newVerificationUsecase(domain.LibraryVisibilityPublic, domain.Problem{}, apperror.NotFound("PROBLEM_NOT_FOUND", "problem not found"))
-	_, err = use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 1, 42, "print(add(1, 2))\n")
-	assertAppError(t, err, apperror.ErrNotFound, "PROBLEM_NOT_FOUND", "problem not found")
-	if storage.putCalls != 0 || repo.createCalls != 0 {
-		t.Fatal("storage and repository must not be touched for a missing problem")
-	}
-}
-
-func TestVerifyRejectsInvalidAdapter(t *testing.T) {
-	use, _, storage, repo, _ := newVerificationUsecase(domain.LibraryVisibilityPublic, publicProblem(), nil)
-	const wantMessage = "adapter_source must be 1-100000 bytes, non-blank, and must not contain NUL"
-	for _, adapter := range []string{"   ", "a\x00b", strings.Repeat("x", 100001)} {
-		_, err := use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 1, 42, adapter)
-		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_ADAPTER_SOURCE", wantMessage)
-	}
-	if storage.putCalls != 0 || repo.createCalls != 0 {
-		t.Fatal("storage and repository must not be touched for an invalid adapter")
-	}
-}
-
-func TestVerifyValidatesIdentifiers(t *testing.T) {
-	use, _, storage, repo, reader := newVerificationUsecase(domain.LibraryVisibilityPublic, publicProblem(), nil)
-
-	_, err := use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 1, 0, "print(add(1, 2))\n")
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_PROBLEM_ID", "problem_id must be a positive integer")
-
-	_, err = use.Create(context.Background(), otherUserActor, "seed-author", "union-find", 0, 42, "print(add(1, 2))\n")
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_VERSION_NUMBER", "version_number must be a positive integer")
-
-	if repo.createCalls != 0 || storage.putCalls != 0 {
-		t.Fatal("identifiers are validated before any side effect")
-	}
-	_ = reader
-}
-
-func TestGetVerificationHidesAdapterFromOtherUser(t *testing.T) {
-	use, _ := newVerificationUsecaseForGet()
-	adapterFix := "a, b = map(int, input().split())\nprint(add(a, b))\n"
-	_, _, err := use.Get(context.Background(), otherUserActor, 15)
-	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_VERIFICATION_FORBIDDEN", "library verification is not accessible")
-
-	verification, results, err := use.Get(context.Background(), authorActor(), 15)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if verification.AdapterSource != adapterFix {
-		t.Fatalf("adapter source = %q", verification.AdapterSource)
-	}
-	if results == nil || len(results) != 0 {
-		t.Fatalf("pending case results = %+v", results)
-	}
-}
-
-func newVerificationUsecaseForGet() (*usecase.LibraryVerificationUsecase, *fakeSubmissionReaderForVerify) {
-	nodes, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	versionRepo := &fakeLibraryVersionRepository{
-		byNumber: map[int]*domain.LibraryVersion{1: copyLibraryVersion(versionUnderTest)},
-	}
-	verificationRepo := &fakeVerificationRepository{
-		byID: map[int64]*domain.LibraryVerification{
-			15: {ID: 15, AdapterSource: "a, b = map(int, input().split())\nprint(add(a, b))\n", SubmissionID: 7, Status: domain.SubmissionStatusPending, ProblemID: 42, UserID: authorUserID},
-		},
-	}
-	submissions := &fakeSubmissionReaderForVerify{}
-	use := usecase.NewLibraryVerificationUsecase(
-		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(nodes, libraries), versionRepo),
-		&fakeProblemReaderForVerify{},
-		&fakeVerificationStorage{},
-		verificationRepo,
-		submissions,
-	)
-	return use, submissions
-}
-
-func TestGetVerificationNotFound(t *testing.T) {
-	use, _ := newVerificationUsecaseForGet()
-	_, _, err := use.Get(context.Background(), authorActor(), 999)
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
-}
-
-func TestGetVerificationShowsCaseResults(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	versionRepo := &fakeLibraryVersionRepository{
-		byNumber: map[int]*domain.LibraryVersion{1: copyLibraryVersion(versionUnderTest)},
-	}
-	results := []domain.SubmissionCaseResult{{TestCaseID: 10, Status: domain.SubmissionStatusAC}}
-	verificationRepo := &fakeVerificationRepository{
-		byID: map[int64]*domain.LibraryVerification{
-			15: {ID: 15, AdapterSource: "adapter", SubmissionID: 7, Status: domain.SubmissionStatusAC, ProblemID: 42, UserID: authorUserID},
-		},
-	}
-	submissions := &fakeSubmissionReaderForVerify{results: results}
-	use := usecase.NewLibraryVerificationUsecase(
-		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
-		&fakeProblemReaderForVerify{},
-		&fakeVerificationStorage{},
-		verificationRepo,
-		submissions,
-	)
-
-	_, got, err := use.Get(context.Background(), authorActor(), 15)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if len(got) != 1 || got[0].TestCaseID != 10 {
-		t.Fatalf("case results = %+v", got)
-	}
-}
-
-func TestListVerificationsUsesCallersOwnList(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	versionRepo := &fakeLibraryVersionRepository{}
-	verificationRepo := &fakeVerificationRepository{
-		listUser: []domain.LibraryVerification{{ID: 15}},
-	}
-	submissions := &fakeSubmissionReaderForVerify{}
-	use := usecase.NewLibraryVerificationUsecase(
-		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
-		&fakeProblemReaderForVerify{},
-		&fakeVerificationStorage{},
-		verificationRepo,
-		submissions,
-	)
-
-	verifications, err := use.List(context.Background(), otherUserActor, 10, true, 3)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if !verificationRepo.listCalled {
-		t.Fatal("ListByUserID must be called for the caller's own list")
-	}
-	if len(verifications) != 1 || verifications[0].ID != 15 {
-		t.Fatalf("verifications = %+v", verifications)
-	}
-}
-
-// TestListVerificationsRejectsOffsetOverflow checks that an offset larger than
-// the int32 list query can represent is rejected before the repository is
-// reached, instead of wrapping to a different page.
-func TestListVerificationsRejectsOffsetOverflow(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	versionRepo := &fakeLibraryVersionRepository{}
-	verificationRepo := &fakeVerificationRepository{}
-	use := usecase.NewLibraryVerificationUsecase(
-		usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
-		&fakeProblemReaderForVerify{},
-		&fakeVerificationStorage{},
-		verificationRepo,
-		&fakeSubmissionReaderForVerify{},
-	)
-
-	// Documented invalid case: a negative offset keeps the exact spec §10 message.
-	_, err := use.List(context.Background(), otherUserActor, 10, true, -1)
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset must be greater than or equal to 0")
-
-	// Too-large non-negative offsets are still rejected before the repository,
-	// with a distinct stable 400 message instead of wrapping to another page.
-	for _, offset := range []int{2147483648, 4294967297} {
-		_, err := use.List(context.Background(), otherUserActor, 10, true, offset)
-		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_OFFSET", "offset is too large")
-	}
-	if verificationRepo.listCalled {
-		t.Fatal("ListByUserID must not be reached for an overflowing offset")
-	}
-
-	// The MaxInt32 boundary is still a valid offset and reaches the repository.
-	if _, err := use.List(context.Background(), otherUserActor, 10, true, 2147483647); err != nil {
-		t.Fatalf("MaxInt32 offset must be accepted: %v", err)
-	}
-	if !verificationRepo.listCalled {
-		t.Fatal("ListByUserID must be reached for a MaxInt32 offset")
-	}
-}
-
-// TestGetVerificationNonterminalSkipsCaseResults mirrors the submission detail
-// contract: a pending/running verification must return an empty result array
-// without reading case results, so a committed result can never be observed
-// alongside a stale nonterminal status.
-func TestGetVerificationNonterminalSkipsCaseResults(t *testing.T) {
-	for _, status := range []domain.SubmissionStatus{domain.SubmissionStatusPending, domain.SubmissionStatusRunning} {
+// The following RED-GREEN wiring tests assert that every version-source read
+// threads the reader's user id into the repository fetch. That is what lets the
+// (now visibility-scoped) SQL statement authorize the CURRENT library state in
+// the same statement as the source read, closing the Resolve/check -> fetch
+// TOCTOU window. Before the fix, these fetches carried no actor id.
+func TestGetLibraryVersionThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
 		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-		versionRepo := &fakeLibraryVersionRepository{}
-		verificationRepo := &fakeVerificationRepository{
-			byID: map[int64]*domain.LibraryVerification{
-				15: {ID: 15, AdapterSource: "adapter", SubmissionID: 7, Status: status, ProblemID: 42, UserID: authorUserID},
-			},
+		versions := &fakeLibraryVersionRepository{
+			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1, SourceCode: "x=1\n"}},
 		}
-		submissions := &fakeSubmissionReaderForVerify{
-			results: []domain.SubmissionCaseResult{{TestCaseID: 10, Status: domain.SubmissionStatusAC}},
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.Get(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
+			t.Fatalf("Get as %q: %v", actor.UserID, err)
 		}
-		use := usecase.NewLibraryVerificationUsecase(
-			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versionRepo),
-			&fakeProblemReaderForVerify{},
-			&fakeVerificationStorage{},
-			verificationRepo,
-			submissions,
-		)
+		if versions.findActorID != actor.UserID {
+			t.Fatalf("Get actor %q: FindByNumber actorUserID = %q, want reader id", actor.UserID, versions.findActorID)
+		}
+	}
+}
 
-		verification, results, err := use.Get(context.Background(), authorActor(), 15)
-		if err != nil {
-			t.Fatalf("status %s: Get: %v", status, err)
+func TestListLibraryVersionSummariesThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versions := &fakeLibraryVersionRepository{summaries: []domain.LibraryVersion{{VersionNumber: 1}}}
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.List(context.Background(), actor, "seed-author", "union-find", 5, true, 0); err != nil {
+			t.Fatalf("List as %q: %v", actor.UserID, err)
 		}
-		if results == nil || len(results) != 0 {
-			t.Fatalf("status %s: results = %+v, want an empty non-nil slice", status, results)
+		if versions.listParams.ActorUserID != actor.UserID {
+			t.Fatalf("List actor %q: ListSummaries ActorUserID = %q, want reader id", actor.UserID, versions.listParams.ActorUserID)
 		}
-		if submissions.caseResultsCalls != 0 {
-			t.Fatalf("status %s: ListCaseResults called %d times, want 0", status, submissions.caseResultsCalls)
+	}
+}
+
+func TestResolveThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versions := &fakeLibraryVersionRepository{
+			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1}},
 		}
-		if verification.AdapterSource != "adapter" {
-			t.Fatalf("status %s: adapter_source must still be returned: %+v", status, verification)
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.Resolve(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
+			t.Fatalf("Resolve as %q: %v", actor.UserID, err)
+		}
+		if versions.findActorID != actor.UserID {
+			t.Fatalf("Resolve actor %q: FindByNumber actorUserID = %q, want reader id", actor.UserID, versions.findActorID)
 		}
 	}
 }

@@ -31,13 +31,12 @@ func (q *Queries) CountLibraryVersionInLibrary(ctx context.Context, arg CountLib
 }
 
 const getLibraryVerification = `-- name: GetLibraryVerification :one
-SELECT v.id, v.library_version_id::text AS library_version_id, v.submission_id,
-       v.adapter_source, v.adapter_sha256, v.created_at,
-       s.problem_id, s.user_id::text AS user_id, s.status, s.score, s.judged_at,
+SELECT v.id, v.library_version_id::text AS library_version_id, v.submission_url,
+       v.created_by::text AS created_by, v.created_at,
        lv.version_number, lv.library_id::text AS library_id,
-       l.slug AS library_slug, n.slug AS namespace_slug
+       l.slug AS library_slug, l.visibility,
+       n.slug AS namespace_slug, n.owner_user_id::text AS owner_user_id
 FROM library_verifications v
-JOIN submissions s ON s.id = v.submission_id
 JOIN library_versions lv ON lv.id = v.library_version_id
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
@@ -47,139 +46,131 @@ WHERE v.id = $1
 type GetLibraryVerificationRow struct {
 	ID               int64              `json:"id"`
 	LibraryVersionID string             `json:"library_version_id"`
-	SubmissionID     int64              `json:"submission_id"`
-	AdapterSource    string             `json:"adapter_source"`
-	AdapterSha256    string             `json:"adapter_sha256"`
+	SubmissionUrl    string             `json:"submission_url"`
+	CreatedBy        string             `json:"created_by"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ProblemID        int64              `json:"problem_id"`
-	UserID           string             `json:"user_id"`
-	Status           string             `json:"status"`
-	Score            int32              `json:"score"`
-	JudgedAt         pgtype.Timestamptz `json:"judged_at"`
 	VersionNumber    int32              `json:"version_number"`
 	LibraryID        string             `json:"library_id"`
 	LibrarySlug      string             `json:"library_slug"`
+	Visibility       string             `json:"visibility"`
 	NamespaceSlug    string             `json:"namespace_slug"`
+	OwnerUserID      string             `json:"owner_user_id"`
 }
 
-// The verification detail reads problem, starter, and status from the joined
-// submissions row; those are not duplicated on library_verifications.
+// The link detail joins the current library/namespace so callers can authorize
+// reads by the library's CURRENT visibility (public links are viewable by
+// anyone, private links by the owner only). No submission, problem, status,
+// score, or adapter columns are read.
 func (q *Queries) GetLibraryVerification(ctx context.Context, verificationID int64) (GetLibraryVerificationRow, error) {
 	row := q.db.QueryRow(ctx, getLibraryVerification, verificationID)
 	var i GetLibraryVerificationRow
 	err := row.Scan(
 		&i.ID,
 		&i.LibraryVersionID,
-		&i.SubmissionID,
-		&i.AdapterSource,
-		&i.AdapterSha256,
+		&i.SubmissionUrl,
+		&i.CreatedBy,
 		&i.CreatedAt,
-		&i.ProblemID,
-		&i.UserID,
-		&i.Status,
-		&i.Score,
-		&i.JudgedAt,
 		&i.VersionNumber,
 		&i.LibraryID,
 		&i.LibrarySlug,
+		&i.Visibility,
 		&i.NamespaceSlug,
+		&i.OwnerUserID,
 	)
 	return i, err
 }
 
 const insertLibraryVerification = `-- name: InsertLibraryVerification :one
-INSERT INTO library_verifications (library_version_id, submission_id, adapter_source, adapter_sha256)
-VALUES ((($1::text)::uuid), $2, $3, $4)
-RETURNING id, created_at
+INSERT INTO library_verifications (library_version_id, created_by, submission_url)
+VALUES ((($1::text)::uuid), (($2::text)::uuid), $3)
+RETURNING id
 `
 
 type InsertLibraryVerificationParams struct {
 	LibraryVersionID string `json:"library_version_id"`
-	SubmissionID     int64  `json:"submission_id"`
-	AdapterSource    string `json:"adapter_source"`
-	AdapterSha256    string `json:"adapter_sha256"`
+	CreatedBy        string `json:"created_by"`
+	SubmissionUrl    string `json:"submission_url"`
 }
 
-type InsertLibraryVerificationRow struct {
-	ID        int64              `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+// A link stores only the version, the registrant, and the submission URL.
+func (q *Queries) InsertLibraryVerification(ctx context.Context, arg InsertLibraryVerificationParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertLibraryVerification, arg.LibraryVersionID, arg.CreatedBy, arg.SubmissionUrl)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
-func (q *Queries) InsertLibraryVerification(ctx context.Context, arg InsertLibraryVerificationParams) (InsertLibraryVerificationRow, error) {
-	row := q.db.QueryRow(ctx, insertLibraryVerification,
-		arg.LibraryVersionID,
-		arg.SubmissionID,
-		arg.AdapterSource,
-		arg.AdapterSha256,
-	)
-	var i InsertLibraryVerificationRow
-	err := row.Scan(&i.ID, &i.CreatedAt)
-	return i, err
-}
-
-const listLibraryVerificationsByUser = `-- name: ListLibraryVerificationsByUser :many
-SELECT v.id, v.library_version_id::text AS library_version_id, v.submission_id,
-       v.adapter_sha256, v.created_at,
-       s.problem_id, s.user_id::text AS user_id, s.status, s.score, s.judged_at,
+const listLibraryVerificationsByVersion = `-- name: ListLibraryVerificationsByVersion :many
+SELECT v.id, v.library_version_id::text AS library_version_id, v.submission_url,
+       v.created_by::text AS created_by, v.created_at,
        lv.version_number, lv.library_id::text AS library_id,
-       l.slug AS library_slug, n.slug AS namespace_slug
+       l.slug AS library_slug, l.visibility,
+       n.slug AS namespace_slug, n.owner_user_id::text AS owner_user_id
 FROM library_verifications v
-JOIN submissions s ON s.id = v.submission_id
 JOIN library_versions lv ON lv.id = v.library_version_id
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
-WHERE s.user_id = (($1::text)::uuid)
+WHERE v.library_version_id = (($1::text)::uuid)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower($2::text))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
-type ListLibraryVerificationsByUserParams struct {
-	UserID       string `json:"user_id"`
-	ResultOffset int32  `json:"result_offset"`
-	ResultLimit  int32  `json:"result_limit"`
+type ListLibraryVerificationsByVersionParams struct {
+	LibraryVersionID string `json:"library_version_id"`
+	ActorUserID      string `json:"actor_user_id"`
+	ResultOffset     int32  `json:"result_offset"`
+	ResultLimit      int32  `json:"result_limit"`
 }
 
-type ListLibraryVerificationsByUserRow struct {
+type ListLibraryVerificationsByVersionRow struct {
 	ID               int64              `json:"id"`
 	LibraryVersionID string             `json:"library_version_id"`
-	SubmissionID     int64              `json:"submission_id"`
-	AdapterSha256    string             `json:"adapter_sha256"`
+	SubmissionUrl    string             `json:"submission_url"`
+	CreatedBy        string             `json:"created_by"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ProblemID        int64              `json:"problem_id"`
-	UserID           string             `json:"user_id"`
-	Status           string             `json:"status"`
-	Score            int32              `json:"score"`
-	JudgedAt         pgtype.Timestamptz `json:"judged_at"`
 	VersionNumber    int32              `json:"version_number"`
 	LibraryID        string             `json:"library_id"`
 	LibrarySlug      string             `json:"library_slug"`
+	Visibility       string             `json:"visibility"`
 	NamespaceSlug    string             `json:"namespace_slug"`
+	OwnerUserID      string             `json:"owner_user_id"`
 }
 
-func (q *Queries) ListLibraryVerificationsByUser(ctx context.Context, arg ListLibraryVerificationsByUserParams) ([]ListLibraryVerificationsByUserRow, error) {
-	rows, err := q.db.Query(ctx, listLibraryVerificationsByUser, arg.UserID, arg.ResultOffset, arg.ResultLimit)
+// Read authorization is enforced IN THE SAME STATEMENT as the data fetch: even
+// though the joined row already exposes the CURRENT visibility for the detail
+// Get (whose usecase checks it), a list must not rely on a prior Resolve
+// check. The WHERE predicate gates every link on the library's CURRENT
+// visibility and the actor's user id, so a concurrent public->private flip
+// between Resolve and this fetch cannot expose now-private URL links. A
+// private link is listed only for its owner (no admin/role bypass); anonymous
+// actors (empty user id) and non-owners get no rows.
+func (q *Queries) ListLibraryVerificationsByVersion(ctx context.Context, arg ListLibraryVerificationsByVersionParams) ([]ListLibraryVerificationsByVersionRow, error) {
+	rows, err := q.db.Query(ctx, listLibraryVerificationsByVersion,
+		arg.LibraryVersionID,
+		arg.ActorUserID,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListLibraryVerificationsByUserRow
+	var items []ListLibraryVerificationsByVersionRow
 	for rows.Next() {
-		var i ListLibraryVerificationsByUserRow
+		var i ListLibraryVerificationsByVersionRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.LibraryVersionID,
-			&i.SubmissionID,
-			&i.AdapterSha256,
+			&i.SubmissionUrl,
+			&i.CreatedBy,
 			&i.CreatedAt,
-			&i.ProblemID,
-			&i.UserID,
-			&i.Status,
-			&i.Score,
-			&i.JudgedAt,
 			&i.VersionNumber,
 			&i.LibraryID,
 			&i.LibrarySlug,
+			&i.Visibility,
 			&i.NamespaceSlug,
+			&i.OwnerUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -210,9 +201,10 @@ type LockLibraryForVerificationRow struct {
 	OwnerUserID pgtype.UUID `json:"owner_user_id"`
 }
 
-// The transaction re-checks whom the library belongs to and whether the
+// The create transaction re-checks whom the library belongs to and whether the
 // version still belongs to the library using this single locked snapshot.
-// libraries is locked with FOR SHARE so a concurrent visibility PATCH waits.
+// libraries is locked with FOR SHARE so a concurrent visibility PATCH waits,
+// preventing a non-owner from committing a link while the library is privatized.
 func (q *Queries) LockLibraryForVerification(ctx context.Context, arg LockLibraryForVerificationParams) (LockLibraryForVerificationRow, error) {
 	row := q.db.QueryRow(ctx, lockLibraryForVerification, arg.NamespaceID, arg.LibraryID)
 	var i LockLibraryForVerificationRow

@@ -70,22 +70,54 @@ CREATE TRIGGER library_versions_no_update_delete
     FOR EACH ROW
     EXECUTE FUNCTION reject_library_version_mutation();
 
+-- library_verifications stores self-declared "related submission" links for a
+-- library version. The table name is kept from the earlier design to keep the
+-- PR review diff small, but a row is only a plain absolute HTTP(S) submission
+-- URL plus its registrant and timestamp. There is NO adapter, harness,
+-- Submission, Outbox, Judge run, verdict, score, or case result. The URL is
+-- never fetched, parsed for content, or judged; a link is self-declared and is
+-- not verified proof of the submitter, verdict, or the library version used.
+--
+-- These CHECK constraints are a defensive DB backstop, NOT the authoritative
+-- validator. The authoritative gate is domain.ValidateSubmissionURL, called by
+-- the repository before persistence (so invalid URLs are rejected even outside
+-- the future API layer); it trims whitespace, requires a NON-EMPTY host via
+-- net/url Hostname(), and caps the value at 2048 bytes. net/url accepts ANY
+-- absolute HTTP(S) URL with a host, including internationalized/Unicode hosts,
+-- so the DB backstop must NOT impose an ASCII-only first-host-character rule.
+--
+-- absolute_check is ANCHORED to the URL end (with an optional /, ? or #
+-- path/query/fragment tail) and EXCLUDES '@' from HOST characters:
+--   ^https?://                         scheme
+--   ([^/?#[:space:][:cntrl:]]*@)?      optional userinfo, ending at the LAST @
+--   [^/?#:@[:space:][:cntrl:]]         first host char (not a delimiter,
+--                                      Unicode/IDN/'['/'.'/alnum all allowed)
+--   [^/?#@[:space:][:cntrl:]]*         remaining host chars (no '@', no /?#,
+--                                      no whitespace/control)
+--   ([/?#].*)?$                        optional path/query/fragment, then end
+-- Anchoring + excluding '@' from host chars rejects hostless authorities
+-- ('https://?x', 'https://@', 'https://:443', 'https://#frag',
+-- 'https:///path') AND userinfo-only/no-host forms ('https://user@',
+-- 'https://user@/', 'https://user@?x', 'https://user@#frag') that a prefix-only
+-- CHECK wrongly accepted. Optional userinfo allows '@' (greedy to the last @)
+-- to match net/url, so URLs with a REAL host such as 'https://user@example.com'
+-- or 'https://a@b@c' (host 'c') are accepted. This keeps the DB backstop a
+-- SUBSET of the authoritative net/url Hostname() check: no URL accepted by the
+-- domain validator can be rejected at INSERT time. Unicode/IDN hosts and IPv6
+-- literals remain valid. no_space_check/no_control_check and the length check
+-- back up whitespace, control and size rules (the tail .* may contain them).
 CREATE TABLE library_verifications (
     id bigserial PRIMARY KEY,
     library_version_id uuid NOT NULL REFERENCES library_versions (id),
-    submission_id bigint NOT NULL REFERENCES submissions (id),
-    adapter_source text NOT NULL,
-    adapter_sha256 text NOT NULL,
+    created_by uuid NOT NULL REFERENCES users (id),
+    submission_url text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT library_verifications_submission_unique UNIQUE (submission_id),
-    CONSTRAINT library_verifications_adapter_check CHECK (btrim(adapter_source) <> ''),
-    CONSTRAINT library_verifications_adapter_size_check CHECK (
-        octet_length(adapter_source) BETWEEN 1 AND 100000
+    CONSTRAINT library_verifications_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
+    CONSTRAINT library_verifications_submission_url_absolute_check CHECK (
+        submission_url ~ '^https?://([^/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]][^/?#@[:space:][:cntrl:]]*([/?#].*)?$'
     ),
-    CONSTRAINT library_verifications_adapter_sha_check CHECK (adapter_sha256 ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT library_verifications_adapter_sha_matches_check CHECK (
-        adapter_sha256 = encode(digest(convert_to(adapter_source, 'UTF8'), 'sha256'), 'hex')
-    )
+    CONSTRAINT library_verifications_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
+    CONSTRAINT library_verifications_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
 );
 
 CREATE INDEX library_verifications_version_idx

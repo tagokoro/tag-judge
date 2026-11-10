@@ -1,10 +1,21 @@
 # Library Sharing MVP 設計
 
 - 日付: 2026-11-08
-- 状態: 実装前の合意済み設計。この文書が実装の契約である。
-- 実装計画: [docs/superpowers/plans/2026-11-08-library-sharing-mvp.md](../plans/2026-11-08-library-sharing-mvp.md)
-- 情報源: [docs/library-sharing-judge-requirements.md](../../library-sharing-judge-requirements.md)。未追跡の要件文書は削除も上書きもしない。広い将来要件は情報源であり、このMVPの範囲ではない。
+- 状態: **失効（2026-11-10）**。旧 adapter/Judge 検証方式の設計であり、実装の契約ではない。
+- 実装計画: [docs/superpowers/plans/2026-11-08-library-sharing-mvp.md](../plans/2026-11-08-library-sharing-mvp.md)（同じく失効）
+- 情報源: [docs/library-sharing-judge-requirements.md](../../library-sharing-judge-requirements.md)（同じく検証モデルは失効）
 - 現行実装の基準: [README.md](../../../README.md) と main のコード。設計資料の初期構想より、動いている提出経路を優先する。
+
+> ⚠️ **失効（2026-11-10）— この設計書は提出URL方式へ置き換えられました**
+>
+> 本設計書は adapter と Library Version のコードを結合し、既存 Submission / Outbox / Judge で検証する旧方式の契約です。**[提出URL設計](2026-11-10-verification-url-design.md) と [提出URL実装計画](../plans/2026-11-10-verification-url.md) が新しい唯一の契約**です。
+>
+> - `library_verifications` は `id, library_version_id, created_by, submission_url, created_at` だけを持ち、`submission_id` / `adapter_source` / `adapter_sha256` は削除。
+> - URL は絶対 HTTP(S)（ホストあり・制御文字なし・2048バイト以内）。取得・解析・判定はしない。**Submission / Outbox / S3 / Judge は作成しない**。
+> - リンクは自己宣言の「関連する提出」であり検証済みの証明ではない。verdict / score / status / case_results / adapter は存在しない。
+> - 登録は認証済み利用者（public は誰でも、private は所有者のみ）。閲覧は現在の Library 公開範囲に追従する。
+>
+> よって本設計書の §1 目的、§2 合意済み範囲、§5 主要決定、§6.1 up SQL（旧 `library_verifications`）、§7 コード結合ルール、§8 既存 Judge への接続、§9 認可の verify 行、§10.4 Verification、§11.1 画面の adapter / polling 要素、§13 テスト、§14 リスク、§15 / §16 の検証・判定に関する**全記述と受け入れ条件は無効**です。特に §13 の「verification の outbox payload」「insert failure の rollback」、§16 の「outbox の JSON キー」「結合テンプレート / fixture」は現在の受け入れ条件ではありません。Namespace / Library / Library Version の不変性など、検証と無関係な部分は引き続き参考になります。
 
 ## 1. 目的
 
@@ -534,7 +545,9 @@ Go API は `localhost:8080`、Next.js は `localhost:3000` の独立プロセス
 
 `docs/library-sharing-judge-requirements.md` は変更しない。
 
-## 13. テストと手動確認
+## 13. テストと手動確認 <!-- 失効: 検証・判定の受け入れ条件は 2026-11-10 提出URL設計で無効 -->
+
+> **失効:** この節の自動テスト・手動 E2E のうち verification / outbox / adapter / polling / `ac` 判定に関する受け入れ条件は無効です。現行の受け入れ条件は [提出URL設計](2026-11-10-verification-url-design.md) と [提出URL実装計画](../plans/2026-11-10-verification-url.md) を参照してください。
 
 実装は RED-GREEN-REFACTOR で進める。失敗するテストを先に書き、期待した理由で失敗することを確認してから、そのテストを通す最小実装を書く。
 
@@ -585,7 +598,9 @@ Google OAuth は既存 config の `GoogleOAuthRedirectURL` / `AuthSuccessRedirec
 - 著者が自分の private Problem で自分の Library を検証できるようにするかどうか。現契約では現行提出条件を広げない。
 - ユーザー指定の version 文字列を将来足すかどうか。現契約はシステム採番だけである。
 
-## 16. グローバル制約
+## 16. グローバル制約 <!-- 失効: adapter/結合/outbox/判定の制約は 2026-11-10 提出URL設計で無効 -->
+
+> **失効:** この節の「Library と adapter の上限」「結合テンプレート / fixture / outbox の JSON キー」「既存提出スキーマは変更しない」など検証方式に依存する制約は無効です。現行の制約は [提出URL設計](2026-11-10-verification-url-design.md) を参照してください。
 
 - Go module は `github.com/tagokoro/tag-judge/backend`、Go 1.26、PostgreSQL 16、Python 3 のみ。
 - Library と adapter の上限はそれぞれ 100000 バイト。Version の DB check も 100000 である。

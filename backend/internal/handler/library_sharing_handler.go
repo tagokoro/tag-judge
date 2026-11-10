@@ -12,17 +12,19 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
+	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 // maxLibraryRequestBytes bounds the raw JSON body for library-sharing endpoints
-// that accept a large source/adapter string. The usecases cap a decoded source
-// at librarycombine.MaxSourceBytes bytes, but JSON escaping can expand one
-// decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a fully escaped
-// valid body is still admitted while memory stays bounded. Submission and
-// code-run endpoints keep decodeJSON's original unbounded contract.
-const maxLibraryRequestBytes = 6*librarycombine.MaxSourceBytes + 64*1024
+// that accept a large library version source. The version usecase caps a
+// decoded source at librarysource.MaxSourceBytes bytes, but JSON escaping can
+// expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
+// fully escaped valid body is still admitted while memory stays bounded.
+// Verification-link requests carry only a short URL but share this decoder.
+// Submission and code-run endpoints keep decodeJSON's original unbounded
+// contract.
+const maxLibraryRequestBytes = 6*librarysource.MaxSourceBytes + 64*1024
 
 // decodeLibraryJSON bounds a request body before the shared decoder runs so an
 // oversized body gets a stable 400 rather than being silently truncated.
@@ -340,6 +342,10 @@ type libraryVersionSummaryResponse struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// LibraryVerificationHandler serves self-declared "related submission" URL
+// links. Responses carry only link data (URL, version identifiers, registrant,
+// timestamp); they never expose a verdict, score, status, adapter, or case
+// result because a link is not a verification/judge result.
 type LibraryVerificationHandler struct {
 	verifications *usecase.LibraryVerificationUsecase
 }
@@ -348,12 +354,15 @@ func NewLibraryVerificationHandler(v *usecase.LibraryVerificationUsecase) *Libra
 	return &LibraryVerificationHandler{verifications: v}
 }
 
+// createVerificationRequest is the only accepted POST body: a single absolute
+// HTTP(S) submission URL. No problem_id or adapter_source is accepted.
+type createVerificationRequest struct {
+	SubmissionURL string `json:"submission_url"`
+}
+
 func (h *LibraryVerificationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
-	var req struct {
-		ProblemID     int64  `json:"problem_id"`
-		AdapterSource string `json:"adapter_source"`
-	}
+	var req createVerificationRequest
 	if err := decodeLibraryJSON(r, &req); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
@@ -363,12 +372,12 @@ func (h *LibraryVerificationHandler) Create(w http.ResponseWriter, r *http.Reque
 		WriteError(w, r, err)
 		return
 	}
-	v, err := h.verifications.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), int64(version), req.ProblemID, req.AdapterSource)
+	link, err := h.verifications.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, req.SubmissionURL)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, newVerificationSummaryResponse(*v))
+	writeJSON(w, http.StatusCreated, newVerificationResponse(*link))
 }
 
 func parseVerificationID(r *http.Request) (int64, error) {
@@ -389,12 +398,12 @@ func (h *LibraryVerificationHandler) Get(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
-	v, cases, err := h.verifications.Get(r.Context(), actor, id)
+	link, err := h.verifications.Get(r.Context(), actor, id)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newVerificationDetailResponse(*v, cases))
+	writeJSON(w, http.StatusOK, newVerificationResponse(*link))
 }
 
 func (h *LibraryVerificationHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -408,56 +417,52 @@ func (h *LibraryVerificationHandler) List(w http.ResponseWriter, r *http.Request
 		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
 		return
 	}
-	actor, _ := auth.ActorFromContext(r.Context())
-	items, err := h.verifications.List(r.Context(), actor, limit, provided, offset)
+	version, err := parseVersionNumber(r)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	result := make([]verificationSummaryResponse, 0, len(items))
+	actor, _ := auth.ActorFromContext(r.Context())
+	items, err := h.verifications.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, limit, provided, offset)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	result := make([]verificationResponse, 0, len(items))
 	for _, item := range items {
-		result = append(result, newVerificationSummaryResponse(item))
+		result = append(result, newVerificationResponse(item))
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-type verificationCaseResponse struct {
-	TestCaseID      int64                   `json:"test_case_id"`
-	Status          domain.SubmissionStatus `json:"status"`
-	ExecutionTimeMS *int                    `json:"execution_time_ms"`
-	MemoryKB        *int                    `json:"memory_kb"`
-}
-type verificationSummaryResponse struct {
-	ID               int64                   `json:"id"`
-	LibraryVersionID string                  `json:"library_version_id"`
-	NamespaceSlug    string                  `json:"namespace_slug"`
-	LibrarySlug      string                  `json:"library_slug"`
-	VersionNumber    int                     `json:"version_number"`
-	ProblemID        int64                   `json:"problem_id"`
-	SubmissionID     int64                   `json:"submission_id"`
-	Status           domain.SubmissionStatus `json:"status"`
-	Score            int                     `json:"score"`
-	AdapterSHA256    string                  `json:"adapter_sha256"`
-	CreatedAt        time.Time               `json:"created_at"`
-	JudgedAt         *time.Time              `json:"judged_at"`
+// verificationResponse is the self-declared "related submission" link shape.
+// It is deliberately NOT a verification result: verdict, score, status,
+// adapter_source, case_results, judged_at, submission_id, and problem_id are
+// absent. The submission_url is a plain pointer to a submission the registrant
+// says is related; authenticity of the submitter, verdict, or library version
+// used is not guaranteed.
+type verificationResponse struct {
+	ID               int64     `json:"id"`
+	LibraryVersionID string    `json:"library_version_id"`
+	NamespaceSlug    string    `json:"namespace_slug"`
+	LibrarySlug      string    `json:"library_slug"`
+	VersionNumber    int       `json:"version_number"`
+	SubmissionURL    string    `json:"submission_url"`
+	CreatedBy        string    `json:"created_by"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
-type verificationDetailResponse struct {
-	verificationSummaryResponse
-	AdapterSource string                     `json:"adapter_source"`
-	CaseResults   []verificationCaseResponse `json:"case_results"`
-}
-
-func newVerificationSummaryResponse(v domain.LibraryVerification) verificationSummaryResponse {
-	return verificationSummaryResponse{ID: v.ID, LibraryVersionID: v.LibraryVersionID, NamespaceSlug: v.NamespaceSlug, LibrarySlug: v.LibrarySlug, VersionNumber: v.VersionNumber, ProblemID: v.ProblemID, SubmissionID: v.SubmissionID, Status: v.Status, Score: v.Score, AdapterSHA256: v.AdapterSHA256, CreatedAt: v.CreatedAt, JudgedAt: v.JudgedAt}
-}
-
-func newVerificationDetailResponse(v domain.LibraryVerification, cases []domain.SubmissionCaseResult) verificationDetailResponse {
-	results := make([]verificationCaseResponse, 0, len(cases))
-	for _, c := range cases {
-		results = append(results, verificationCaseResponse{c.TestCaseID, c.Status, c.ExecutionTimeMS, c.MemoryKB})
+func newVerificationResponse(v domain.LibraryVerification) verificationResponse {
+	return verificationResponse{
+		ID:               v.ID,
+		LibraryVersionID: v.LibraryVersionID,
+		NamespaceSlug:    v.NamespaceSlug,
+		LibrarySlug:      v.LibrarySlug,
+		VersionNumber:    v.VersionNumber,
+		SubmissionURL:    v.SubmissionURL,
+		CreatedBy:        v.CreatedBy,
+		CreatedAt:        v.CreatedAt,
 	}
-	return verificationDetailResponse{verificationSummaryResponse: newVerificationSummaryResponse(v), AdapterSource: v.AdapterSource, CaseResults: results}
 }
 
 func newLibraryVersionSummaryResponse(version domain.LibraryVersion) libraryVersionSummaryResponse {

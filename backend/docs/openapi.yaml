@@ -921,9 +921,20 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  # A "verification" on a library version is a self-declared related-submission
+  # URL link, NOT a verification/judge result. There is no adapter, Problem
+  # selection, Submission, Outbox, Judge run, verdict, score, status, or case
+  # result. The URL is never fetched, parsed for content, or judged.
   /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications:
     post:
-      summary: Start library verification
+      summary: Register a related submission URL link
+      description: >-
+        Add a self-declared "related submission" URL to a library version. Any
+        authenticated user may add a link to a public library; private libraries
+        are hidden from everyone except the owner. The URL must be an absolute
+        HTTP(S) URL with a host, at most 2048 bytes, and without control
+        characters. This is not a verification result: no verdict, score, or
+        status is produced.
       security: [{CookieAuth: []}]
       parameters:
         - {name: namespace_slug, in: path, required: true, schema: {type: string}}
@@ -934,39 +945,42 @@ paths:
         content:
           application/json: {schema: {$ref: '#/components/schemas/CreateVerificationRequest'}}
       responses:
-        '201': {description: Verification created, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationCreateResponse'}}}}
+        '201': {description: Link created, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationCreateResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-        '429': {$ref: '#/components/responses/RateLimitError'}
-        '503': {$ref: '#/components/responses/ServiceUnavailableError'}
-
-  /library-verifications/{verification_id}:
     get:
-      summary: Get verification detail
-      security: [{CookieAuth: []}]
+      summary: List related submission URL links for a version
+      description: >-
+        List the self-declared submission URL links for one library version.
+        Public links are readable anonymously; private links return 404 for
+        everyone except the owner. Authorization follows the library's current
+        visibility, so a link readable while public becomes hidden after the
+        library is privatized.
       parameters:
-        - {name: verification_id, in: path, required: true, schema: {type: integer, minimum: 1}}
-      responses:
-        '200': {description: Verification detail, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationDetailResponse'}}}}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-
-  /library-verifications:
-    get:
-      summary: List current user's verifications
-      security: [{CookieAuth: []}]
-      parameters:
+        - {name: namespace_slug, in: path, required: true, schema: {type: string}}
+        - {name: library_slug, in: path, required: true, schema: {type: string}}
+        - {name: version_number, in: path, required: true, schema: {type: integer, minimum: 1}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
         - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Verifications, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationListResponse'}}}}
+        '200': {description: Links, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationListResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+
+  /library-verifications/{verification_id}:
+    get:
+      summary: Get a related submission URL link
+      description: >-
+        Get one self-declared submission URL link. Public links are readable
+        anonymously; private links return 404 for everyone except the owner,
+        following the library's current visibility.
+      parameters:
+        - {name: verification_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200': {description: Link detail, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationDetailResponse'}}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
 
 components:
   parameters:
@@ -1682,60 +1696,48 @@ components:
             $ref: "#/components/schemas/LibraryVersionSummary"
     CreateVerificationRequest:
       type: object
-      required: [problem_id, adapter_source]
+      required: [submission_url]
       additionalProperties: false
       properties:
-        problem_id: {type: integer, minimum: 1}
-        adapter_source: {type: string, minLength: 1, maxLength: 100000}
-    VerificationCaseResult:
+        submission_url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: Absolute HTTP(S) URL of a submission the registrant declares is related to this library version.
+    # VerificationLink is a self-declared "related submission" link. It is NOT a
+    # verification/judge result: verdict, score, status, adapter_source,
+    # case_results, judged_at, submission_id, and problem_id are intentionally
+    # absent. The URL is never fetched or validated for content beyond its shape.
+    VerificationLink:
       type: object
-      required: [test_case_id, status]
-      properties:
-        test_case_id: {type: integer, minimum: 1}
-        status: {type: string, enum: [pending, running, ac, wa, tle, mle, re, ce, ie]}
-        execution_time_ms: {type: [integer, "null"], minimum: 0}
-        memory_kb: {type: [integer, "null"], minimum: 0}
-    VerificationSummary:
-      type: object
-      required: [id, library_version_id, namespace_slug, library_slug, version_number, problem_id, submission_id, status, score, adapter_sha256, created_at, judged_at]
+      required: [id, library_version_id, namespace_slug, library_slug, version_number, submission_url, created_by, created_at]
       properties:
         id: {type: integer}
         library_version_id: {type: string}
         namespace_slug: {type: string}
         library_slug: {type: string}
         version_number: {type: integer, minimum: 1}
-        problem_id: {type: integer}
-        submission_id: {type: integer}
-        status: {type: string, enum: [pending, running, ac, wa, tle, mle, re, ce, ie]}
-        score: {type: integer, minimum: 0, maximum: 100}
-        adapter_sha256: {type: string, minLength: 64, maxLength: 64, pattern: '^[0-9a-f]{64}$'}
+        submission_url: {type: string, format: uri, maxLength: 2048}
+        created_by: {type: string}
         created_at: {type: string, format: date-time}
-        judged_at: {type: [string, "null"], format: date-time}
-    VerificationDetail:
-      allOf:
-        - $ref: '#/components/schemas/VerificationSummary'
-        - type: object
-          required: [adapter_source, case_results]
-          properties:
-            adapter_source: {type: string, minLength: 1, maxLength: 100000}
-            case_results: {type: array, items: {$ref: '#/components/schemas/VerificationCaseResult'}}
     VerificationCreateResponse:
       type: object
       required: [data]
       properties:
-        data: {$ref: '#/components/schemas/VerificationSummary'}
+        data: {$ref: '#/components/schemas/VerificationLink'}
     VerificationDetailResponse:
       type: object
       required: [data]
       properties:
-        data: {$ref: '#/components/schemas/VerificationDetail'}
+        data: {$ref: '#/components/schemas/VerificationLink'}
     VerificationListResponse:
       type: object
       required: [data]
       properties:
         data:
           type: array
-          items: {$ref: '#/components/schemas/VerificationSummary'}
+          items: {$ref: '#/components/schemas/VerificationLink'}
 
     ErrorResponse:
       type: object
