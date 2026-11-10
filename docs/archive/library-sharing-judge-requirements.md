@@ -1,17 +1,8 @@
 # ライブラリ共有ジャッジシステム 要件定義
 
-> ⚠️ **検証モデルの置き換え（2026-11-10）— 本書の検証・判定設計は失効しています**
+> ⚠️ **この文書は初期構想の記録です（2026-11-10 失効）。現行仕様は [docs/library-sharing.md](../library-sharing.md) を参照してください。**
 >
-> 本書は「Library Version を Test Suite / adapter / Judge Run で検証し、verdict・ケース結果を保存・公開する」という**初期構想**の要件定義です。この検証モデルは [付録A. 提出URL仕様](#current-submission-link-spec) により**全面的に置き換えられました**。実装の唯一の根拠は付録Aです。
->
-> 現行の契約は次のとおりです。
->
-> - Library Version に付けられるのは、所有者が設定する**絶対 HTTP(S) の提出URL**（`submission_url`）1件だけ。URL の取得・解析・判定はしない。
-> - adapter / harness / コード結合 / 問題選択は行わない。**Submission / Outbox / S3 / Judge は新規作成しない**。既存の Submission API と Judge は変更しない。
-> - 提出URLは所有者が自己宣言した「関連する提出」であり、**検証済みの証明ではない**。verdict / score / status / case_results / AC・Verify バッジは存在しない。
-> - 閲覧の認可は Library の**現在の公開範囲**で判定する（公開は匿名閲覧可、private は所有者のみ）。設定・変更は所有者のみ。
->
-> したがって本書の §3（中心価値・Judge Run 図）、§10.5 Library Verification、§11 判定要件、§12.2 scope、§13.1 ER 図、§15.1、§16（MVP受け入れ条件全体）、§17.2〜17.4（移行）、§18.3 検証方式、§19 仮決定のうち、検証・判定に関する記述は**歴史的なものであり、現在の実装契約でも受け入れ条件でもありません**。特に §16.2「Library検証」と §16.3「AI操作」の検証開始・結果取得に関する受け入れ条件は無効です。新しい受け入れ条件は [付録A](#current-submission-link-spec) の「受け入れ確認」を参照してください。Namespace / Library / 不変 Version / ライセンスなど検証と無関係な部分は引き続き将来構想として参考になります。
+> 本書は「Library Version を Test Suite / adapter / Judge Run で検証し、verdict・ケース結果を保存・公開する」という初期構想の要件定義です。この検証モデルは採用せず、所有者が Version ごとに提出 URL を 1 件設定する方式に置き換えました。検証・判定に関する記述（§3、§10.5、§11、§12.2、§13.1、§15.1、§16、§17.2〜17.4、§18.3、§19）は歴史的なもので、実装の契約でも受け入れ条件でもありません。Namespace / Library / 不変 Version / ライセンスなど検証と無関係な部分は、将来構想として参考になります。
 
 ## 1. 本書の目的
 
@@ -284,7 +275,7 @@ version     : text
 
 ### 10.5 Library Verification <!-- 失効: 2026-11-10 提出URL方式へ置き換え -->
 
-> **失効:** この節の VER-01〜VER-10（Test Suite / Judge Run / verdict / ケース結果による検証）は旧方式の要件であり、現在の要件ではありません。現行は所有者による Version の提出URL（`submission_url`）の設定・削除のみです。[付録A. 提出URL仕様](#current-submission-link-spec) を参照してください。
+> **失効:** この節の VER-01〜VER-10（Test Suite / Judge Run / verdict / ケース結果による検証）は旧方式の要件であり、現在の要件ではありません。現行は所有者による Version の提出URL（`submission_url`）の設定・削除のみです。[現行仕様](../library-sharing.md) を参照してください。
 
 | ID | 要件 |
 | --- | --- |
@@ -640,7 +631,7 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 
 ### 15.1 MVPで実装する <!-- 失効: 検証・判定に関する項目は無効 -->
 
-> **失効:** 「Library VersionとTest Suite Versionの検証」「検証結果の保存と公開」「AIによる検証」など検証・判定に関する項目は無効です。現行の MVP は所有者による Version の提出URLの設定・削除です。[付録A. 提出URL仕様](#current-submission-link-spec) を参照してください。
+> **失効:** 「Library VersionとTest Suite Versionの検証」「検証結果の保存と公開」「AIによる検証」など検証・判定に関する項目は無効です。現行の MVP は所有者による Version の提出URLの設定・削除です。[現行仕様](../library-sharing.md) を参照してください。
 
 既存ジャッジを維持しながら、次を最初のリリース範囲とする。
 
@@ -690,7 +681,7 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 
 ### 16.2 Library検証 <!-- 失効: adapter/Judge 検証方式は 2026-11-10 提出URL設計で廃止。以下の受け入れ条件は無効 -->
 
-> **失効:** この節の受け入れ条件は旧 adapter/Judge 検証方式のものであり、現在の契約ではありません。提出URL方式の受け入れ条件は [付録A. 提出URL仕様](#current-submission-link-spec) を参照してください。
+> **失効:** この節の受け入れ条件は旧 adapter/Judge 検証方式のものであり、現在の契約ではありません。提出URL方式の受け入れ条件は [現行仕様](../library-sharing.md) を参照してください。
 
 1. Library VersionとTest Suite Versionを指定して検証を開始できる
 2. Workerがライブラリファイルとharnessを取得して実行できる
@@ -701,7 +692,7 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 
 ### 16.3 AI操作 <!-- 失効: 「検証を開始できる」など検証に関する受け入れ条件は無効 -->
 
-> **失効:** 「検証を開始できる」「検証結果を取得できる」など検証・判定に関する受け入れ条件は無効です（[付録A. 提出URL仕様](#current-submission-link-spec) 参照）。
+> **失効:** 「検証を開始できる」「検証結果を取得できる」など検証・判定に関する受け入れ条件は無効です（[現行仕様](../library-sharing.md) 参照）。
 
 1. 利用者がscope付きAPI Tokenを発行できる
 2. Tokenを使用してLibrary情報を取得できる
@@ -852,37 +843,3 @@ Library Versionについては、初期選択肢をMIT、Apache-2.0、その他�
 ```
 
 これらは認識合わせ後に確定または変更する。
-
-<a id="current-submission-link-spec"></a>
-
-## 付録A. 現行仕様: Library Version の提出URL（2026-11-10）
-
-本書冒頭の注記どおり、検証・判定に関する記述はこの付録で置き換えます。
-
-### 目的
-
-利用者は普段の方法でコードを提出し、自分の Library Version にその提出URLを貼るだけで、関連する提出を公開できる。Web UI で adapter のコードを書かせない。Library と Problem は独立したままにする。
-
-### 決定
-
-- 各 Library Version は任意の `submission_url` を最大1件持つ。Library の所有者だけが、Version 作成後に設定・変更・削除できる。
-- `submission_url` は絶対 HTTP(S) URL として保存する。内部・外部の提出URLを区別しない。前後空白を除去してスキームを小文字に正規化し、ホストがないURL、制御文字を含むURL、2048バイトを超えるURLは拒否する。
-- URLは取得・解析・判定しない。提出者・判定結果・使用したLibrary Versionの真正性を保証しない。画面では「関連する提出」と表現し、AC/Verify済みバッジは出さない。
-- 閲覧は Version 本体と同じ認可に従う（公開 Library は匿名でも閲覧可、private は所有者のみ）。
-- Problemの選択、adapterの入力、Library用のSubmission/Outbox作成、判定結果のポーリングは行わない。既存のSubmission APIとJudgeは変更しない。
-
-### データとAPI
-
-- `library_versions` に `submission_url`（NULL 可）と `submission_url_updated_at`（URL と同時に設定・削除）を持つ。Version のコードと識別子は不変のままで、トリガーはこの2列以外の更新を拒否する。別テーブルは作らない。
-- `PUT /api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url` は `{ "submission_url": "https://..." }` を受けて設定・置き換えし、Version を返す。
-- 同じパスの `DELETE` は URL を削除し、204 を返す。
-- Version の取得・一覧のレスポンスは `submission_url` と `submission_url_updated_at` を含む（未設定なら `null`）。
-- 所有者の判定は更新 SQL と同じ文で行う。所有者以外は Library 更新と同じく、公開 Library なら 403、private なら 404 とする。
-
-### 受け入れ確認
-
-- 所有者が Version 作成後に URL を設定・変更・削除でき、Version の取得・一覧で読める。
-- 所有者以外は公開 Library でも URL を変更できない。private Library の URL は非所有者から読めず、公開切り替えに追従する。
-- 設定時に Submission、Outbox、S3 オブジェクトが新規作成されず、Version のコードは変わらない。
-- 不正URLは400、未認証での設定は401となる。
-- 既存のJudge/Submissionのテストが引き続き通る。

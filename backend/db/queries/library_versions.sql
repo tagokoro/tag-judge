@@ -39,6 +39,13 @@ RETURNING
     submission_url,
     submission_url_updated_at;
 
+-- Read authorization is enforced IN THE SAME STATEMENT as the data fetch: the
+-- join to the current library/namespace lets the WHERE clause gate every row
+-- on the library's CURRENT visibility and the actor's user id. A private row
+-- is returned only to its owner (no admin/role bypass); an anonymous actor
+-- (empty user id) and any non-owner see nothing. Because visibility is read in
+-- the same MVCC snapshot as the version body, a concurrent public->private
+-- flip cannot expose source that is private at the moment it is returned.
 -- name: GetLibraryVersionByNumber :one
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, lv.source_code,
        lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at,

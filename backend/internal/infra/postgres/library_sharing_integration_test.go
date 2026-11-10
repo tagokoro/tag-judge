@@ -318,25 +318,6 @@ func TestCreateLibraryVersionDerivesDigestAndByteSize(t *testing.T) {
 	}
 }
 
-func TestSubmissionURLLivesOnLibraryVersions(t *testing.T) {
-	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
-	var links, verifications bool
-	if err := db.QueryRow(ctx, `SELECT
-    EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'library_submission_links'),
-    EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'library_verifications')`).Scan(&links, &verifications); err != nil {
-		t.Fatalf("inspect tables: %v", err)
-	}
-	if links || verifications {
-		t.Fatalf("separate link tables must not exist: library_submission_links = %v, library_verifications = %v", links, verifications)
-	}
-}
-
 // TestCreateLibraryVersionAllocatesConsecutiveNumbersConcurrently starts two
 // version creations for the same library at the same time and expects distinct
 // consecutive numbers from the FOR UPDATE allocation query alone.

@@ -616,6 +616,353 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /namespaces:
+    post:
+      summary: Create the caller's personal namespace
+      description: |-
+        A user owns at most one namespace. The slug is chosen once and never
+        changes.
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNamespaceRequest"
+      responses:
+        "201":
+          description: Namespace created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /me/namespace:
+    get:
+      summary: Get the caller's own namespace
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Own namespace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}:
+    get:
+      summary: Get a namespace public profile
+      description: Publicly readable without authentication.
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Namespace profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceResponse"
+        "404":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}/libraries:
+    get:
+      summary: List libraries in a namespace
+      description: |-
+        The namespace owner sees public and private libraries; everyone else
+        sees only public libraries. Results are ordered by created_at DESC then
+        slug ASC.
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Libraries visible to the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create a library in a namespace
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLibraryRequest"
+      responses:
+        "201":
+          description: Library created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}/libraries/{library_slug}/versions:
+    get:
+      summary: List library version summaries
+      description: |-
+        Summaries never include source_code. Ordered by version_number DESC.
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: library_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Version summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryVersionListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create an immutable library version
+      description: |-
+        The version number is assigned by the system starting at 1. Version
+        content can never be changed or deleted afterwards.
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: library_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLibraryVersionRequest"
+      responses:
+        "201":
+          description: Version created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryVersionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}:
+    get:
+      summary: Get one library version with its source
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: library_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version_number
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Library version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryVersionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}/libraries/{library_slug}:
+    get:
+      summary: Get one library
+      description: Private libraries return 404 for everyone except the owner.
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: library_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Library
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update library name, description, or visibility
+      description: Only the namespace owner may update a library.
+      security:
+        - CookieAuth: []
+      parameters:
+        - name: namespace_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: library_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLibraryRequest"
+      responses:
+        "200":
+          description: Library updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url:
+    put:
+      summary: Set or replace a version's related submission URL
+      description: >-
+        Set the self-declared "related submission" URL of one library version,
+        replacing any previous value. Only the library owner may call this;
+        other users get 403 on a public library and 404 on a private one. The
+        URL must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and
+        without control characters. Surrounding whitespace is trimmed and the
+        scheme is lowercased. The version's source code is unchanged.
+      security: [{CookieAuth: []}]
+      parameters:
+        - {name: namespace_slug, in: path, required: true, schema: {type: string}}
+        - {name: library_slug, in: path, required: true, schema: {type: string}}
+        - {name: version_number, in: path, required: true, schema: {type: integer, minimum: 1}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/SetSubmissionURLRequest'}}
+      responses:
+        '200': {description: Updated library version, content: {application/json: {schema: {$ref: '#/components/schemas/LibraryVersionResponse'}}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Remove a version's related submission URL
+      description: >-
+        Clear the submission URL of one library version. Owner-only, with the
+        same 403/404 rules as PUT. Clearing a version without a URL succeeds.
+      security: [{CookieAuth: []}]
+      parameters:
+        - {name: namespace_slug, in: path, required: true, schema: {type: string}}
+        - {name: library_slug, in: path, required: true, schema: {type: string}}
+        - {name: version_number, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '204': {description: Submission URL removed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+
 components:
   parameters:
     UserIDHeader:
@@ -1163,6 +1510,199 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Submission"
+    CreateNamespaceRequest:
+      type: object
+      required: [slug, display_name]
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          minLength: 2
+          maxLength: 32
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+    Namespace:
+      type: object
+      required: [id, slug, display_name, owner_user_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        display_name:
+          type: string
+        owner_user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NamespaceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Namespace"
+    CreateLibraryRequest:
+      type: object
+      required: [slug, name, visibility]
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          minLength: 2
+          maxLength: 48
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 2000
+        visibility:
+          type: string
+          enum: [public, private]
+    UpdateLibraryRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 2000
+        visibility:
+          type: string
+          enum: [public, private]
+    Library:
+      type: object
+      required: [id, namespace_slug, slug, name, description, visibility, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        namespace_slug:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        visibility:
+          type: string
+          enum: [public, private]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LibraryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Library"
+    LibraryListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Library"
+    CreateLibraryVersionRequest:
+      type: object
+      required: [source_code]
+      additionalProperties: false
+      properties:
+        source_code:
+          type: string
+          minLength: 1
+          maxLength: 100000
+    LibraryVersion:
+      type: object
+      required: [id, version_number, source_code, content_sha256, byte_size, created_at, submission_url, submission_url_updated_at]
+      properties:
+        id:
+          type: string
+        version_number:
+          type: integer
+        source_code:
+          type: string
+        content_sha256:
+          type: string
+        byte_size:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        submission_url:
+          type: [string, "null"]
+          format: uri
+          maxLength: 2048
+          description: Related submission URL self-declared by the library owner (not verified); null when unset.
+        submission_url_updated_at:
+          type: [string, "null"]
+          format: date-time
+    LibraryVersionSummary:
+      type: object
+      required: [id, version_number, content_sha256, byte_size, created_at, submission_url, submission_url_updated_at]
+      properties:
+        id:
+          type: string
+        version_number:
+          type: integer
+        content_sha256:
+          type: string
+        byte_size:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        submission_url:
+          type: [string, "null"]
+          format: uri
+          maxLength: 2048
+          description: Related submission URL self-declared by the library owner (not verified); null when unset.
+        submission_url_updated_at:
+          type: [string, "null"]
+          format: date-time
+    LibraryVersionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/LibraryVersion"
+    LibraryVersionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryVersionSummary"
+    SetSubmissionURLRequest:
+      type: object
+      required: [submission_url]
+      additionalProperties: false
+      properties:
+        submission_url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: Absolute HTTP(S) URL of a submission the owner declares is related to this library version.
+
     ErrorResponse:
       type: object
       required: [error]
