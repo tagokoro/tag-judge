@@ -49,12 +49,7 @@ func NewNamespaceHandler(namespaces *usecase.NamespaceUsecase) *NamespaceHandler
 }
 
 func (h *NamespaceHandler) Create(w http.ResponseWriter, r *http.Request) {
-	actor, ok := auth.ActorFromContext(r.Context())
-	if !ok {
-		WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
-		return
-	}
-
+	actor, _ := auth.ActorFromContext(r.Context())
 	var request struct {
 		Slug        string `json:"slug"`
 		DisplayName string `json:"display_name"`

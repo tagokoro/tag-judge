@@ -181,19 +181,9 @@ func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, namespace
 		return nil, apperror.InvalidInput("INVALID_DESCRIPTION", "description must be at most 2000 characters")
 	}
 
-	resolved, err := u.resolveNamespace(ctx, namespaceSlug)
+	library, err := u.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
 	if err != nil {
 		return nil, err
-	}
-	library, err := u.libraries.FindBySlug(ctx, resolved.namespace.ID, librarySlug)
-	if err != nil {
-		return nil, err
-	}
-	if resolved.namespace.OwnerUserID != actor.UserID {
-		if library.Visibility == domain.LibraryVisibilityPrivate {
-			return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
-		}
-		return nil, apperror.Forbidden("LIBRARY_FORBIDDEN", "library owner required")
 	}
 
 	updated, err := u.libraries.Update(ctx, repository.UpdateLibraryParams{
@@ -205,6 +195,6 @@ func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, namespace
 	if err != nil {
 		return nil, err
 	}
-	updated.NamespaceSlug = resolved.namespace.Slug
+	updated.NamespaceSlug = library.NamespaceSlug
 	return updated, nil
 }

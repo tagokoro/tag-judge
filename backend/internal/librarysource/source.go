@@ -1,7 +1,8 @@
 // Package librarysource holds the shared validation and hashing rules for the
 // immutable single-file Python source stored on a library version. It performs
-// no combining, adapter handling, I/O, HTTP, or database work: with the URL
-// link design there is no code to join and no judge run to feed.
+// no combining, adapter handling, I/O, HTTP, or database work: a version's
+// submission URL is only self-declared, so there is no code to join and no
+// judge run to feed.
 package librarysource
 
 import (
