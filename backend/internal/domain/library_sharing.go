@@ -94,7 +94,7 @@ const MaxSubmissionURLLength = 2048
 var ErrInvalidSubmissionURL = errors.New("invalid submission URL")
 
 // ValidateSubmissionURL is the authoritative FORMAT gate for a self-declared
-// submission link. It trims surrounding whitespace and requires an absolute
+// submission URL. It trims surrounding whitespace and requires an absolute
 // HTTP(S) URL with a real (non-empty) host, no control characters or internal
 // whitespace, and at most MaxSubmissionURLLength bytes. The host check uses
 // net/url's Hostname(), so ANY absolute HTTP(S) URL with a host is accepted,
