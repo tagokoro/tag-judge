@@ -36,3 +36,15 @@ SELECT test_case_id, status, execution_time_ms, memory_kb
 FROM submission_results
 WHERE submission_id = $1
 ORDER BY test_case_id, id;
+
+-- Recent submissions to public problems for the site-wide submission list.
+-- Only public metadata is returned: no source key and no user id. The
+-- submitter is shown by their namespace slug when they have one.
+-- name: ListRecentPublicSubmissions :many
+SELECT s.id, s.problem_id, p.title AS problem_title, s.language, s.status, s.score, s.created_at, s.judged_at,
+       n.slug AS submitter_namespace_slug
+FROM submissions s
+JOIN problems p ON p.id = s.problem_id AND p.visibility = 'public'
+LEFT JOIN namespaces n ON n.owner_user_id = s.user_id
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

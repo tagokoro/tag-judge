@@ -32,3 +32,13 @@ FROM libraries
 WHERE namespace_id = ((sqlc.arg(namespace_id)::text)::uuid)
 ORDER BY created_at DESC, slug ASC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- Public libraries across every namespace, newest first, for the site-wide
+-- library list. Private libraries never appear here.
+-- name: ListAllPublicLibraries :many
+SELECT l.id, n.slug AS namespace_slug, l.slug, l.name, l.description, l.visibility, l.created_at, l.updated_at
+FROM libraries l
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE l.visibility = 'public'
+ORDER BY l.created_at DESC, l.id ASC
+LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

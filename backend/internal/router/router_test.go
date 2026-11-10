@@ -775,6 +775,10 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, _ repository.ListP
 	return []domain.Problem{}, nil
 }
 
+func (r *fakeProblemRepository) ListByCreator(_ context.Context, params repository.ListProblemsByCreatorParams) ([]domain.Problem, error) {
+	return []domain.Problem{{ID: 7, Title: "Mine", Visibility: domain.ProblemVisibilityPrivate, CreatedBy: params.CreatedBy}}, nil
+}
+
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
 	return &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: "problems/1/testcases/current.json", CreatedBy: routerUserID}, nil
 }
@@ -846,6 +850,10 @@ func (r *fakeSubmissionRepository) FindByID(_ context.Context, id int64) (*domai
 func (r *fakeSubmissionRepository) ListCaseResults(_ context.Context, _ int64) ([]domain.SubmissionCaseResult, error) {
 	r.caseResultsCalls++
 	return r.caseResults, r.caseResultsErr
+}
+
+func (r *fakeSubmissionRepository) ListRecentPublic(_ context.Context, _ repository.ListRecentSubmissionsParams) ([]domain.PublicSubmission, error) {
+	return []domain.PublicSubmission{{ID: 9, ProblemID: 1, ProblemTitle: "A + B", Language: "python", Status: "ac", SubmitterNamespaceSlug: "seed-author"}}, nil
 }
 
 func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.ListSubmissionsParams) ([]domain.Submission, error) {
@@ -1704,6 +1712,12 @@ func (r *fakeLibraryRouterRepository) ListPublic(_ context.Context, _ string, _,
 	return r.listPublic, nil
 }
 
+func (r *fakeLibraryRouterRepository) ListAllPublic(_ context.Context, _, _ int) ([]domain.Library, error) {
+	library := r.library
+	library.NamespaceSlug = "seed-author"
+	return []domain.Library{library}, nil
+}
+
 func (r *fakeLibraryRouterRepository) ListAll(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
 	return r.listAll, nil
 }
@@ -1764,4 +1778,40 @@ func (r *fakeLibraryVersionRouterRepository) SetSubmissionURL(_ context.Context,
 		version.SubmissionURL = *params.SubmissionURL
 	}
 	return version, nil
+}
+
+func TestSiteWideListRoutes(t *testing.T) {
+	router := newTestRouter()
+
+	get := func(path string, authed bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if authed {
+			setAuth(req, "user")
+		}
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		return res
+	}
+
+	if res := get("/api/v1/libraries", false); res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"namespace_slug":"seed-author"`) {
+		t.Fatalf("anonymous GET /libraries = %d %s", res.Code, res.Body.String())
+	}
+
+	// /submissions/recent must not be captured by /submissions/{submission_id}.
+	res := get("/api/v1/submissions/recent", false)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"problem_title":"A + B"`) {
+		t.Fatalf("anonymous GET /submissions/recent = %d %s", res.Code, res.Body.String())
+	}
+	for _, private := range []string{"user_id", "source_code"} {
+		if strings.Contains(res.Body.String(), private) {
+			t.Fatalf("recent submissions must not expose %q: %s", private, res.Body.String())
+		}
+	}
+
+	if res := get("/api/v1/me/problems", false); res.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous GET /me/problems = %d, want 401", res.Code)
+	}
+	if res := get("/api/v1/me/problems", true); res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"created_by":"`+routerUserID+`"`) {
+		t.Fatalf("GET /me/problems = %d %s", res.Code, res.Body.String())
+	}
 }

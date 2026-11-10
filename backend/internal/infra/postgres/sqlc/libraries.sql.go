@@ -97,6 +97,62 @@ func (q *Queries) GetLibraryBySlug(ctx context.Context, arg GetLibraryBySlugPara
 	return i, err
 }
 
+const listAllPublicLibraries = `-- name: ListAllPublicLibraries :many
+SELECT l.id, n.slug AS namespace_slug, l.slug, l.name, l.description, l.visibility, l.created_at, l.updated_at
+FROM libraries l
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE l.visibility = 'public'
+ORDER BY l.created_at DESC, l.id ASC
+LIMIT $2 OFFSET $1
+`
+
+type ListAllPublicLibrariesParams struct {
+	ResultOffset int32 `json:"result_offset"`
+	ResultLimit  int32 `json:"result_limit"`
+}
+
+type ListAllPublicLibrariesRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	NamespaceSlug string             `json:"namespace_slug"`
+	Slug          string             `json:"slug"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Visibility    string             `json:"visibility"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Public libraries across every namespace, newest first, for the site-wide
+// library list. Private libraries never appear here.
+func (q *Queries) ListAllPublicLibraries(ctx context.Context, arg ListAllPublicLibrariesParams) ([]ListAllPublicLibrariesRow, error) {
+	rows, err := q.db.Query(ctx, listAllPublicLibraries, arg.ResultOffset, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllPublicLibrariesRow
+	for rows.Next() {
+		var i ListAllPublicLibrariesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NamespaceSlug,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.Visibility,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNamespaceLibraries = `-- name: ListNamespaceLibraries :many
 SELECT id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
 FROM libraries

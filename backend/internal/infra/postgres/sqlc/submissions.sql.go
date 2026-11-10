@@ -119,6 +119,66 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 	return i, err
 }
 
+const listRecentPublicSubmissions = `-- name: ListRecentPublicSubmissions :many
+SELECT s.id, s.problem_id, p.title AS problem_title, s.language, s.status, s.score, s.created_at, s.judged_at,
+       n.slug AS submitter_namespace_slug
+FROM submissions s
+JOIN problems p ON p.id = s.problem_id AND p.visibility = 'public'
+LEFT JOIN namespaces n ON n.owner_user_id = s.user_id
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListRecentPublicSubmissionsParams struct {
+	ResultOffset int32 `json:"result_offset"`
+	ResultLimit  int32 `json:"result_limit"`
+}
+
+type ListRecentPublicSubmissionsRow struct {
+	ID                     int64              `json:"id"`
+	ProblemID              int64              `json:"problem_id"`
+	ProblemTitle           string             `json:"problem_title"`
+	Language               string             `json:"language"`
+	Status                 string             `json:"status"`
+	Score                  int32              `json:"score"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	JudgedAt               pgtype.Timestamptz `json:"judged_at"`
+	SubmitterNamespaceSlug pgtype.Text        `json:"submitter_namespace_slug"`
+}
+
+// Recent submissions to public problems for the site-wide submission list.
+// Only public metadata is returned: no source key and no user id. The
+// submitter is shown by their namespace slug when they have one.
+func (q *Queries) ListRecentPublicSubmissions(ctx context.Context, arg ListRecentPublicSubmissionsParams) ([]ListRecentPublicSubmissionsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentPublicSubmissions, arg.ResultOffset, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentPublicSubmissionsRow
+	for rows.Next() {
+		var i ListRecentPublicSubmissionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProblemID,
+			&i.ProblemTitle,
+			&i.Language,
+			&i.Status,
+			&i.Score,
+			&i.CreatedAt,
+			&i.JudgedAt,
+			&i.SubmitterNamespaceSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSubmissionCaseResults = `-- name: ListSubmissionCaseResults :many
 SELECT test_case_id, status, execution_time_ms, memory_kb
 FROM submission_results

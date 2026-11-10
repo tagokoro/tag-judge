@@ -109,6 +109,24 @@ func (r *ProblemRepository) ListPublic(ctx context.Context, params repository.Li
 	return problems, nil
 }
 
+func (r *ProblemRepository) ListByCreator(ctx context.Context, params repository.ListProblemsByCreatorParams) ([]domain.Problem, error) {
+	rows, err := r.queries.ListProblemsByCreator(ctx, sqlc.ListProblemsByCreatorParams{
+		CreatedBy:    params.CreatedBy,
+		ResultLimit:  int32(params.Limit),
+		ResultOffset: int32(params.Offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	problems := make([]domain.Problem, 0, len(rows))
+	for _, row := range rows {
+		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt))
+	}
+
+	return problems, nil
+}
+
 func (r *ProblemRepository) FindPublicByID(ctx context.Context, id int64) (*domain.Problem, error) {
 	row, err := r.queries.GetPublicProblem(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {

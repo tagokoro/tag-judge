@@ -74,6 +74,10 @@ func (r *fakeLibraryRepo) ListPublic(_ context.Context, _ string, _, _ int) ([]d
 	return []domain.Library{}, nil
 }
 
+func (r *fakeLibraryRepo) ListAllPublic(_ context.Context, _, _ int) ([]domain.Library, error) {
+	return nil, nil
+}
+
 func (r *fakeLibraryRepo) ListAll(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
 	return []domain.Library{}, nil
 }
