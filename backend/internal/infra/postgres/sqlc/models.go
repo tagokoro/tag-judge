@@ -78,9 +78,8 @@ type Library struct {
 type LibraryVerification struct {
 	ID               int64              `json:"id"`
 	LibraryVersionID pgtype.UUID        `json:"library_version_id"`
-	SubmissionID     int64              `json:"submission_id"`
-	AdapterSource    string             `json:"adapter_source"`
-	AdapterSha256    string             `json:"adapter_sha256"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	SubmissionUrl    string             `json:"submission_url"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 

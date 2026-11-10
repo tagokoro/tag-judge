@@ -1,6 +1,15 @@
 # Library Sharing MVP Implementation Plan
 
-> 設計: [docs/superpowers/specs/2026-11-08-library-sharing-mvp-design.md](../specs/2026-11-08-library-sharing-mvp-design.md)
+> 設計: [docs/superpowers/specs/2026-11-08-library-sharing-mvp-design.md](../specs/2026-11-08-library-sharing-mvp-design.md)（失効）
+
+> ⚠️ **失効（2026-11-10）— この実装計画は提出URL方式へ置き換えられました**
+>
+> 本計画は adapter / コード結合 / Submission / Outbox / Judge で検証する旧方式の 4 PR 計画です。**新しい計画は [提出URL実装計画](2026-11-10-verification-url.md)、新しい設計は [提出URL設計](../specs/2026-11-10-verification-url-design.md)** です。PR 境界は PR #44（DB）→ #45（API）→ #46（Next.js 基盤追従）→ #47（画面）へ更新されました。
+>
+> - PR #44（DB）は URL リンク用の `library_verifications`（`submission_url`, `created_by`）へ変更し、`submission_id` / `adapter_source` / `adapter_sha256` を削除します。**Submission / Outbox / S3 / 判定投入は作成しません**。
+> - 以降の PR も adapter / 結合 / 判定 / polling を URL の登録・一覧・詳細表示へ置き換えます。既存 Submission API と Judge は変更しません。
+>
+> 本計画の「Goal」「Shared constraints」「PR1 / PR2 の Interfaces / TDD steps / acceptance」「Self-review checklist」のうち、検証・判定（outbox payload・submission/outbox transaction・adapter・combine・librarycombine・case result polling・existing judge integration・`ac` ポーリング）に関する**手順と受け入れ条件はすべて無効**です。新しい受け入れ条件は [提出URL設計](../specs/2026-11-10-verification-url-design.md) の「受け入れ確認」と [提出URL実装計画](2026-11-10-verification-url.md) を参照してください。
 
 ## Goal and delivery order
 
@@ -155,7 +164,9 @@ Modify `frontend/app/page.tsx`, `frontend/app/layout.tsx` and add focused `compo
 4. Manual E2E with PostgreSQL, LocalStack, Go API, Next.js, and Worker: create namespace/private library/version, non-owner 404, publicize, verify Problem 1 with adapter, poll to `ac`, and confirm normal submission remains unchanged.
 5. If DB/Worker/LocalStack is unavailable, record E2E as blocked; API/usecase tests plus Next lint/typecheck/build remain required and do not claim judge acceptance.
 
-## Self-review checklist
+## Self-review checklist <!-- 失効: 検証・判定の受け入れ条件は 2026-11-10 提出URL設計で無効 -->
+
+> **失効:** このチェックリストの「existing judge payload」「DB/E2E」「adapter/case results」など検証方式に依存する項目は現在の受け入れ条件ではありません。[提出URL設計](../specs/2026-11-10-verification-url-design.md) を参照してください。
 
 - No static single-HTML frontend or `FRONTEND_DIR` serving remains in this plan/spec.
 - Four PR boundaries are explicit and dependency ordered; PR3 contains setup only and PR4 contains UI only.
