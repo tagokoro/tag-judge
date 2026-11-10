@@ -317,13 +317,20 @@ func NewLibraryVerificationRepository(db *pgxpool.Pool) *LibraryVerificationRepo
 	return &LibraryVerificationRepository{db: db, queries: sqlc.New(db)}
 }
 
-// Create stores one self-declared submission URL link. The transaction holds a
-// FOR SHARE lock on the library row while re-checking visibility and version
-// membership, so a concurrent PATCH that privatizes the library cannot let a
-// non-owner commit a link. Only the library_verifications row is written: no
-// Submission, Outbox record, S3 object, Judge run, or admission check. A
-// rejected create commits nothing and returns LIBRARY_NOT_FOUND.
+// Create stores one self-declared submission URL link. It first runs the
+// authoritative domain URL validator (so invalid/hostless URLs are rejected
+// even when Create is called directly, outside the future API layer) and
+// persists the trimmed URL. The transaction holds a FOR SHARE lock on the
+// library row while re-checking visibility and version membership, so a
+// concurrent PATCH that privatizes the library cannot let a non-owner commit a
+// link. Only the library_verifications row is written: no Submission, Outbox
+// record, S3 object, Judge run, or admission check. A rejected create commits
+// nothing and returns INVALID_SUBMISSION_URL or LIBRARY_NOT_FOUND.
 func (r *LibraryVerificationRepository) Create(ctx context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, error) {
+	submissionURL, err := domain.ValidateSubmissionURL(params.SubmissionURL)
+	if err != nil {
+		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin library verification transaction: %w", err)
@@ -361,7 +368,7 @@ func (r *LibraryVerificationRepository) Create(ctx context.Context, params repos
 	id, err := queries.InsertLibraryVerification(ctx, sqlc.InsertLibraryVerificationParams{
 		LibraryVersionID: params.LibraryVersionID,
 		CreatedBy:        params.ActorUserID,
-		SubmissionUrl:    params.SubmissionURL,
+		SubmissionUrl:    submissionURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create library verification link: %w", err)

@@ -132,6 +132,44 @@ func assertCheckViolation(t *testing.T, err error) {
 	}
 }
 
+// invalidSubmissionURLs are URLs the URL-only design must reject, both at the
+// DB CHECK backstop and at the authoritative domain/repository validator. The
+// first three are the hostless authorities that the original
+// "^https?://[^/[:space:][:cntrl:]]+" CHECK wrongly accepted (Codex finding):
+// their authority is only "?x", "@" or ":443" with no host, yet every one of
+// those characters was permitted by the old negated class.
+var invalidSubmissionURLs = []struct{ name, url string }{
+	{"hostless query", "https://?x"},
+	{"hostless at", "https://@"},
+	{"hostless port", "https://:443"},
+	{"scheme only https", "https://"},
+	{"scheme only http", "http://"},
+	{"no scheme", "not-a-url"},
+	{"wrong scheme", "ftp://example.com/x"},
+	{"opaque", "https:example.com"},
+	{"userinfo no host", "https://user@"},
+	{"leading dot host", "https://.example.com"},
+	{"control char", "https://example.com/\x07"},
+	{"internal space", "https://exa mple.com"},
+	{"too long", "https://e.com/" + strings.Repeat("a", 2049-len("https://e.com/"))},
+}
+
+// validSubmissionURLs are representative absolute HTTP(S) URLs with a real
+// host, all of which must be accepted. They deliberately cover localhost with a
+// port, query strings, fragments, IPv4, IPv6 literals, and the 2048-byte limit.
+var validSubmissionURLs = []struct{ name, url string }{
+	{"simple host", "https://example.com"},
+	{"submission path", "https://example.com/submissions/12345"},
+	{"localhost port path query", "http://localhost:3000/submit?q=1"},
+	{"ipv4 port", "http://127.0.0.1:8080/x"},
+	{"ipv6 literal port", "http://[::1]:8080/path"},
+	{"query no path", "https://example.com?q=1"},
+	{"fragment", "https://example.com#frag"},
+	{"localhost", "http://localhost"},
+	{"port path query fragment", "https://example.com:8443/x?y=2#z"},
+	{"max length 2048", "https://e.com/" + strings.Repeat("a", 2048-len("https://e.com/"))},
+}
+
 // TestNamespaceUniqueConstraints verifies that the PostgreSQL repository maps
 // the unique constraints on namespaces to their API conflict contracts.
 func TestNamespaceUniqueConstraints(t *testing.T) {
@@ -678,9 +716,12 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestLibraryVerificationSubmissionURLConstraints proves the DB backstops the
-// shared URL rules: only absolute HTTP(S) URLs with a host, no control chars,
-// and at most 2048 bytes are stored, and a rejected create commits nothing.
+// TestLibraryVerificationSubmissionURLConstraints proves the DB CHECK
+// constraints are a real backstop: hostless/invalid URLs (including the three
+// reported by Codex review) are rejected with a check_violation, while
+// representative valid URLs (localhost:port, query, IPv6, 2048 bytes) are
+// accepted. This exercises the constraints directly via raw SQL, i.e. it does
+// not depend on the repository/domain validator.
 func TestLibraryVerificationSubmissionURLConstraints(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -689,7 +730,7 @@ func TestLibraryVerificationSubmissionURLConstraints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
-	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	_, _, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
 
 	insert := func(ctx context.Context, url string) error {
 		_, err := db.Exec(ctx, `
@@ -698,36 +739,80 @@ VALUES ($1::uuid, $2::uuid, $3)`, versionID, ownerUserID, url)
 		return err
 	}
 
-	// A 2048-byte URL is allowed; 2049 bytes is rejected.
-	prefix := "https://e.com/"
-	valid2048 := prefix + strings.Repeat("a", 2048-len(prefix))
-	invalid2049 := prefix + strings.Repeat("a", 2049-len(prefix))
-	if err := insert(ctx, valid2048); err != nil {
-		t.Fatalf("2048-byte URL must be accepted: %v", err)
-	}
-
-	invalid := []struct {
-		name string
-		url  string
-	}{
-		{"scheme only", "https://"},
-		{"hostless", "not-a-url"},
-		{"wrong scheme", "ftp://example.com/x"},
-		{"control char", "https://example.com/\x07"},
-		{"too long", invalid2049},
-	}
-	for _, tc := range invalid {
+	for _, tc := range invalidSubmissionURLs {
 		assertCheckViolation(t, insert(ctx, tc.url))
 	}
-
-	// repository.Create with a bad URL also fails at the INSERT and commits
-	// nothing (the transaction rolls back), leaving only the valid row.
-	repo := postgres.NewLibraryVerificationRepository(db)
-	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://")); err == nil {
-		t.Fatal("Create with a scheme-only URL must fail")
+	for _, tc := range validSubmissionURLs {
+		if err := insert(ctx, tc.url); err != nil {
+			t.Fatalf("valid URL %q (%s) rejected by DB CHECK: %v", tc.url, tc.name, err)
+		}
 	}
-	if got := linkCount(t, ctx, db); got != 1 {
-		t.Fatalf("library_verifications count = %d, want 1 after rejected create", got)
+	if got := linkCount(t, ctx, db); got != int64(len(validSubmissionURLs)) {
+		t.Fatalf("library_verifications count = %d, want %d valid rows", got, len(validSubmissionURLs))
+	}
+}
+
+// TestCreateLibraryVerificationValidatesURL proves the domain/repository is
+// the authoritative gate: invalid URLs (including the three hostless ones) are
+// rejected by Create even when it is called directly, outside any future API
+// layer, and valid URLs are stored trimmed, with no execution rows written.
+// This is the RED-GREEN fix for the hostless URL gap found in Codex review.
+func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	repo := postgres.NewLibraryVerificationRepository(db)
+
+	for _, tc := range invalidSubmissionURLs {
+		if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, tc.url)); err == nil {
+			t.Fatalf("Create accepted invalid URL %q (%s)", tc.url, tc.name)
+		}
+	}
+	if got := linkCount(t, ctx, db); got != 0 {
+		t.Fatalf("invalid URLs committed %d link rows, want 0", got)
+	}
+
+	for _, tc := range validSubmissionURLs {
+		link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, tc.url))
+		if err != nil {
+			t.Fatalf("Create rejected valid URL %q (%s): %v", tc.url, tc.name, err)
+		}
+		if link.SubmissionURL != tc.url {
+			t.Fatalf("returned URL = %q, want %q", link.SubmissionURL, tc.url)
+		}
+		var stored string
+		if err := db.QueryRow(ctx, `SELECT submission_url FROM library_verifications WHERE id = $1`, link.ID).Scan(&stored); err != nil {
+			t.Fatalf("read stored URL for %q: %v", tc.url, err)
+		}
+		if stored != tc.url {
+			t.Fatalf("stored URL = %q, want %q", stored, tc.url)
+		}
+	}
+	if got := linkCount(t, ctx, db); got != int64(len(validSubmissionURLs)) {
+		t.Fatalf("library_verifications count = %d, want %d", got, len(validSubmissionURLs))
+	}
+	assertNoExecutionRows(t, ctx, db)
+
+	// Surrounding whitespace is trimmed before persistence (spec: trim leading
+	// and trailing whitespace), so the DB never stores a padded URL.
+	link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "  https://example.com/trimmed  "))
+	if err != nil {
+		t.Fatalf("Create with padded URL: %v", err)
+	}
+	if link.SubmissionURL != "https://example.com/trimmed" {
+		t.Fatalf("trimmed URL returned as %q", link.SubmissionURL)
+	}
+	var stored string
+	if err := db.QueryRow(ctx, `SELECT submission_url FROM library_verifications WHERE id = $1`, link.ID).Scan(&stored); err != nil {
+		t.Fatalf("read trimmed URL: %v", err)
+	}
+	if stored != "https://example.com/trimmed" {
+		t.Fatalf("trimmed URL stored as %q", stored)
 	}
 	assertNoExecutionRows(t, ctx, db)
 }

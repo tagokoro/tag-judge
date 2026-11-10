@@ -77,9 +77,21 @@ CREATE TRIGGER library_versions_no_update_delete
 -- Submission, Outbox, Judge run, verdict, score, or case result. The URL is
 -- never fetched, parsed for content, or judged; a link is self-declared and is
 -- not verified proof of the submitter, verdict, or the library version used.
--- These CHECK constraints backstop the shared URL rules (absolute HTTP(S) with
--- a host, no control characters, at most 2048 bytes); the API layer trims and
--- validates input and returns 400 before reaching the repository.
+--
+-- These CHECK constraints are a defensive DB backstop, NOT the authoritative
+-- validator. The authoritative gate is domain.ValidateSubmissionURL, called by
+-- the repository before persistence (so invalid URLs are rejected even outside
+-- the future API layer); it trims whitespace, requires a non-empty host via
+-- net/url, and caps the value at 2048 bytes.
+--
+-- absolute_check must require a REAL host, not just "something after //". The
+-- earlier '^https?://[^/[:space:][:cntrl:]]+' pattern wrongly accepted hostless
+-- authorities such as 'https://?x', 'https://@' and 'https://:443' because '?',
+-- '@' and ':' were allowed as the first authority character. This pattern
+-- requires the authority (after any optional userinfo ending in @) to begin
+-- with a host character: an ASCII letter/digit, or '[' for an IPv6 literal.
+-- It is anchored to the end (with an optional /, ? or # path/query/fragment
+-- tail) so a bare userinfo or empty-port authority cannot masquerade as a host.
 CREATE TABLE library_verifications (
     id bigserial PRIMARY KEY,
     library_version_id uuid NOT NULL REFERENCES library_versions (id),
@@ -87,7 +99,9 @@ CREATE TABLE library_verifications (
     submission_url text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT library_verifications_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
-    CONSTRAINT library_verifications_submission_url_absolute_check CHECK (submission_url ~ '^https?://[^/[:space:][:cntrl:]]+'),
+    CONSTRAINT library_verifications_submission_url_absolute_check CHECK (
+        submission_url ~ '^https?://([^@/?#[:space:][:cntrl:]]*@)?[A-Za-z0-9\[][^/@?#[:space:][:cntrl:]]*([/?#].*)?$'
+    ),
     CONSTRAINT library_verifications_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
 );
 
