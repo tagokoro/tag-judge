@@ -11,8 +11,8 @@
   --mizu: #7cc6e8;
   --deep: #0f5e8c;
   --deep-hover: #0b4a6f;
-  --ink: #16324a;
-  --muted: #587086;
+  --ink: #0d2338;
+  --muted: #3f566a;
   --line: #d3e7f3;
   --rose: #a23b55;
   --rose-bg: #fbecf0;
@@ -44,6 +44,7 @@ body {
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--font-sans);
+  font-weight: 500;
   font-size: 15px;
   line-height: 1.75;
   -webkit-font-smoothing: antialiased;
@@ -85,7 +86,7 @@ code {
 }
 
 .site-header-inner {
-  padding: 0.7rem 1.5rem;
+  padding: 0.7rem 24px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -147,7 +148,20 @@ code {
 }
 
 .site-header-error {
-  margin: 0 1.5rem 0.7rem;
+  margin: 0 24px 0.7rem;
+}
+
+/* Move the brand in by roughly 15% of the width, in whole pixels. */
+@media (min-width: 1200px) {
+  .site-header-inner {
+    padding-left: 192px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .site-header-inner {
+    padding-left: 240px;
+  }
 }
 
 .dev-menu {
