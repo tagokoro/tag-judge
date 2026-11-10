@@ -21,8 +21,9 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
-// Uses an isolated schema and the real migrations, repository, usecase, and HTTP
-// handler. Set SUBMISSION_DETAILS_TEST_DATABASE_URL to a local test database.
+// Uses an isolated schema (plus public for pgcrypto) and the real migrations,
+// repository, usecase, and HTTP handler. Set SUBMISSION_DETAILS_TEST_DATABASE_URL
+// to a local test database.
 func TestSubmissionDetailsPostgres(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -122,7 +123,7 @@ func submissionDetailsTestDatabase(t *testing.T, ctx context.Context, databaseUR
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
