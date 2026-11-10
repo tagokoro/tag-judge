@@ -100,7 +100,7 @@ func (r *fakeVersionRepo) Create(_ context.Context, params repository.CreateLibr
 	return version, nil
 }
 
-func (r *fakeVersionRepo) FindByNumber(_ context.Context, _ string, versionNumber int) (*domain.LibraryVersion, error) {
+func (r *fakeVersionRepo) FindByNumber(_ context.Context, _ string, versionNumber int, _ string) (*domain.LibraryVersion, error) {
 	if version, ok := r.byNumber[versionNumber]; ok {
 		return version, nil
 	}

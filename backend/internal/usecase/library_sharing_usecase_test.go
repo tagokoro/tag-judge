@@ -477,6 +477,10 @@ type fakeLibraryVersionRepository struct {
 	findErr      error
 	summaries    []domain.LibraryVersion
 	listParams   repository.ListLibraryVersionsParams
+	// findActorID captures the actor user id threaded into FindByNumber so the
+	// RED-GREEN wiring tests can assert the fetch is actor-scoped, not
+	// unconditional.
+	findActorID string
 }
 
 func (r *fakeLibraryVersionRepository) Create(_ context.Context, params repository.CreateLibraryVersionParams) (*domain.LibraryVersion, error) {
@@ -496,7 +500,8 @@ func (r *fakeLibraryVersionRepository) Create(_ context.Context, params reposito
 	}, nil
 }
 
-func (r *fakeLibraryVersionRepository) FindByNumber(_ context.Context, _ string, versionNumber int) (*domain.LibraryVersion, error) {
+func (r *fakeLibraryVersionRepository) FindByNumber(_ context.Context, _ string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error) {
+	r.findActorID = actorUserID
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
@@ -602,5 +607,56 @@ func TestListLibraryVersionSummaries(t *testing.T) {
 	}
 	if versions.listParams.Limit != 5 || versions.listParams.Offset != 2 {
 		t.Fatalf("list params = %+v", versions.listParams)
+	}
+}
+
+// The following RED-GREEN wiring tests assert that every version-source read
+// threads the reader's user id into the repository fetch. That is what lets the
+// (now visibility-scoped) SQL statement authorize the CURRENT library state in
+// the same statement as the source read, closing the Resolve/check -> fetch
+// TOCTOU window. Before the fix, these fetches carried no actor id.
+func TestGetLibraryVersionThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versions := &fakeLibraryVersionRepository{
+			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1, SourceCode: "x=1\n"}},
+		}
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.Get(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
+			t.Fatalf("Get as %q: %v", actor.UserID, err)
+		}
+		if versions.findActorID != actor.UserID {
+			t.Fatalf("Get actor %q: FindByNumber actorUserID = %q, want reader id", actor.UserID, versions.findActorID)
+		}
+	}
+}
+
+func TestListLibraryVersionSummariesThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versions := &fakeLibraryVersionRepository{summaries: []domain.LibraryVersion{{VersionNumber: 1}}}
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.List(context.Background(), actor, "seed-author", "union-find", 5, true, 0); err != nil {
+			t.Fatalf("List as %q: %v", actor.UserID, err)
+		}
+		if versions.listParams.ActorUserID != actor.UserID {
+			t.Fatalf("List actor %q: ListSummaries ActorUserID = %q, want reader id", actor.UserID, versions.listParams.ActorUserID)
+		}
+	}
+}
+
+func TestResolveThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
+		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		versions := &fakeLibraryVersionRepository{
+			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1}},
+		}
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+		if _, err := use.Resolve(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
+			t.Fatalf("Resolve as %q: %v", actor.UserID, err)
+		}
+		if versions.findActorID != actor.UserID {
+			t.Fatalf("Resolve actor %q: FindByNumber actorUserID = %q, want reader id", actor.UserID, versions.findActorID)
+		}
 	}
 }

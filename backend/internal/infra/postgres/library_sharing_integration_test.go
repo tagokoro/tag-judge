@@ -502,7 +502,7 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 		}
 	}
 
-	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0})
+	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
 	if err != nil {
 		t.Fatalf("list links: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 		}
 	}
 
-	page, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 2, Offset: 2})
+	page, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 2, Offset: 2, ActorUserID: ownerUserID})
 	if err != nil {
 		t.Fatalf("list page: %v", err)
 	}
@@ -876,12 +876,254 @@ func TestLibraryVerificationReadsReflectCurrentVisibility(t *testing.T) {
 	if detail.Visibility != domain.LibraryVisibilityPrivate || detail.OwnerUserID != ownerUserID {
 		t.Fatalf("private read context = %+v", detail)
 	}
-	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0})
+	// The library is now private, so only the OWNER's actor id may list the
+	// link (the fetch is visibility-scoped); a non-owner sees no rows.
+	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
 	if err != nil {
 		t.Fatalf("list after privatization: %v", err)
 	}
 	if len(links) != 1 || links[0].Visibility != domain.LibraryVisibilityPrivate {
 		t.Fatalf("list read context = %+v", links)
+	}
+	assertNoExecutionRows(t, ctx, db)
+}
+
+// flipLibraryVisibility commits a visibility change on the pool, modelling the
+// owner's PATCH that can land between a public Resolve and a data fetch in the
+// TOCTOU race. It is deliberately a separate committed statement.
+func flipLibraryVisibility(t *testing.T, ctx context.Context, db *pgxpool.Pool, libraryID, visibility string) {
+	t.Helper()
+	if _, err := db.Exec(ctx, `UPDATE libraries SET visibility = $2 WHERE id = $1::uuid`, libraryID, visibility); err != nil {
+		t.Fatalf("set visibility %q: %v", visibility, err)
+	}
+}
+
+const (
+	toctouStrangerUserID = "00000000-0000-4000-8000-0000000000aa"
+	toctouAdminUserID    = "00000000-0000-4000-8000-0000000000bb"
+)
+
+// TestListLibraryVerificationsEnforcesCurrentVisibilityAtFetch is the RED-GREEN
+// regression for the Codex TOCTOU finding. It deterministically models the race:
+// a read resolves the library while it is public, the owner privatizes it, and
+// THEN the link fetch runs. Because ListByVersion now gates rows on the library's
+// CURRENT visibility with the actor user id in the SAME SQL statement, a
+// non-owner (anonymous, stranger, or admin - no role bypass) sees no URL links;
+// only the owner still does. Before the fix, the unconditional fetch leaked the
+// now-private links.
+func TestListLibraryVerificationsEnforcesCurrentVisibilityAtFetch(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	repo := postgres.NewLibraryVerificationRepository(db)
+	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://example.com/secret-link")); err != nil {
+		t.Fatalf("create link: %v", err)
+	}
+
+	list := func(actorUserID string) []domain.LibraryVerification {
+		t.Helper()
+		links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{
+			LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: actorUserID,
+		})
+		if err != nil {
+			t.Fatalf("list as %q: %v", actorUserID, err)
+		}
+		return links
+	}
+
+	// Public baseline: everyone, including anonymous, sees the link.
+	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID, toctouAdminUserID} {
+		if got := list(actor); len(got) != 1 {
+			t.Fatalf("public baseline: actor %q saw %d links, want 1", actor, len(got))
+		}
+	}
+
+	// Race window: privatization commits after a public Resolve but before the
+	// fetch. The fetch statement itself must now hide the private links.
+	flipLibraryVisibility(t, ctx, db, libraryID, "private")
+	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID} {
+		if got := list(actor); len(got) != 0 {
+			t.Fatalf("TOCTOU LEAK: non-owner %q saw %d now-private link(s)", actor, len(got))
+		}
+	}
+	// The owner still sees their own private link (functionality preserved).
+	if got := list(ownerUserID); len(got) != 1 {
+		t.Fatalf("owner saw %d private links, want 1", len(got))
+	}
+
+	// Flipping back to public restores visibility to everyone.
+	flipLibraryVisibility(t, ctx, db, libraryID, "public")
+	if got := list(""); len(got) != 1 {
+		t.Fatalf("public restore: anonymous saw %d links, want 1", len(got))
+	}
+	assertNoExecutionRows(t, ctx, db)
+}
+
+// TestGetLibraryVersionEnforcesCurrentVisibilityAtFetch proves the version
+// source Get checks the CURRENT visibility in the same statement as the source
+// read: after privatization, a non-owner (anonymous, stranger, admin, or an
+// invalid id) gets a 404 rather than the source, while the owner still reads it.
+// An uppercase owner uuid must still match (case-insensitive comparison), and an
+// invalid actor id must not raise a SQL cast error or grant access.
+func TestGetLibraryVersionEnforcesCurrentVisibilityAtFetch(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, libraryID, _, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	versions := postgres.NewLibraryVersionRepository(db)
+
+	get := func(actor string) (*domain.LibraryVersion, error) {
+		return versions.FindByNumber(ctx, libraryID, 1, actor)
+	}
+	// Public baseline: source is readable by anyone.
+	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID} {
+		version, err := get(actor)
+		if err != nil || version.SourceCode == "" {
+			t.Fatalf("public baseline actor %q: version=%+v err=%v", actor, version, err)
+		}
+	}
+	// Uppercase owner uuid still matches the case-insensitive predicate.
+	if version, err := get(strings.ToUpper(ownerUserID)); err != nil || version.SourceCode == "" {
+		t.Fatalf("uppercase owner: version=%+v err=%v", version, err)
+	}
+
+	flipLibraryVisibility(t, ctx, db, libraryID, "private")
+	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID, "not-a-uuid"} {
+		if _, err := get(actor); !errors.Is(err, apperror.ErrNotFound) {
+			t.Fatalf("TOCTOU LEAK: non-owner %q fetched privatized source: err=%v", actor, err)
+		}
+	}
+	if version, err := get(ownerUserID); err != nil || version.SourceCode == "" {
+		t.Fatalf("owner lost access to private source: version=%+v err=%v", version, err)
+	}
+
+	flipLibraryVisibility(t, ctx, db, libraryID, "public")
+	if version, err := get(""); err != nil || version.SourceCode == "" {
+		t.Fatalf("public restore: version=%+v err=%v", version, err)
+	}
+	assertNoExecutionRows(t, ctx, db)
+}
+
+// TestListLibraryVersionSummariesEnforcesCurrentVisibilityAtFetch proves the
+// version list also enforces the CURRENT visibility in its fetch statement.
+func TestListLibraryVersionSummariesEnforcesCurrentVisibilityAtFetch(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, libraryID, _, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	versions := postgres.NewLibraryVersionRepository(db)
+
+	summaries := func(actor string) []domain.LibraryVersion {
+		t.Helper()
+		rows, err := versions.ListSummaries(ctx, repository.ListLibraryVersionsParams{
+			LibraryID: libraryID, Limit: 20, Offset: 0, ActorUserID: actor,
+		})
+		if err != nil {
+			t.Fatalf("list summaries as %q: %v", actor, err)
+		}
+		return rows
+	}
+	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID} {
+		if got := summaries(actor); len(got) != 1 {
+			t.Fatalf("public baseline: actor %q saw %d summaries, want 1", actor, len(got))
+		}
+	}
+
+	flipLibraryVisibility(t, ctx, db, libraryID, "private")
+	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID} {
+		if got := summaries(actor); len(got) != 0 {
+			t.Fatalf("TOCTOU LEAK: non-owner %q saw %d privatized summaries", actor, len(got))
+		}
+	}
+	if got := summaries(ownerUserID); len(got) != 1 {
+		t.Fatalf("owner saw %d private summaries, want 1", len(got))
+	}
+
+	flipLibraryVisibility(t, ctx, db, libraryID, "public")
+	if got := summaries(""); len(got) != 1 {
+		t.Fatalf("public restore: anonymous saw %d summaries, want 1", len(got))
+	}
+	assertNoExecutionRows(t, ctx, db)
+}
+
+// TestListLibraryVerificationsNoLeakUnderConcurrentFetches is the concurrency
+// regression: once the library is private, many simultaneous non-owner fetches
+// (exactly the post-Resolve fetch in the race) must never return a link, while
+// the owner's concurrent fetch still does. It runs several public->private->
+// public rounds to exercise the visibility/invisibility transitions under load.
+func TestListLibraryVerificationsNoLeakUnderConcurrentFetches(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	repo := postgres.NewLibraryVerificationRepository(db)
+	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://example.com/concurrent")); err != nil {
+		t.Fatalf("create link: %v", err)
+	}
+
+	params := func(actor string) repository.ListLibraryVerificationsParams {
+		return repository.ListLibraryVerificationsParams{
+			LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: actor,
+		}
+	}
+	const readers = 6
+	const rounds = 12
+	for round := 0; round < rounds; round++ {
+		flipLibraryVisibility(t, ctx, db, libraryID, "private")
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		results := make(chan string, readers*2+1)
+		for i := 0; i < readers; i++ {
+			for _, actor := range []string{"", toctouStrangerUserID} {
+				wg.Add(1)
+				go func(actor string) {
+					defer wg.Done()
+					<-start
+					links, err := repo.ListByVersion(ctx, params(actor))
+					if err != nil {
+						results <- fmt.Sprintf("round %d actor %q: %v", round, actor, err)
+						return
+					}
+					if len(links) != 0 {
+						results <- fmt.Sprintf("round %d TOCTOU LEAK: actor %q saw %d private link(s)", round, actor, len(links))
+					}
+				}(actor)
+			}
+		}
+		// An owner reader running concurrently must still see the link.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			links, err := repo.ListByVersion(ctx, params(ownerUserID))
+			if err != nil || len(links) != 1 {
+				results <- fmt.Sprintf("round %d owner lost access: links=%d err=%v", round, len(links), err)
+			}
+		}()
+		close(start)
+		wg.Wait()
+		close(results)
+		for msg := range results {
+			t.Fatal(msg)
+		}
+		flipLibraryVisibility(t, ctx, db, libraryID, "public")
 	}
 	assertNoExecutionRows(t, ctx, db)
 }

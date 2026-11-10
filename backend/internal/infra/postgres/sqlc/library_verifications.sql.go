@@ -111,12 +111,14 @@ JOIN library_versions lv ON lv.id = v.library_version_id
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
 WHERE v.library_version_id = (($1::text)::uuid)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower($2::text))
 ORDER BY v.created_at DESC, v.id DESC
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListLibraryVerificationsByVersionParams struct {
 	LibraryVersionID string `json:"library_version_id"`
+	ActorUserID      string `json:"actor_user_id"`
 	ResultOffset     int32  `json:"result_offset"`
 	ResultLimit      int32  `json:"result_limit"`
 }
@@ -135,8 +137,21 @@ type ListLibraryVerificationsByVersionRow struct {
 	OwnerUserID      string             `json:"owner_user_id"`
 }
 
+// Read authorization is enforced IN THE SAME STATEMENT as the data fetch: even
+// though the joined row already exposes the CURRENT visibility for the detail
+// Get (whose usecase checks it), a list must not rely on a prior Resolve
+// check. The WHERE predicate gates every link on the library's CURRENT
+// visibility and the actor's user id, so a concurrent public->private flip
+// between Resolve and this fetch cannot expose now-private URL links. A
+// private link is listed only for its owner (no admin/role bypass); anonymous
+// actors (empty user id) and non-owners get no rows.
 func (q *Queries) ListLibraryVerificationsByVersion(ctx context.Context, arg ListLibraryVerificationsByVersionParams) ([]ListLibraryVerificationsByVersionRow, error) {
-	rows, err := q.db.Query(ctx, listLibraryVerificationsByVersion, arg.LibraryVersionID, arg.ResultOffset, arg.ResultLimit)
+	rows, err := q.db.Query(ctx, listLibraryVerificationsByVersion,
+		arg.LibraryVersionID,
+		arg.ActorUserID,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

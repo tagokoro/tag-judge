@@ -257,10 +257,15 @@ func (r *LibraryVersionRepository) Create(ctx context.Context, params repository
 	}, nil
 }
 
-func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID string, versionNumber int) (*domain.LibraryVersion, error) {
+// FindByNumber returns the version body only when the library's CURRENT
+// visibility (checked in the SAME SQL statement via actorUserID) allows it:
+// public to anyone, private only to the owner. A hidden library is
+// indistinguishable from a missing version (404), with no admin bypass.
+func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error) {
 	row, err := r.queries.GetLibraryVersionByNumber(ctx, sqlc.GetLibraryVersionByNumberParams{
 		LibraryID:     libraryID,
 		VersionNumber: int32(versionNumber),
+		ActorUserID:   actorUserID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
@@ -285,6 +290,7 @@ func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params rep
 		LibraryID:    params.LibraryID,
 		ResultLimit:  int32(params.Limit),
 		ResultOffset: int32(params.Offset),
+		ActorUserID:  params.ActorUserID,
 	})
 	if err != nil {
 		return nil, err
@@ -397,11 +403,17 @@ func (r *LibraryVerificationRepository) FindByID(ctx context.Context, id int64) 
 	return libraryVerificationFromRow(row), nil
 }
 
+// ListByVersion gates every returned link on the library's CURRENT visibility
+// in the SAME SQL statement (public to anyone, private only to the owner via
+// ActorUserID). This closes the Resolve->List TOCTOU window: even if the
+// library is privatized after a prior public Resolve, the fetch itself returns
+// no now-private URL links to a non-owner (no admin bypass).
 func (r *LibraryVerificationRepository) ListByVersion(ctx context.Context, params repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
 	rows, err := r.queries.ListLibraryVerificationsByVersion(ctx, sqlc.ListLibraryVerificationsByVersionParams{
 		LibraryVersionID: params.LibraryVersionID,
 		ResultLimit:      int32(params.Limit),
 		ResultOffset:     int32(params.Offset),
+		ActorUserID:      params.ActorUserID,
 	})
 	if err != nil {
 		return nil, err

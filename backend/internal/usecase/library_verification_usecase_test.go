@@ -316,3 +316,57 @@ func TestListLinksPagingOverflow(t *testing.T) {
 		t.Fatal("ListByVersion must be reached for a MaxInt32 offset")
 	}
 }
+
+// TestListLinksThreadsActorIntoFetch is the RED-GREEN wiring regression for the
+// Codex TOCTOU finding: the List usecase must pass the reader's user id into the
+// repository fetch so the (now visibility-scoped) SQL statement can authorize
+// the CURRENT library state. Before the fix, List called ListByVersion
+// unconditionally with no actor id, so a public->private flip after Resolve let
+// an anonymous/non-owner see the private links.
+func TestListLinksThreadsActorIntoFetch(t *testing.T) {
+	for _, actor := range []auth.Actor{
+		{}, // anonymous
+		verificationOtherActor,
+		adminActor(),
+		authorActor(),
+	} {
+		use, _, repo := newVerificationLinkUsecase(domain.LibraryVisibilityPublic)
+		if _, err := use.List(context.Background(), actor, "seed-author", "union-find", 1, 10, true, 0); err != nil {
+			t.Fatalf("List as %q: %v", actor.UserID, err)
+		}
+		if !repo.listCalled {
+			t.Fatalf("actor %q: ListByVersion was not reached", actor.UserID)
+		}
+		if repo.listParams.ActorUserID != actor.UserID {
+			t.Fatalf("actor %q: fetch ActorUserID = %q, want the reader's id", actor.UserID, repo.listParams.ActorUserID)
+		}
+	}
+}
+
+// TestGetLinkReevaluatesCurrentVisibilityPerFetch ensures the detail Get stays
+// atomic: FindByID is a single statement whose joined row carries the library's
+// CURRENT visibility, so the usecase must re-evaluate that snapshot on every
+// read (not a stale cached decision). A link privatized between two reads is
+// hidden immediately from every non-owner, including admins, while the owner
+// still reads it.
+func TestGetLinkReevaluatesCurrentVisibilityPerFetch(t *testing.T) {
+	use, _, repo := newVerificationLinkUsecase(domain.LibraryVisibilityPublic)
+	link := publicLink()
+	repo.byID = map[int64]*domain.LibraryVerification{15: &link}
+
+	// First fetch: public, readable anonymously.
+	if _, err := use.Get(context.Background(), auth.Actor{}, 15); err != nil {
+		t.Fatalf("public Get: %v", err)
+	}
+	// The library is privatized; the NEXT single-statement fetch returns the
+	// CURRENT private visibility, so the same link must now be hidden.
+	link.Visibility = domain.LibraryVisibilityPrivate
+	for _, actor := range []auth.Actor{auth.Actor{}, verificationOtherActor, adminActor()} {
+		_, err := use.Get(context.Background(), actor, 15)
+		assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
+	}
+	// The owner still reads it.
+	if got, err := use.Get(context.Background(), authorActor(), 15); err != nil || got.SubmissionURL != validSubmissionURL {
+		t.Fatalf("owner Get after privatization: link=%+v err=%v", got, err)
+	}
+}

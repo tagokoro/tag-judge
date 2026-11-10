@@ -1825,7 +1825,7 @@ func (r *fakeLibraryVersionRouterRepository) Create(_ context.Context, params re
 	}, nil
 }
 
-func (r *fakeLibraryVersionRouterRepository) FindByNumber(_ context.Context, _ string, versionNumber int) (*domain.LibraryVersion, error) {
+func (r *fakeLibraryVersionRouterRepository) FindByNumber(_ context.Context, _ string, versionNumber int, _ string) (*domain.LibraryVersion, error) {
 	if version, ok := r.byNumber[versionNumber]; ok {
 		return version, nil
 	}

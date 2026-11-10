@@ -38,6 +38,14 @@ JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
 WHERE v.id = sqlc.arg(verification_id);
 
+-- Read authorization is enforced IN THE SAME STATEMENT as the data fetch: even
+-- though the joined row already exposes the CURRENT visibility for the detail
+-- Get (whose usecase checks it), a list must not rely on a prior Resolve
+-- check. The WHERE predicate gates every link on the library's CURRENT
+-- visibility and the actor's user id, so a concurrent public->private flip
+-- between Resolve and this fetch cannot expose now-private URL links. A
+-- private link is listed only for its owner (no admin/role bypass); anonymous
+-- actors (empty user id) and non-owners get no rows.
 -- name: ListLibraryVerificationsByVersion :many
 SELECT v.id, v.library_version_id::text AS library_version_id, v.submission_url,
        v.created_by::text AS created_by, v.created_at,
@@ -49,5 +57,6 @@ JOIN library_versions lv ON lv.id = v.library_version_id
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
 WHERE v.library_version_id = ((sqlc.arg(library_version_id)::text)::uuid)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text))
 ORDER BY v.created_at DESC, v.id DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

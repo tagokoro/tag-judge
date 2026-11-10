@@ -78,6 +78,11 @@ func verificationReadable(link domain.LibraryVerification, actor auth.Actor) boo
 // Get is the link detail. Authentication is NOT required: a public link is
 // readable anonymously. A private link is indistinguishable from a missing one
 // (404) for every non-owner, including admins, so existence is not leaked.
+//
+// Atomicity: FindByID is a SINGLE statement that returns the link data joined
+// to the library's CURRENT visibility and owner, so verificationReadable is
+// applied to the same MVCC snapshot as the returned data (there is no
+// check-then-fetch window here). No role is consulted: only the owner user id.
 func (u *LibraryVerificationUsecase) Get(ctx context.Context, actor auth.Actor, verificationID int64) (*domain.LibraryVerification, error) {
 	if verificationID <= 0 {
 		return nil, apperror.InvalidInput("INVALID_LIBRARY_VERIFICATION_ID", verificationIDInvalidMessage)
@@ -92,9 +97,14 @@ func (u *LibraryVerificationUsecase) Get(ctx context.Context, actor auth.Actor, 
 	return link, nil
 }
 
-// List returns the links for one version. Resolve first checks the current read
-// visibility of the library (public to anyone, private to the owner only), then
-// the shared paging contract is applied before the repository is reached.
+// List returns the links for one version. Resolve resolves the namespace,
+// library and version ids (and gives a steady-state 404 for a private library
+// a non-owner cannot see), and the shared paging contract is applied. The
+// actor's user id is threaded into ListByVersion, whose repository statement
+// re-checks the library's CURRENT visibility in the SAME statement as the link
+// fetch. That closes the Resolve->List TOCTOU window: if the owner privatizes
+// the library between Resolve and the fetch, the fetch itself returns no
+// now-private URL links to a non-owner (no admin bypass).
 func (u *LibraryVerificationUsecase) List(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, limit int, limitProvided bool, offset int) ([]domain.LibraryVerification, error) {
 	limit, offset, err := validatePaging(limit, limitProvided, offset)
 	if err != nil {
@@ -108,5 +118,6 @@ func (u *LibraryVerificationUsecase) List(ctx context.Context, actor auth.Actor,
 		LibraryVersionID: resolved.Version.ID,
 		Limit:            limit,
 		Offset:           offset,
+		ActorUserID:      actor.UserID,
 	})
 }
