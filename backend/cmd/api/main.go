@@ -85,12 +85,12 @@ func run() error {
 	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
 	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
 	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
-	// A library verification is now just a self-declared submission URL link.
+	// A library submission link is a self-declared submission URL, not a judge result.
 	// It needs no AdmissionControl, Problem reader, source-code storage, or
 	// Submission reader: the only write is the link row, and no judge run,
 	// Outbox record, or S3 object is created.
-	libraryVerificationRepo := postgres.NewLibraryVerificationRepository(db)
-	libraryVerificationUsecase := usecase.NewLibraryVerificationUsecase(libraryVersionUsecase, libraryVerificationRepo)
+	librarySubmissionLinkRepo := postgres.NewLibrarySubmissionLinkRepository(db)
+	librarySubmissionLinkUsecase := usecase.NewLibrarySubmissionLinkUsecase(libraryVersionUsecase, librarySubmissionLinkRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
 	testCaseHandler := handler.NewTestCaseHandler(testCaseUsecase)
@@ -103,23 +103,23 @@ func run() error {
 	namespaceHandler := handler.NewNamespaceHandler(namespaceUsecase)
 	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
 	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
-	libraryVerificationHandler := handler.NewLibraryVerificationHandler(libraryVerificationUsecase)
+	librarySubmissionLinkHandler := handler.NewLibrarySubmissionLinkHandler(librarySubmissionLinkUsecase)
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router.New(router.Handlers{
-			Problems:             problemHandler,
-			TestCases:            testCaseHandler,
-			CodeRuns:             codeRunHandler,
-			Groups:               groupHandler,
-			Submissions:          submissionHandler,
-			Me:                   meHandler,
-			AuthHTTP:             authHandler,
-			Auth:                 authMiddleware,
-			Namespaces:           namespaceHandler,
-			Libraries:            libraryHandler,
-			LibraryVersions:      libraryVersionHandler,
-			LibraryVerifications: libraryVerificationHandler,
+			Problems:               problemHandler,
+			TestCases:              testCaseHandler,
+			CodeRuns:               codeRunHandler,
+			Groups:                 groupHandler,
+			Submissions:            submissionHandler,
+			Me:                     meHandler,
+			AuthHTTP:               authHandler,
+			Auth:                   authMiddleware,
+			Namespaces:             namespaceHandler,
+			Libraries:              libraryHandler,
+			LibraryVersions:        libraryVersionHandler,
+			LibrarySubmissionLinks: librarySubmissionLinkHandler,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,

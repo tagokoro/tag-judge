@@ -921,11 +921,11 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  # A "verification" on a library version is a self-declared related-submission
+  # A submission link on a library version is a self-declared related-submission
   # URL link, NOT a verification/judge result. There is no adapter, Problem
   # selection, Submission, Outbox, Judge run, verdict, score, status, or case
   # result. The URL is never fetched, parsed for content, or judged.
-  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications:
+  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-links:
     post:
       summary: Register a related submission URL link
       description: >-
@@ -943,9 +943,9 @@ paths:
       requestBody:
         required: true
         content:
-          application/json: {schema: {$ref: '#/components/schemas/CreateVerificationRequest'}}
+          application/json: {schema: {$ref: '#/components/schemas/CreateSubmissionLinkRequest'}}
       responses:
-        '201': {description: Link created, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationCreateResponse'}}}}
+        '201': {description: Link created, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkCreateResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -964,11 +964,11 @@ paths:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
         - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Links, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationListResponse'}}}}
+        '200': {description: Links, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkListResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 
-  /library-verifications/{verification_id}:
+  /library-submission-links/{submission_link_id}:
     get:
       summary: Get a related submission URL link
       description: >-
@@ -976,9 +976,9 @@ paths:
         anonymously; private links return 404 for everyone except the owner,
         following the library's current visibility.
       parameters:
-        - {name: verification_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+        - {name: submission_link_id, in: path, required: true, schema: {type: integer, minimum: 1}}
       responses:
-        '200': {description: Link detail, content: {application/json: {schema: {$ref: '#/components/schemas/VerificationDetailResponse'}}}}
+        '200': {description: Link detail, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkDetailResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 
@@ -1694,7 +1694,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LibraryVersionSummary"
-    CreateVerificationRequest:
+    CreateSubmissionLinkRequest:
       type: object
       required: [submission_url]
       additionalProperties: false
@@ -1705,11 +1705,11 @@ components:
           minLength: 1
           maxLength: 2048
           description: Absolute HTTP(S) URL of a submission the registrant declares is related to this library version.
-    # VerificationLink is a self-declared "related submission" link. It is NOT a
+    # SubmissionLink is a self-declared "related submission" link. It is NOT a
     # verification/judge result: verdict, score, status, adapter_source,
     # case_results, judged_at, submission_id, and problem_id are intentionally
     # absent. The URL is never fetched or validated for content beyond its shape.
-    VerificationLink:
+    SubmissionLink:
       type: object
       required: [id, library_version_id, namespace_slug, library_slug, version_number, submission_url, created_by, created_at]
       properties:
@@ -1721,23 +1721,23 @@ components:
         submission_url: {type: string, format: uri, maxLength: 2048}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
-    VerificationCreateResponse:
+    SubmissionLinkCreateResponse:
       type: object
       required: [data]
       properties:
-        data: {$ref: '#/components/schemas/VerificationLink'}
-    VerificationDetailResponse:
+        data: {$ref: '#/components/schemas/SubmissionLink'}
+    SubmissionLinkDetailResponse:
       type: object
       required: [data]
       properties:
-        data: {$ref: '#/components/schemas/VerificationLink'}
-    VerificationListResponse:
+        data: {$ref: '#/components/schemas/SubmissionLink'}
+    SubmissionLinkListResponse:
       type: object
       required: [data]
       properties:
         data:
           type: array
-          items: {$ref: '#/components/schemas/VerificationLink'}
+          items: {$ref: '#/components/schemas/SubmissionLink'}
 
     ErrorResponse:
       type: object

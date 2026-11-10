@@ -10,18 +10,18 @@ import (
 )
 
 type Handlers struct {
-	Problems             *handler.ProblemHandler
-	TestCases            *handler.TestCaseHandler
-	CodeRuns             *handler.CodeRunHandler
-	Groups               *handler.GroupHandler
-	Submissions          *handler.SubmissionHandler
-	Me                   *handler.MeHandler
-	AuthHTTP             *handler.AuthHandler
-	Auth                 *appmiddleware.AuthMiddleware
-	Namespaces           *handler.NamespaceHandler
-	Libraries            *handler.LibraryHandler
-	LibraryVersions      *handler.LibraryVersionHandler
-	LibraryVerifications *handler.LibraryVerificationHandler
+	Problems               *handler.ProblemHandler
+	TestCases              *handler.TestCaseHandler
+	CodeRuns               *handler.CodeRunHandler
+	Groups                 *handler.GroupHandler
+	Submissions            *handler.SubmissionHandler
+	Me                     *handler.MeHandler
+	AuthHTTP               *handler.AuthHandler
+	Auth                   *appmiddleware.AuthMiddleware
+	Namespaces             *handler.NamespaceHandler
+	Libraries              *handler.LibraryHandler
+	LibraryVersions        *handler.LibraryVersionHandler
+	LibrarySubmissionLinks *handler.LibrarySubmissionLinkHandler
 }
 
 func New(handlers Handlers) http.Handler {
@@ -69,13 +69,13 @@ func New(handlers Handlers) http.Handler {
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.Create)
 	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.List)
 	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handlers.LibraryVersions.Get)
-	if handlers.LibraryVerifications != nil {
+	if handlers.LibrarySubmissionLinks != nil {
 		// Registration requires authentication. Reading a link follows the
 		// library's current visibility, so public links are anonymously readable
 		// and no RequireAuth middleware is applied to the GET routes.
-		r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications", handlers.LibraryVerifications.Create)
-		r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications", handlers.LibraryVerifications.List)
-		r.Get("/api/v1/library-verifications/{verification_id}", handlers.LibraryVerifications.Get)
+		r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-links", handlers.LibrarySubmissionLinks.Create)
+		r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-links", handlers.LibrarySubmissionLinks.List)
+		r.Get("/api/v1/library-submission-links/{submission_link_id}", handlers.LibrarySubmissionLinks.Get)
 	}
 
 	return r

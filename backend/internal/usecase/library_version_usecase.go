@@ -33,11 +33,9 @@ func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, na
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must be 1-100000 bytes, non-blank, and must not contain NUL")
 	}
 	return u.versions.Create(ctx, repository.CreateLibraryVersionParams{
-		LibraryID:     library.ID,
-		SourceCode:    sourceCode,
-		ContentSHA256: librarysource.ContentSHA256(sourceCode),
-		ByteSize:      len([]byte(sourceCode)),
-		CreatedBy:     actor.UserID,
+		LibraryID:  library.ID,
+		SourceCode: sourceCode,
+		CreatedBy:  actor.UserID,
 	})
 }
 
@@ -72,7 +70,7 @@ func (u *LibraryVersionUsecase) List(ctx context.Context, actor auth.Actor, name
 }
 
 // ResolvedLibraryVersion is the pair returned by Resolve: the readable library
-// plus one of its versions. Verify builds on exactly this authorization.
+// plus one of its versions. Submission-link registration uses this resolution.
 type ResolvedLibraryVersion struct {
 	Library domain.Library
 	Version domain.LibraryVersion

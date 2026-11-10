@@ -37,38 +37,29 @@ type LibraryRepository interface {
 }
 
 type CreateLibraryVersionParams struct {
-	LibraryID     string
-	SourceCode    string
-	ContentSHA256 string
-	ByteSize      int
-	CreatedBy     string
+	LibraryID  string
+	SourceCode string
+	CreatedBy  string
 }
 
 type ListLibraryVersionsParams struct {
-	LibraryID string
-	Limit     int
-	Offset    int
-	// ActorUserID is the reader's user id (empty for anonymous). The repository
-	// uses it in the SAME SQL statement as the version fetch to gate rows on the
-	// library's CURRENT visibility, so a concurrent privatization cannot expose
-	// source that was already private when the rows were read.
+	LibraryID   string
+	Limit       int
+	Offset      int
 	ActorUserID string
 }
 
 type LibraryVersionRepository interface {
 	Create(ctx context.Context, params CreateLibraryVersionParams) (*domain.LibraryVersion, error)
-	// FindByNumber re-checks the library's CURRENT visibility with actorUserID in
-	// the same statement that returns the version body; a private library is
-	// visible only to its owner (404 for everyone else, admins included).
 	FindByNumber(ctx context.Context, libraryID string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error)
 	ListSummaries(ctx context.Context, params ListLibraryVersionsParams) ([]domain.LibraryVersion, error)
 }
 
-// CreateLibraryVerificationParams carries a self-declared submission URL link.
+// CreateLibrarySubmissionLinkParams carries a self-declared submission URL link.
 // ActorUserID is the authenticated registrant (stored as created_by). The
 // namespace/library/version ids are re-checked under a lock so a concurrent
 // visibility change cannot let a non-owner commit a link.
-type CreateLibraryVerificationParams struct {
+type CreateLibrarySubmissionLinkParams struct {
 	ActorUserID      string
 	NamespaceID      string
 	LibraryID        string
@@ -76,29 +67,22 @@ type CreateLibraryVerificationParams struct {
 	SubmissionURL    string
 }
 
-type ListLibraryVerificationsParams struct {
+type ListLibrarySubmissionLinksParams struct {
 	LibraryVersionID string
 	Limit            int
 	Offset           int
-	// ActorUserID is the reader's user id (empty for anonymous). ListByVersion
-	// gates every row on the library's CURRENT visibility with this id in the
-	// SAME SQL statement, so a public->private flip between a prior Resolve and
-	// this fetch cannot expose now-private URL links.
-	ActorUserID string
+	ActorUserID      string
 }
 
-// LibraryVerificationRepository persists self-declared submission URL links.
+// LibrarySubmissionLinkRepository persists self-declared submission URL links.
 // Create re-checks the library's current visibility under a row lock and the
 // version's membership, and NEVER creates a Submission, Outbox record, S3
-// object, or Judge run (no admission control). FindByID joins the current
-// library/namespace in a single statement so the caller authorizes the detail
-// read against a visibility snapshot consistent with the returned data.
-// ListByVersion enforces the CURRENT visibility (owner-only for private) in the
-// same statement as the fetch via an actor-id SQL predicate.
-type LibraryVerificationRepository interface {
-	Create(ctx context.Context, params CreateLibraryVerificationParams) (*domain.LibraryVerification, error)
-	FindByID(ctx context.Context, id int64) (*domain.LibraryVerification, error)
-	ListByVersion(ctx context.Context, params ListLibraryVerificationsParams) ([]domain.LibraryVerification, error)
+// object, or Judge run (no admission control). FindByID/ListByVersion enforce
+// current library visibility in their data-fetch SQL statements.
+type LibrarySubmissionLinkRepository interface {
+	Create(ctx context.Context, params CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error)
+	FindByID(ctx context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error)
+	ListByVersion(ctx context.Context, params ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error)
 }
 
 type NamespaceRepository interface {

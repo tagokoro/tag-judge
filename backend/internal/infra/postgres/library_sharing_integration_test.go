@@ -68,11 +68,9 @@ VALUES ($1, 'link-author', 'Link Author');`, ownerUserID); err != nil {
 	}
 	source := "def add(a, b):\n    return a + b\n"
 	version, err := postgres.NewLibraryVersionRepository(db).Create(ctx, repository.CreateLibraryVersionParams{
-		LibraryID:     library.ID,
-		SourceCode:    source,
-		ContentSHA256: postgres.ContentSHA256(source),
-		ByteSize:      len([]byte(source)),
-		CreatedBy:     ownerUserID,
+		LibraryID:  library.ID,
+		SourceCode: source,
+		CreatedBy:  ownerUserID,
 	})
 	if err != nil {
 		t.Fatalf("create version: %v", err)
@@ -80,8 +78,8 @@ VALUES ($1, 'link-author', 'Link Author');`, ownerUserID); err != nil {
 	return namespaceID, library.ID, version.ID, ownerUserID
 }
 
-func linkParams(namespaceID, libraryID, versionID, actorUserID, submissionURL string) repository.CreateLibraryVerificationParams {
-	return repository.CreateLibraryVerificationParams{
+func linkParams(namespaceID, libraryID, versionID, actorUserID, submissionURL string) repository.CreateLibrarySubmissionLinkParams {
+	return repository.CreateLibrarySubmissionLinkParams{
 		ActorUserID:      actorUserID,
 		NamespaceID:      namespaceID,
 		LibraryID:        libraryID,
@@ -93,7 +91,7 @@ func linkParams(namespaceID, libraryID, versionID, actorUserID, submissionURL st
 func linkCount(t *testing.T, ctx context.Context, db *pgxpool.Pool) int64 {
 	t.Helper()
 	var n int64
-	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM library_verifications`).Scan(&n); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM library_submission_links`).Scan(&n); err != nil {
 		t.Fatalf("count links: %v", err)
 	}
 	return n
@@ -127,8 +125,8 @@ func assertCheckViolation(t *testing.T, err error) {
 	if pgErr.Code != "23514" {
 		t.Fatalf("SQLSTATE = %q, want 23514 (check_violation)", pgErr.Code)
 	}
-	if !strings.HasPrefix(pgErr.ConstraintName, "library_verifications_") {
-		t.Fatalf("constraint = %q, want a library_verifications constraint", pgErr.ConstraintName)
+	if !strings.HasPrefix(pgErr.ConstraintName, "library_submission_links_") {
+		t.Fatalf("constraint = %q, want a library_submission_links constraint", pgErr.ConstraintName)
 	}
 }
 
@@ -301,6 +299,64 @@ VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 2,
 	}
 }
 
+func TestCreateLibraryVersionMissingLibraryReturnsNotFound(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, err := postgres.NewLibraryVersionRepository(db).Create(ctx, repository.CreateLibraryVersionParams{
+		LibraryID:  "00000000-0000-4000-8000-000000000099",
+		SourceCode: "print(1)\n",
+		CreatedBy:  "00000000-0000-4000-8000-000000000001",
+	})
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
+}
+
+func TestCreateLibraryVersionDerivesDigestAndByteSize(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, libraryID, _, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	source := "// 日本語\n"
+	version, err := postgres.NewLibraryVersionRepository(db).Create(ctx, repository.CreateLibraryVersionParams{
+		LibraryID:  libraryID,
+		SourceCode: source,
+		CreatedBy:  ownerUserID,
+	})
+	if err != nil {
+		t.Fatalf("create with derived metadata: %v", err)
+	}
+	if version.ContentSHA256 != postgres.ContentSHA256(source) || version.ByteSize != len([]byte(source)) {
+		t.Fatalf("derived digest/size = %q/%d", version.ContentSHA256, version.ByteSize)
+	}
+}
+
+func TestSubmissionLinkTableHasSemanticName(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	var current, legacy bool
+	if err := db.QueryRow(ctx, `SELECT
+    EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'library_submission_links'),
+    EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'library_verifications')`).Scan(&current, &legacy); err != nil {
+		t.Fatalf("inspect tables: %v", err)
+	}
+	if !current || legacy {
+		t.Fatalf("submission-link table = %v, legacy verification table = %v", current, legacy)
+	}
+}
+
 // TestCreateLibraryVersionAllocatesConsecutiveNumbersConcurrently starts two
 // version creations for the same library at the same time and expects distinct
 // consecutive numbers from the FOR UPDATE allocation query alone.
@@ -357,11 +413,9 @@ ON CONFLICT DO NOTHING`, userID, fmt.Sprint(i+1)); err != nil {
 				return
 			}
 			version, err := versions.Create(ctx, repository.CreateLibraryVersionParams{
-				LibraryID:     library.ID,
-				SourceCode:    fmt.Sprintf("# worker %d\nx = %d\n", i+1, i+1),
-				ContentSHA256: postgres.ContentSHA256(fmt.Sprintf("# worker %d\nx = %d\n", i+1, i+1)),
-				ByteSize:      len([]byte(fmt.Sprintf("# worker %d\nx = %d\n", i+1, i+1))),
-				CreatedBy:     userID,
+				LibraryID:  library.ID,
+				SourceCode: fmt.Sprintf("# worker %d\nx = %d\n", i+1, i+1),
+				CreatedBy:  userID,
 			})
 			if err != nil {
 				errs[i] = err
@@ -397,10 +451,10 @@ ON CONFLICT DO NOTHING`, userID, fmt.Sprint(i+1)); err != nil {
 	}
 }
 
-// TestCreateLibraryVerificationStoresURLAndRegistrant proves a create stores
+// TestCreateLibrarySubmissionLinkStoresURLAndRegistrant proves a create stores
 // only the absolute submission URL + registrant + version + timestamp, returns
 // the current library state, and creates no Submission/Outbox/CodeRun rows.
-func TestCreateLibraryVerificationStoresURLAndRegistrant(t *testing.T) {
+func TestCreateLibrarySubmissionLinkStoresURLAndRegistrant(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -409,7 +463,7 @@ func TestCreateLibraryVerificationStoresURLAndRegistrant(t *testing.T) {
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	const url = "https://atcoder.jp/contests/abc001/submissions/1234567"
 	link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, url))
@@ -450,14 +504,14 @@ func TestCreateLibraryVerificationStoresURLAndRegistrant(t *testing.T) {
 	// The persisted row has only the URL, registrant, version and timestamp;
 	// the old submission_id / adapter_source / adapter_sha256 columns are gone.
 	var gotURL, gotCreatedBy string
-	if err := db.QueryRow(ctx, `SELECT submission_url, created_by::text FROM library_verifications WHERE id = $1`, link.ID).Scan(&gotURL, &gotCreatedBy); err != nil {
+	if err := db.QueryRow(ctx, `SELECT submission_url, created_by::text FROM library_submission_links WHERE id = $1`, link.ID).Scan(&gotURL, &gotCreatedBy); err != nil {
 		t.Fatalf("read link row: %v", err)
 	}
 	if gotURL != url || gotCreatedBy != ownerUserID {
 		t.Fatalf("link row url=%q created_by=%q", gotURL, gotCreatedBy)
 	}
 	var columnCount int
-	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'library_verifications' AND column_name IN ('submission_id','adapter_source','adapter_sha256')`).Scan(&columnCount); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'library_submission_links' AND column_name IN ('submission_id','adapter_source','adapter_sha256')`).Scan(&columnCount); err != nil {
 		t.Fatalf("check removed columns: %v", err)
 	}
 	if columnCount != 0 {
@@ -467,7 +521,7 @@ func TestCreateLibraryVerificationStoresURLAndRegistrant(t *testing.T) {
 	assertNoExecutionRows(t, ctx, db)
 
 	// FindByID returns the same current-state link.
-	detail, err := repo.FindByID(ctx, link.ID)
+	detail, err := repo.FindByID(ctx, link.ID, ownerUserID)
 	if err != nil {
 		t.Fatalf("find link: %v", err)
 	}
@@ -477,14 +531,13 @@ func TestCreateLibraryVerificationStoresURLAndRegistrant(t *testing.T) {
 		t.Fatalf("FindByID does not match Create: create=%+v detail=%+v", link, detail)
 	}
 
-	_, err = repo.FindByID(ctx, link.ID+999999)
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
+	_, err = repo.FindByID(ctx, link.ID+999999, ownerUserID)
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
 }
 
-// TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion proves
-// several self-declared URLs may be attached to one version, that ListByVersion
-// returns them newest-first with pagination, and that none create executions.
-func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing.T) {
+// The Go validator accepts any scheme case (url.Parse lowercases it), so the
+// repository must persist a lowercase scheme that the DB CHECK also accepts.
+func TestCreateLibrarySubmissionLinkNormalizesSchemeCase(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -493,7 +546,30 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
+
+	link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "HTTPS://AtCoder.jp/contests/abc001/submissions/1"))
+	if err != nil {
+		t.Fatalf("create link with uppercase scheme: %v", err)
+	}
+	if want := "https://AtCoder.jp/contests/abc001/submissions/1"; link.SubmissionURL != want {
+		t.Fatalf("submission_url = %q, want %q", link.SubmissionURL, want)
+	}
+}
+
+// TestCreateLibrarySubmissionLinkAllowsMultipleURLsAndListsByVersion proves
+// several self-declared URLs may be attached to one version, that ListByVersion
+// returns them newest-first with pagination, and that none create executions.
+func TestCreateLibrarySubmissionLinkAllowsMultipleURLsAndListsByVersion(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	urls := []string{"https://example.com/submissions/1", "https://example.com/submissions/2", "https://example.com/submissions/3"}
 	for _, u := range urls {
@@ -502,7 +578,7 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 		}
 	}
 
-	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
+	links, err := repo.ListByVersion(ctx, repository.ListLibrarySubmissionLinksParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
 	if err != nil {
 		t.Fatalf("list links: %v", err)
 	}
@@ -525,7 +601,7 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 		}
 	}
 
-	page, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 2, Offset: 2, ActorUserID: ownerUserID})
+	page, err := repo.ListByVersion(ctx, repository.ListLibrarySubmissionLinksParams{LibraryVersionID: versionID, Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("list page: %v", err)
 	}
@@ -536,9 +612,9 @@ func TestCreateLibraryVerificationAllowsMultipleURLsAndListsByVersion(t *testing
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestCreateLibraryVerificationRejectsPrivateAndForeignVersion proves a failed
+// TestCreateLibrarySubmissionLinkRejectsPrivateAndForeignVersion proves a failed
 // re-check (private library for a non-owner, foreign version) commits nothing.
-func TestCreateLibraryVerificationRejectsPrivateAndForeignVersion(t *testing.T) {
+func TestCreateLibrarySubmissionLinkRejectsPrivateAndForeignVersion(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -554,7 +630,7 @@ INSERT INTO users (id, provider, provider_user_id, name, email)
 VALUES ($1, 'test', 'link-stranger', 'Stranger', 'stranger@example.test');`, stranger); err != nil {
 		t.Fatalf("seed stranger: %v", err)
 	}
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	if _, err := db.Exec(ctx, `UPDATE libraries SET visibility = 'private' WHERE id = $1::uuid`, libraryID); err != nil {
 		t.Fatalf("flip visibility: %v", err)
@@ -578,10 +654,10 @@ VALUES ($1, 'test', 'link-stranger', 'Stranger', 'stranger@example.test');`, str
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestCreateLibraryVerificationRechecksVisibilityInTransaction proves the
+// TestCreateLibrarySubmissionLinkRechecksVisibilityInTransaction proves the
 // FOR SHARE re-check: a non-owner cannot add a link once the library is private,
 // while the owner still can. No re-check commits any execution rows.
-func TestCreateLibraryVerificationRechecksVisibilityInTransaction(t *testing.T) {
+func TestCreateLibrarySubmissionLinkRechecksVisibilityInTransaction(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -597,7 +673,7 @@ INSERT INTO users (id, provider, provider_user_id, name, email)
 VALUES ($1, 'test', 'link-stranger', 'Stranger', 'stranger@example.test');`, stranger); err != nil {
 		t.Fatalf("seed stranger: %v", err)
 	}
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	// Public: a stranger may add a link.
 	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, stranger, "https://example.com/public")); err != nil {
@@ -626,11 +702,11 @@ VALUES ($1, 'test', 'link-stranger', 'Stranger', 'stranger@example.test');`, str
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestCreateLibraryVerificationVisibilityTOCTOU uses two independent
+// TestCreateLibrarySubmissionLinkVisibilityTOCTOU uses two independent
 // connections and a barrier: the visibility UPDATE holds its row lock while
 // link creation starts, then commits. The create must observe the committed
 // private state rather than a stale pre-lock snapshot, and commit nothing.
-func TestCreateLibraryVerificationVisibilityTOCTOU(t *testing.T) {
+func TestCreateLibrarySubmissionLinkVisibilityTOCTOU(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -665,7 +741,7 @@ func TestCreateLibraryVerificationVisibilityTOCTOU(t *testing.T) {
 		t.Fatalf("open worker database: %v", err)
 	}
 	defer workerDB.Close()
-	workerRepo := postgres.NewLibraryVerificationRepository(workerDB)
+	workerRepo := postgres.NewLibrarySubmissionLinkRepository(workerDB)
 
 	conn, err := db.Acquire(ctx)
 	if err != nil {
@@ -700,10 +776,10 @@ FROM pg_stat_activity
 WHERE application_name = $1
   AND state = 'active'
   AND wait_event_type = 'Lock'
-  AND query LIKE '%LockLibraryForVerification%'
+  AND query LIKE '%LockLibraryForSubmissionLink%'
 LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 		if err == nil {
-			if !strings.Contains(query, "LockLibraryForVerification") || !strings.Contains(strings.ToUpper(query), "FOR SHARE") {
+			if !strings.Contains(query, "LockLibraryForSubmissionLink") || !strings.Contains(strings.ToUpper(query), "FOR SHARE") {
 				t.Fatalf("observed unexpected create lock query: %q", query)
 			}
 			if waitEventType != "Lock" {
@@ -720,7 +796,7 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 	if !observedLockWait {
 		_ = tx.Rollback(ctx)
 		<-result
-		t.Fatal("timed out waiting to observe LockLibraryForVerification FOR SHARE lock wait")
+		t.Fatal("timed out waiting to observe LockLibraryForSubmissionLink FOR SHARE lock wait")
 	}
 	// Without FOR SHARE this ordering is not guaranteed: the creator could
 	// read public before the updater commits and successfully insert a link.
@@ -733,12 +809,12 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 		assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
 	}
 	if got := linkCount(t, ctx, db); got != baselineLinks {
-		t.Fatalf("library_verifications count = %d, want %d after rejected create", got, baselineLinks)
+		t.Fatalf("library_submission_links count = %d, want %d after rejected create", got, baselineLinks)
 	}
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestLibraryVerificationSubmissionURLConstraints proves the DB CHECK
+// TestLibrarySubmissionLinkSubmissionURLConstraints proves the DB CHECK
 // constraints are a real backstop: hostless/invalid URLs (including the three
 // reported by Codex review) AND userinfo-only/no-host URLs ("https://user@",
 // "https://user@/", "https://user@?x", ...) are rejected with a
@@ -747,7 +823,7 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 // host via raw SQL - are accepted. This exercises the constraints directly via
 // raw SQL, i.e. it does not depend on the repository/domain validator, and is
 // the RED-GREEN regression for the anchored authority CHECK.
-func TestLibraryVerificationSubmissionURLConstraints(t *testing.T) {
+func TestLibrarySubmissionLinkSubmissionURLConstraints(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -759,7 +835,7 @@ func TestLibraryVerificationSubmissionURLConstraints(t *testing.T) {
 
 	insert := func(ctx context.Context, url string) error {
 		_, err := db.Exec(ctx, `
-INSERT INTO library_verifications (library_version_id, created_by, submission_url)
+INSERT INTO library_submission_links (library_version_id, created_by, submission_url)
 VALUES ($1::uuid, $2::uuid, $3)`, versionID, ownerUserID, url)
 		return err
 	}
@@ -773,18 +849,18 @@ VALUES ($1::uuid, $2::uuid, $3)`, versionID, ownerUserID, url)
 		}
 	}
 	if got := linkCount(t, ctx, db); got != int64(len(validSubmissionURLs)) {
-		t.Fatalf("library_verifications count = %d, want %d valid rows", got, len(validSubmissionURLs))
+		t.Fatalf("library_submission_links count = %d, want %d valid rows", got, len(validSubmissionURLs))
 	}
 }
 
-// TestCreateLibraryVerificationValidatesURL proves the domain/repository is
+// TestCreateLibrarySubmissionLinkValidatesURL proves the domain/repository is
 // the authoritative gate: invalid URLs (including the three hostless ones and
 // userinfo-only no-host forms) are rejected by Create even when it is called
 // directly, outside any future API layer; and valid URLs - including
 // internationalized/Unicode hosts and userinfo with a real host - are stored
 // trimmed, with no execution rows written. This is the RED-GREEN fix for the
 // Codex hostless/Unicode/userinfo-no-host review findings.
-func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
+func TestCreateLibrarySubmissionLinkValidatesURL(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -793,7 +869,7 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	for _, tc := range invalidSubmissionURLs {
 		if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, tc.url)); err == nil {
@@ -813,7 +889,7 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 			t.Fatalf("returned URL = %q, want %q", link.SubmissionURL, tc.url)
 		}
 		var stored string
-		if err := db.QueryRow(ctx, `SELECT submission_url FROM library_verifications WHERE id = $1`, link.ID).Scan(&stored); err != nil {
+		if err := db.QueryRow(ctx, `SELECT submission_url FROM library_submission_links WHERE id = $1`, link.ID).Scan(&stored); err != nil {
 			t.Fatalf("read stored URL for %q: %v", tc.url, err)
 		}
 		if stored != tc.url {
@@ -821,7 +897,7 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 		}
 	}
 	if got := linkCount(t, ctx, db); got != int64(len(validSubmissionURLs)) {
-		t.Fatalf("library_verifications count = %d, want %d", got, len(validSubmissionURLs))
+		t.Fatalf("library_submission_links count = %d, want %d", got, len(validSubmissionURLs))
 	}
 	assertNoExecutionRows(t, ctx, db)
 
@@ -835,7 +911,7 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 		t.Fatalf("trimmed URL returned as %q", link.SubmissionURL)
 	}
 	var stored string
-	if err := db.QueryRow(ctx, `SELECT submission_url FROM library_verifications WHERE id = $1`, link.ID).Scan(&stored); err != nil {
+	if err := db.QueryRow(ctx, `SELECT submission_url FROM library_submission_links WHERE id = $1`, link.ID).Scan(&stored); err != nil {
 		t.Fatalf("read trimmed URL: %v", err)
 	}
 	if stored != "https://example.com/trimmed" {
@@ -844,10 +920,10 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestLibraryVerificationReadsReflectCurrentVisibility proves read methods
+// TestLibrarySubmissionLinkReadsReflectCurrentVisibility proves read methods
 // return the library's CURRENT visibility/owner so the API layer can authorize
 // private links by the owner only, and that visibility changes are followed.
-func TestLibraryVerificationReadsReflectCurrentVisibility(t *testing.T) {
+func TestLibrarySubmissionLinkReadsReflectCurrentVisibility(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -856,7 +932,7 @@ func TestLibraryVerificationReadsReflectCurrentVisibility(t *testing.T) {
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
 
 	link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://example.com/sub/1"))
 	if err != nil {
@@ -869,108 +945,32 @@ func TestLibraryVerificationReadsReflectCurrentVisibility(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE libraries SET visibility = 'private' WHERE id = $1::uuid`, libraryID); err != nil {
 		t.Fatalf("flip visibility: %v", err)
 	}
-	detail, err := repo.FindByID(ctx, link.ID)
+	detail, err := repo.FindByID(ctx, link.ID, ownerUserID)
 	if err != nil {
 		t.Fatalf("find link after privatization: %v", err)
 	}
 	if detail.Visibility != domain.LibraryVisibilityPrivate || detail.OwnerUserID != ownerUserID {
 		t.Fatalf("private read context = %+v", detail)
 	}
-	// The library is now private, so only the OWNER's actor id may list the
-	// link (the fetch is visibility-scoped); a non-owner sees no rows.
-	links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
+	_, err = repo.FindByID(ctx, link.ID, "")
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
+	_, err = repo.FindByID(ctx, link.ID, "00000000-0000-4000-8000-000000000002")
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
+	links, err := repo.ListByVersion(ctx, repository.ListLibrarySubmissionLinksParams{LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: ownerUserID})
 	if err != nil {
 		t.Fatalf("list after privatization: %v", err)
 	}
 	if len(links) != 1 || links[0].Visibility != domain.LibraryVisibilityPrivate {
 		t.Fatalf("list read context = %+v", links)
 	}
-	assertNoExecutionRows(t, ctx, db)
-}
-
-// flipLibraryVisibility commits a visibility change on the pool, modelling the
-// owner's PATCH that can land between a public Resolve and a data fetch in the
-// TOCTOU race. It is deliberately a separate committed statement.
-func flipLibraryVisibility(t *testing.T, ctx context.Context, db *pgxpool.Pool, libraryID, visibility string) {
-	t.Helper()
-	if _, err := db.Exec(ctx, `UPDATE libraries SET visibility = $2 WHERE id = $1::uuid`, libraryID, visibility); err != nil {
-		t.Fatalf("set visibility %q: %v", visibility, err)
-	}
-}
-
-const (
-	toctouStrangerUserID = "00000000-0000-4000-8000-0000000000aa"
-	toctouAdminUserID    = "00000000-0000-4000-8000-0000000000bb"
-)
-
-// TestListLibraryVerificationsEnforcesCurrentVisibilityAtFetch is the RED-GREEN
-// regression for the Codex TOCTOU finding. It deterministically models the race:
-// a read resolves the library while it is public, the owner privatizes it, and
-// THEN the link fetch runs. Because ListByVersion now gates rows on the library's
-// CURRENT visibility with the actor user id in the SAME SQL statement, a
-// non-owner (anonymous, stranger, or admin - no role bypass) sees no URL links;
-// only the owner still does. Before the fix, the unconditional fetch leaked the
-// now-private links.
-func TestListLibraryVerificationsEnforcesCurrentVisibilityAtFetch(t *testing.T) {
-	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
-	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
-	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://example.com/secret-link")); err != nil {
-		t.Fatalf("create link: %v", err)
-	}
-
-	list := func(actorUserID string) []domain.LibraryVerification {
-		t.Helper()
-		links, err := repo.ListByVersion(ctx, repository.ListLibraryVerificationsParams{
-			LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: actorUserID,
-		})
-		if err != nil {
-			t.Fatalf("list as %q: %v", actorUserID, err)
-		}
-		return links
-	}
-
-	// Public baseline: everyone, including anonymous, sees the link.
-	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID, toctouAdminUserID} {
-		if got := list(actor); len(got) != 1 {
-			t.Fatalf("public baseline: actor %q saw %d links, want 1", actor, len(got))
-		}
-	}
-
-	// Race window: privatization commits after a public Resolve but before the
-	// fetch. The fetch statement itself must now hide the private links.
-	flipLibraryVisibility(t, ctx, db, libraryID, "private")
-	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID} {
-		if got := list(actor); len(got) != 0 {
-			t.Fatalf("TOCTOU LEAK: non-owner %q saw %d now-private link(s)", actor, len(got))
-		}
-	}
-	// The owner still sees their own private link (functionality preserved).
-	if got := list(ownerUserID); len(got) != 1 {
-		t.Fatalf("owner saw %d private links, want 1", len(got))
-	}
-
-	// Flipping back to public restores visibility to everyone.
-	flipLibraryVisibility(t, ctx, db, libraryID, "public")
-	if got := list(""); len(got) != 1 {
-		t.Fatalf("public restore: anonymous saw %d links, want 1", len(got))
+	links, err = repo.ListByVersion(ctx, repository.ListLibrarySubmissionLinksParams{LibraryVersionID: versionID, Limit: 20, Offset: 0})
+	if err != nil || len(links) != 0 {
+		t.Fatalf("anonymous private links = %+v, %v; want none", links, err)
 	}
 	assertNoExecutionRows(t, ctx, db)
 }
 
-// TestGetLibraryVersionEnforcesCurrentVisibilityAtFetch proves the version
-// source Get checks the CURRENT visibility in the same statement as the source
-// read: after privatization, a non-owner (anonymous, stranger, admin, or an
-// invalid id) gets a 404 rather than the source, while the owner still reads it.
-// An uppercase owner uuid must still match (case-insensitive comparison), and an
-// invalid actor id must not raise a SQL cast error or grant access.
-func TestGetLibraryVersionEnforcesCurrentVisibilityAtFetch(t *testing.T) {
+func TestLibraryVersionReadsEnforceVisibilityInRepository(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -979,151 +979,24 @@ func TestGetLibraryVersionEnforcesCurrentVisibilityAtFetch(t *testing.T) {
 	defer cancel()
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	_, libraryID, _, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	versions := postgres.NewLibraryVersionRepository(db)
-
-	get := func(actor string) (*domain.LibraryVersion, error) {
-		return versions.FindByNumber(ctx, libraryID, 1, actor)
+	repo := postgres.NewLibraryVersionRepository(db)
+	if _, err := repo.FindByNumber(ctx, libraryID, 1, ""); err != nil {
+		t.Fatalf("anonymous public read: %v", err)
 	}
-	// Public baseline: source is readable by anyone.
-	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID} {
-		version, err := get(actor)
-		if err != nil || version.SourceCode == "" {
-			t.Fatalf("public baseline actor %q: version=%+v err=%v", actor, version, err)
-		}
+	if _, err := db.Exec(ctx, `UPDATE libraries SET visibility = 'private' WHERE id = $1::uuid`, libraryID); err != nil {
+		t.Fatalf("flip visibility: %v", err)
 	}
-	// Uppercase owner uuid still matches the case-insensitive predicate.
-	if version, err := get(strings.ToUpper(ownerUserID)); err != nil || version.SourceCode == "" {
-		t.Fatalf("uppercase owner: version=%+v err=%v", version, err)
+	_, err := repo.FindByNumber(ctx, libraryID, 1, "")
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_VERSION_NOT_FOUND", "library version not found")
+	if _, err := repo.FindByNumber(ctx, libraryID, 1, ownerUserID); err != nil {
+		t.Fatalf("owner private read: %v", err)
 	}
-
-	flipLibraryVisibility(t, ctx, db, libraryID, "private")
-	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID, "not-a-uuid"} {
-		if _, err := get(actor); !errors.Is(err, apperror.ErrNotFound) {
-			t.Fatalf("TOCTOU LEAK: non-owner %q fetched privatized source: err=%v", actor, err)
-		}
+	versions, err := repo.ListSummaries(ctx, repository.ListLibraryVersionsParams{LibraryID: libraryID, Limit: 20})
+	if err != nil || len(versions) != 0 {
+		t.Fatalf("anonymous private versions = %+v, %v; want none", versions, err)
 	}
-	if version, err := get(ownerUserID); err != nil || version.SourceCode == "" {
-		t.Fatalf("owner lost access to private source: version=%+v err=%v", version, err)
+	versions, err = repo.ListSummaries(ctx, repository.ListLibraryVersionsParams{LibraryID: libraryID, Limit: 20, ActorUserID: ownerUserID})
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("owner private versions = %+v, %v; want one", versions, err)
 	}
-
-	flipLibraryVisibility(t, ctx, db, libraryID, "public")
-	if version, err := get(""); err != nil || version.SourceCode == "" {
-		t.Fatalf("public restore: version=%+v err=%v", version, err)
-	}
-	assertNoExecutionRows(t, ctx, db)
-}
-
-// TestListLibraryVersionSummariesEnforcesCurrentVisibilityAtFetch proves the
-// version list also enforces the CURRENT visibility in its fetch statement.
-func TestListLibraryVersionSummariesEnforcesCurrentVisibilityAtFetch(t *testing.T) {
-	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
-	_, libraryID, _, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	versions := postgres.NewLibraryVersionRepository(db)
-
-	summaries := func(actor string) []domain.LibraryVersion {
-		t.Helper()
-		rows, err := versions.ListSummaries(ctx, repository.ListLibraryVersionsParams{
-			LibraryID: libraryID, Limit: 20, Offset: 0, ActorUserID: actor,
-		})
-		if err != nil {
-			t.Fatalf("list summaries as %q: %v", actor, err)
-		}
-		return rows
-	}
-	for _, actor := range []string{"", ownerUserID, toctouStrangerUserID} {
-		if got := summaries(actor); len(got) != 1 {
-			t.Fatalf("public baseline: actor %q saw %d summaries, want 1", actor, len(got))
-		}
-	}
-
-	flipLibraryVisibility(t, ctx, db, libraryID, "private")
-	for _, actor := range []string{"", toctouStrangerUserID, toctouAdminUserID} {
-		if got := summaries(actor); len(got) != 0 {
-			t.Fatalf("TOCTOU LEAK: non-owner %q saw %d privatized summaries", actor, len(got))
-		}
-	}
-	if got := summaries(ownerUserID); len(got) != 1 {
-		t.Fatalf("owner saw %d private summaries, want 1", len(got))
-	}
-
-	flipLibraryVisibility(t, ctx, db, libraryID, "public")
-	if got := summaries(""); len(got) != 1 {
-		t.Fatalf("public restore: anonymous saw %d summaries, want 1", len(got))
-	}
-	assertNoExecutionRows(t, ctx, db)
-}
-
-// TestListLibraryVerificationsNoLeakUnderConcurrentFetches is the concurrency
-// regression: once the library is private, many simultaneous non-owner fetches
-// (exactly the post-Resolve fetch in the race) must never return a link, while
-// the owner's concurrent fetch still does. It runs several public->private->
-// public rounds to exercise the visibility/invisibility transitions under load.
-func TestListLibraryVerificationsNoLeakUnderConcurrentFetches(t *testing.T) {
-	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
-	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
-	repo := postgres.NewLibraryVerificationRepository(db)
-	if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "https://example.com/concurrent")); err != nil {
-		t.Fatalf("create link: %v", err)
-	}
-
-	params := func(actor string) repository.ListLibraryVerificationsParams {
-		return repository.ListLibraryVerificationsParams{
-			LibraryVersionID: versionID, Limit: 20, Offset: 0, ActorUserID: actor,
-		}
-	}
-	const readers = 6
-	const rounds = 12
-	for round := 0; round < rounds; round++ {
-		flipLibraryVisibility(t, ctx, db, libraryID, "private")
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		results := make(chan string, readers*2+1)
-		for i := 0; i < readers; i++ {
-			for _, actor := range []string{"", toctouStrangerUserID} {
-				wg.Add(1)
-				go func(actor string) {
-					defer wg.Done()
-					<-start
-					links, err := repo.ListByVersion(ctx, params(actor))
-					if err != nil {
-						results <- fmt.Sprintf("round %d actor %q: %v", round, actor, err)
-						return
-					}
-					if len(links) != 0 {
-						results <- fmt.Sprintf("round %d TOCTOU LEAK: actor %q saw %d private link(s)", round, actor, len(links))
-					}
-				}(actor)
-			}
-		}
-		// An owner reader running concurrently must still see the link.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			links, err := repo.ListByVersion(ctx, params(ownerUserID))
-			if err != nil || len(links) != 1 {
-				results <- fmt.Sprintf("round %d owner lost access: links=%d err=%v", round, len(links), err)
-			}
-		}()
-		close(start)
-		wg.Wait()
-		close(results)
-		for msg := range results {
-			t.Fatal(msg)
-		}
-		flipLibraryVisibility(t, ctx, db, libraryID, "public")
-	}
-	assertNoExecutionRows(t, ctx, db)
 }

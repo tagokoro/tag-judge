@@ -75,7 +75,7 @@ type Library struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-type LibraryVerification struct {
+type LibrarySubmissionLink struct {
 	ID               int64              `json:"id"`
 	LibraryVersionID pgtype.UUID        `json:"library_version_id"`
 	CreatedBy        pgtype.UUID        `json:"created_by"`
