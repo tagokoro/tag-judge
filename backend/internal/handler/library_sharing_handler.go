@@ -172,6 +172,32 @@ func (h *LibraryHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// ListAllPublic lists public libraries across every namespace.
+func (h *LibraryHandler) ListAllPublic(w http.ResponseWriter, r *http.Request) {
+	limit, limitProvided, err := parseOptionalInt(r, "limit")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
+		return
+	}
+	offset, _, err := parseOptionalInt(r, "offset")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
+		return
+	}
+
+	libraries, err := h.libraries.ListAllPublic(r.Context(), limit, limitProvided, offset)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	response := make([]libraryResponse, 0, len(libraries))
+	for _, library := range libraries {
+		response = append(response, newLibraryResponse(library))
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *LibraryHandler) Get(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	library, err := h.libraries.Get(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"))

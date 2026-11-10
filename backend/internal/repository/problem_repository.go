@@ -11,6 +11,12 @@ type ListProblemsParams struct {
 	Offset int
 }
 
+type ListProblemsByCreatorParams struct {
+	CreatedBy string
+	Limit     int
+	Offset    int
+}
+
 type CreateProblemParams struct {
 	Title         string
 	Statement     string
@@ -41,6 +47,7 @@ type TestCaseSnapshotProblemRepository interface {
 type ProblemRepository interface {
 	PublicProblemReader
 	ListPublic(ctx context.Context, params ListProblemsParams) ([]domain.Problem, error)
+	ListByCreator(ctx context.Context, params ListProblemsByCreatorParams) ([]domain.Problem, error)
 	FindByID(ctx context.Context, id int64) (*domain.Problem, error)
 	Create(ctx context.Context, params CreateProblemParams) (*domain.Problem, error)
 	Update(ctx context.Context, params UpdateProblemParams) (*domain.Problem, error)

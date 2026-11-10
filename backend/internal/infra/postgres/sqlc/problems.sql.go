@@ -151,6 +151,65 @@ func (q *Queries) GetPublicProblem(ctx context.Context, id int64) (GetPublicProb
 	return i, err
 }
 
+const listProblemsByCreator = `-- name: ListProblemsByCreator :many
+SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
+FROM problems
+WHERE created_by = (($1::text)::uuid)
+ORDER BY id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListProblemsByCreatorParams struct {
+	CreatedBy    string `json:"created_by"`
+	ResultOffset int32  `json:"result_offset"`
+	ResultLimit  int32  `json:"result_limit"`
+}
+
+type ListProblemsByCreatorRow struct {
+	ID                  int64              `json:"id"`
+	Title               string             `json:"title"`
+	Statement           string             `json:"statement"`
+	TimeLimitMs         int32              `json:"time_limit_ms"`
+	MemoryLimitKb       int32              `json:"memory_limit_kb"`
+	Visibility          string             `json:"visibility"`
+	CurrentTestCasesKey string             `json:"current_test_cases_key"`
+	CreatedBy           string             `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Every problem the user created, including private ones, newest first.
+func (q *Queries) ListProblemsByCreator(ctx context.Context, arg ListProblemsByCreatorParams) ([]ListProblemsByCreatorRow, error) {
+	rows, err := q.db.Query(ctx, listProblemsByCreator, arg.CreatedBy, arg.ResultOffset, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProblemsByCreatorRow
+	for rows.Next() {
+		var i ListProblemsByCreatorRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Statement,
+			&i.TimeLimitMs,
+			&i.MemoryLimitKb,
+			&i.Visibility,
+			&i.CurrentTestCasesKey,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublicProblems = `-- name: ListPublicProblems :many
 SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
 FROM problems

@@ -40,3 +40,11 @@ WHERE id = $1;
 -- name: DeleteProblem :execrows
 DELETE FROM problems
 WHERE id = $1;
+
+-- Every problem the user created, including private ones, newest first.
+-- name: ListProblemsByCreator :many
+SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
+FROM problems
+WHERE created_by = ((sqlc.arg(created_by)::text)::uuid)
+ORDER BY id DESC
+LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

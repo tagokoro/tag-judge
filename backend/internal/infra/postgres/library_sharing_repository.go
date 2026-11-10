@@ -169,6 +169,23 @@ func (r *LibraryRepository) ListAll(ctx context.Context, namespaceID string, lim
 	return namespaceLibrariesFromRows(rows, err)
 }
 
+func (r *LibraryRepository) ListAllPublic(ctx context.Context, limit, offset int) ([]domain.Library, error) {
+	rows, err := r.queries.ListAllPublicLibraries(ctx, sqlc.ListAllPublicLibrariesParams{
+		ResultLimit:  int32(limit),
+		ResultOffset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	libraries := make([]domain.Library, 0, len(rows))
+	for _, row := range rows {
+		library := newLibrary(row.ID, "", row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt)
+		library.NamespaceSlug = row.NamespaceSlug
+		libraries = append(libraries, library)
+	}
+	return libraries, nil
+}
+
 func librariesFromRows(rows []sqlc.ListPublicLibrariesRow, err error) ([]domain.Library, error) {
 	if err != nil {
 		return nil, err

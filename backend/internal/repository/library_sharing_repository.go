@@ -34,6 +34,9 @@ type LibraryRepository interface {
 	FindBySlug(ctx context.Context, namespaceID, slug string) (*domain.Library, error)
 	ListPublic(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error)
 	ListAll(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error)
+	// ListAllPublic lists public libraries across every namespace, with
+	// NamespaceSlug filled in.
+	ListAllPublic(ctx context.Context, limit, offset int) ([]domain.Library, error)
 }
 
 type CreateLibraryVersionParams struct {

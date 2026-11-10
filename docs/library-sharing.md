@@ -48,6 +48,7 @@ HTTP API の詳細は [OpenAPI](../backend/docs/openapi.yaml) を正とします
 
 | メソッド | パス | 認証 |
 | --- | --- | --- |
+| GET | `/libraries`（全 Namespace の公開 Library） | 不要 |
 | POST | `/namespaces` | 必須 |
 | GET | `/me/namespace` | 必須 |
 | GET | `/namespaces/{namespace_slug}` | 不要 |

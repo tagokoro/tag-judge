@@ -187,18 +187,19 @@ func TestGetNamespaceBySlugPublic(t *testing.T) {
 }
 
 type fakeLibraryRepository struct {
-	createParams   repository.CreateLibraryParams
-	createErr      error
-	createCalls    int
-	updateParams   repository.UpdateLibraryParams
-	updateErr      error
-	updateCalls    int
-	bySlug         *domain.Library
-	findErr        error
-	listPublic     []domain.Library
-	listAll        []domain.Library
-	listPublicName string
-	listAllName    string
+	listAllPublicParams *[2]int
+	createParams        repository.CreateLibraryParams
+	createErr           error
+	createCalls         int
+	updateParams        repository.UpdateLibraryParams
+	updateErr           error
+	updateCalls         int
+	bySlug              *domain.Library
+	findErr             error
+	listPublic          []domain.Library
+	listAll             []domain.Library
+	listPublicName      string
+	listAllName         string
 }
 
 func (r *fakeLibraryRepository) Create(_ context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
@@ -248,6 +249,11 @@ func (r *fakeLibraryRepository) ListPublic(_ context.Context, namespaceID string
 func (r *fakeLibraryRepository) ListAll(_ context.Context, namespaceID string, _, _ int) ([]domain.Library, error) {
 	r.listAllName = namespaceID
 	return r.listAll, nil
+}
+
+func (r *fakeLibraryRepository) ListAllPublic(_ context.Context, limit, offset int) ([]domain.Library, error) {
+	r.listAllPublicParams = &[2]int{limit, offset}
+	return r.listPublic, nil
 }
 
 func libraryFixture(visibility domain.LibraryVisibility) (*fakeNamespaceRepository, *fakeLibraryRepository) {
@@ -704,5 +710,35 @@ func TestSetSubmissionURLValidatesInput(t *testing.T) {
 	}
 	if len(versions.setParams) != 0 {
 		t.Fatalf("repository must not be called for invalid input, got %+v", versions.setParams)
+	}
+}
+
+func TestListAllPublicLibrariesNeedsNoActor(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(namespaces, libraries)
+
+	if _, err := use.ListAllPublic(context.Background(), 0, false, 0); err != nil {
+		t.Fatalf("ListAllPublic: %v", err)
+	}
+	if libraries.listAllPublicParams == nil || *libraries.listAllPublicParams != [2]int{20, 0} {
+		t.Fatalf("params = %v, want default limit 20 offset 0", libraries.listAllPublicParams)
+	}
+}
+
+func TestListAllPublicLibrariesRejectsBadPaging(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(namespaces, libraries)
+
+	for _, c := range []struct {
+		limit         int
+		limitProvided bool
+		offset        int
+	}{{0, true, 0}, {101, true, 0}, {20, true, -1}} {
+		if _, err := use.ListAllPublic(context.Background(), c.limit, c.limitProvided, c.offset); !errors.Is(err, apperror.ErrInvalidInput) {
+			t.Fatalf("%+v err = %v, want invalid input", c, err)
+		}
+	}
+	if libraries.listAllPublicParams != nil {
+		t.Fatal("repository must not be called for rejected paging")
 	}
 }

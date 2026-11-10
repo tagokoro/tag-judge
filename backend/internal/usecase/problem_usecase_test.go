@@ -17,6 +17,40 @@ const (
 	problemUserID   = "00000000-0000-4000-8000-000000000003"
 )
 
+func TestListMyProblemsListsTheActorsProblems(t *testing.T) {
+	repo := newFakeProblemRepository()
+	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
+
+	problems, err := uc.ListMyProblems(context.Background(), authorActor(), ListProblemsInput{})
+	if err != nil {
+		t.Fatalf("ListMyProblems returned error: %v", err)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("problems = %+v", problems)
+	}
+	want := repository.ListProblemsByCreatorParams{CreatedBy: problemAuthorID, Limit: defaultProblemLimit}
+	if repo.listByCreatorParams == nil || *repo.listByCreatorParams != want {
+		t.Fatalf("params = %+v, want %+v", repo.listByCreatorParams, want)
+	}
+}
+
+func TestListMyProblemsRejectsAnonymousAndBadPaging(t *testing.T) {
+	repo := newFakeProblemRepository()
+	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
+
+	if _, err := uc.ListMyProblems(context.Background(), auth.Actor{}, ListProblemsInput{}); !errors.Is(err, apperror.ErrUnauthorized) {
+		t.Fatalf("anonymous err = %v, want unauthorized", err)
+	}
+	for _, input := range []ListProblemsInput{{Limit: 0, LimitProvided: true}, {Limit: 101, LimitProvided: true}, {Offset: -1}} {
+		if _, err := uc.ListMyProblems(context.Background(), authorActor(), input); !errors.Is(err, apperror.ErrInvalidInput) {
+			t.Fatalf("input %+v err = %v, want invalid input", input, err)
+		}
+	}
+	if repo.listByCreatorParams != nil {
+		t.Fatal("repository must not be called for rejected input")
+	}
+}
+
 func TestListProblems(t *testing.T) {
 	repo := newFakeProblemRepository()
 	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
@@ -195,15 +229,16 @@ func authorActor() auth.Actor {
 }
 
 type fakeProblemRepository struct {
-	problem      domain.Problem
-	listCalled   bool
-	listParams   repository.ListProblemsParams
-	createCalled bool
-	createParams repository.CreateProblemParams
-	updateCalled bool
-	updateParams repository.UpdateProblemParams
-	deleteCalled bool
-	deleteID     int64
+	problem             domain.Problem
+	listCalled          bool
+	listParams          repository.ListProblemsParams
+	listByCreatorParams *repository.ListProblemsByCreatorParams
+	createCalled        bool
+	createParams        repository.CreateProblemParams
+	updateCalled        bool
+	updateParams        repository.UpdateProblemParams
+	deleteCalled        bool
+	deleteID            int64
 }
 
 func newFakeProblemRepository() *fakeProblemRepository {
@@ -222,6 +257,11 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, params repository.
 	r.listCalled = true
 	r.listParams = params
 	return []domain.Problem{}, nil
+}
+
+func (r *fakeProblemRepository) ListByCreator(_ context.Context, params repository.ListProblemsByCreatorParams) ([]domain.Problem, error) {
+	r.listByCreatorParams = &params
+	return []domain.Problem{r.problem}, nil
 }
 
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {

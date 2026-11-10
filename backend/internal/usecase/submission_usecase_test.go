@@ -326,6 +326,7 @@ func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, pr
 }
 
 type fakeSubmissionRepository struct {
+	recentParams           *repository.ListRecentSubmissionsParams
 	createCalled           bool
 	createParams           repository.CreateSubmissionParams
 	createWithOutboxCalled bool
@@ -385,6 +386,11 @@ func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, params reposi
 	r.listCalled = true
 	r.listParams = params
 	return []domain.Submission{}, nil
+}
+
+func (r *fakeSubmissionRepository) ListRecentPublic(_ context.Context, params repository.ListRecentSubmissionsParams) ([]domain.PublicSubmission, error) {
+	r.recentParams = &params
+	return []domain.PublicSubmission{{ID: 1, ProblemID: 2, ProblemTitle: "A + B"}}, nil
 }
 
 func (r *fakeSubmissionRepository) ListCaseResults(_ context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error) {
@@ -487,4 +493,35 @@ func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64
 		problem.CurrentTestCasesKey = ""
 	}
 	return problem, nil
+}
+
+func TestListRecentPublicSubmissionsNeedsNoActor(t *testing.T) {
+	repo := &fakeSubmissionRepository{}
+	uc := newSubmissionUsecaseForTest(repo, &submissionProblemRepository{})
+
+	submissions, err := uc.ListRecentPublic(context.Background(), ListRecentSubmissionsInput{})
+	if err != nil {
+		t.Fatalf("ListRecentPublic returned error: %v", err)
+	}
+	if len(submissions) != 1 {
+		t.Fatalf("submissions = %+v", submissions)
+	}
+	want := repository.ListRecentSubmissionsParams{Limit: defaultSubmissionLimit}
+	if repo.recentParams == nil || *repo.recentParams != want {
+		t.Fatalf("params = %+v, want %+v", repo.recentParams, want)
+	}
+}
+
+func TestListRecentPublicSubmissionsRejectsBadPaging(t *testing.T) {
+	repo := &fakeSubmissionRepository{}
+	uc := newSubmissionUsecaseForTest(repo, &submissionProblemRepository{})
+
+	for _, input := range []ListRecentSubmissionsInput{{Limit: 0, LimitProvided: true}, {Limit: 101, LimitProvided: true}, {Offset: -1}} {
+		if _, err := uc.ListRecentPublic(context.Background(), input); !errors.Is(err, apperror.ErrInvalidInput) {
+			t.Fatalf("input %+v err = %v, want invalid input", input, err)
+		}
+	}
+	if repo.recentParams != nil {
+		t.Fatal("repository must not be called for rejected input")
+	}
 }
