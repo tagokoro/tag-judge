@@ -53,20 +53,19 @@ type LibraryVersion struct {
 	CreatedAt     time.Time
 }
 
-// LibraryVerification is a self-declared "related submission" link for one
-// library version: a plain absolute HTTP(S) submission URL. The DB table name
-// is kept from the earlier design to keep the PR review diff small, but a row
+// LibrarySubmissionLink is a self-declared "related submission" link for one
+// library version: a plain absolute HTTP(S) submission URL. A row
 // is NOT a verified proof: there is no adapter, harness, Submission, Outbox,
 // Judge run, verdict, score, or case result. The URL is never fetched, parsed
 // for content, or judged; it merely points at a submission the registrant says
 // is related. Authenticity of the submitter, verdict, or the library version
 // used is not guaranteed.
 //
-// Read methods join the current library/namespace so callers can authorize
-// reads by the library's CURRENT visibility (public links are viewable by
-// anyone, private links by the owner only). Those fields are read-time context,
+// Read methods enforce the current library/namespace visibility in the same
+// SQL statement as the data fetch (public to anyone, private to owner only).
+// Those fields are read-time context,
 // not columns stored on the link itself.
-type LibraryVerification struct {
+type LibrarySubmissionLink struct {
 	ID               int64
 	LibraryVersionID string
 	SubmissionURL    string
@@ -106,7 +105,7 @@ func validSlug(slug string, min, max int) bool {
 }
 
 // MaxSubmissionURLLength is the maximum accepted length (in bytes) of a
-// submission URL. It matches the library_verifications DB CHECK backstop.
+// submission URL. It matches the library_submission_links DB CHECK backstop.
 const MaxSubmissionURLLength = 2048
 
 // ErrInvalidSubmissionURL is returned by ValidateSubmissionURL when the value
