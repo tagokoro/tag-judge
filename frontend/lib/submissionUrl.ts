@@ -1,10 +1,7 @@
-// Pure view-model helpers and shared defaults for the library-sharing UI. A
-// version's submission URL is ONLY a self-declared related-submission URL: there
-// is NO adapter, Problem selection, Submission, Outbox, S3 object, Judge run,
-// verdict, score, status, case result, or polling. The URL is never fetched,
-// parsed for content, or judged. Kept free of React and of runtime imports from
-// other local modules so Node's built-in test runner (node:test) can load it
-// directly with TypeScript stripping.
+// Pure view-model helpers and shared defaults for the library-sharing UI. Kept
+// free of React and of runtime imports from other local modules so Node's
+// built-in test runner (node:test) can load it directly with TypeScript
+// stripping.
 
 import type { Role } from "./types";
 

@@ -5,7 +5,7 @@ PR3 で用意した環境・`/api/:path*` rewrite の上に、実際に操作で
 単一 HTML や Go による静的配信は使わず、Go API（`:8080`）と Next.js（`:3000`）は別プロセスです。
 
 API 契約は `backend/docs/openapi.yaml`、要件は
-`docs/library-sharing-judge-requirements.md` に従います。
+`docs/library-sharing.md` に従います。
 
 ## 実装したフロー
 
@@ -114,15 +114,15 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 - `lib/api.test.mjs` — `apiRequest` の `{data}` アンラップ、same-origin credentials、`/api/v1` 前缀、
   dev ヘッダーのオプトイン、JSON ボディ、`ApiRequestError`、`204`（logout）、
   `probeCookieSession` が dev ヘッダーを送らないこと、提出 URL の PUT / DELETE の
-  パス・メソッド・ボディ（旧 `problem_id` / `adapter_source` を含まないこと）、
+  パス・メソッド・ボディ、
   既存の Problems / Namespace / Library / Version 契約、slug の URL エンコード、
   `withSignal` による `AbortSignal` の伝播。
 - `lib/submissionUrl.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
-  制御文字・IDN/IPv6）、旧 judge/polling ヘルパーが**存在しない**こと、デフォルト値。
+  制御文字・IDN/IPv6）、デフォルト値。
 - `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
   消去・世代インクリメント・Version リセット、`authGeneration` / `selectionGeneration` による
   遅延レスポンスの破棄（選択切替・A→B→A・404 後の in-flight 取得）、
-  `CLEAR_LIBRARY_DETAIL`（404）と `SET_*` 選択変更での `links` / `currentLink` を含む
+  `CLEAR_LIBRARY_DETAIL`（404）と `SET_*` 選択変更での `versionSource`（提出 URL を含む）などの
   version/library データの消去、atomic select + apply、Version の Namespace / Library バインド、
   同一セッション再確認では消去しないこと、デフォルト値の整合性。
 
@@ -132,7 +132,6 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 dev 認証をチェック → Namespace 作成 → private Library 作成 → 別ユーザーで 404 → public 化 →
 Version 作成 → 所有者で絶対 HTTP(S) URL を設定 → Version の取得・一覧で読めること、別ユーザーでは設定できない（403）ことを確認 →
 public/private を切り替えて匿名・非所有者から読める/読めないことを確認します。
-Problem 選択・adapter 入力・判定ポーリング・Submission 作成は行いません。
 
 ## 制限（設計どおりの MVP 範囲）
 

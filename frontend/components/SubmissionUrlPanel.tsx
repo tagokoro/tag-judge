@@ -7,11 +7,9 @@ import { Button, Card, ErrorNote, Field } from "./ui";
 
 /**
  * Shows and edits the self-declared "related submission" URL of the selected
- * Library Version. The URL is NOT a verification/judge result: there is no
- * adapter, Problem selection, Submission, Judge run, verdict, score, status,
- * case result, or polling. The URL is never fetched or judged. Each version has
- * at most one URL, and only the library owner may set or clear it; reading it
- * follows the version's visibility (it comes with the version itself).
+ * Library Version. Each version has at most one URL, and only the library owner
+ * may set or clear it; reading it follows the version's visibility (it comes
+ * with the version itself).
  */
 export function SubmissionUrlPanel() {
   const { client, state, effectiveVersion, patchData } = useWorkspace();

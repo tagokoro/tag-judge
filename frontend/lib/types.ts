@@ -1,8 +1,4 @@
-// Types mirroring backend/docs/openapi.yaml (PR #45 submission-URL contract).
-// A library version's submission URL is ONLY a self-declared related-
-// submission URL set by the owner — not a verification/judge result. There is no adapter,
-// Problem selection, Submission, Judge run, verdict, score, status, or case
-// result in this flow. This module is type-only: it is imported with
+// Types mirroring backend/docs/openapi.yaml. This module is type-only: it is imported with
 // `import type` everywhere and never loaded at runtime, which also keeps the
 // Node test runner happy.
 
@@ -83,9 +79,7 @@ export interface LibraryVersionSummary {
   submission_url_updated_at: string | null;
 }
 
-// The existing, untouched judge Problems API (GET /problems). PR #47 does not
-// change any judge/Submission behavior; it only replaces the library
-// verification flow with self-declared URL links.
+// The existing judge Problems API (GET /problems).
 export interface Problem {
   id: number;
   title: string;

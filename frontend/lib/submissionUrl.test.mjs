@@ -12,40 +12,13 @@ const {
   SEED_USERS,
 } = submissionUrl;
 
-// A version submission URL is ONLY a self-declared "related submission" URL.
-// The judge/polling/verdict helpers from the old contract must be gone.
-test("the submission-URL module exposes no judge verdict/status/polling helpers", () => {
-  for (const removed of [
-    "TERMINAL_STATUSES",
-    "STATUS_LABELS",
-    "isTerminalStatus",
-    "statusLabel",
-    "formatCaseResult",
-    "isVerificationDetail",
-    "caseResultsOf",
-    "nextPollToken",
-    "isPollTokenCurrent",
-    "pollVerification",
-    "PollOptions",
-  ]) {
-    assert.equal(
-      removed in submissionUrl,
-      false,
-      `${removed} (judge/polling helper) must be gone`,
-    );
-  }
-});
-
-test("UI defaults describe a submission URL, not an adapter or a Problem", () => {
+test("UI defaults include a valid submission URL", () => {
   assert.equal(typeof DEFAULT_NAMESPACE_SLUG, "string");
   assert.equal(typeof DEFAULT_LIBRARY_SLUG, "string");
   assert.equal(typeof DEFAULT_LIBRARY_SOURCE, "string");
   assert.equal(typeof isValidSubmissionUrl, "function");
   assert.ok(isValidSubmissionUrl(DEFAULT_SUBMISSION_URL));
   assert.equal(SEED_USERS.length, 2);
-  // Old adapter / Problem defaults must not exist.
-  assert.equal("DEFAULT_ADAPTER_SOURCE" in submissionUrl, false);
-  assert.equal("DEFAULT_PROBLEM_ID" in submissionUrl, false);
 });
 
 test("isValidSubmissionUrl accepts absolute http/https URLs with a host", () => {

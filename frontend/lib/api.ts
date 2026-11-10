@@ -153,11 +153,10 @@ export interface JudgeClient {
   listVersions(namespaceSlug: string, librarySlug: string): Promise<LibraryVersionSummary[]>;
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
-  // The existing, untouched judge Problems API. PR #47 changes only the
-  // library submission-URL flow.
+  // The existing judge Problems API.
   listProblems(): Promise<Problem[]>;
-  // The owner sets or clears a version's self-declared submission URL (no
-  // Problem, adapter, Submission, or judge result). Reads come with the version.
+  // The owner sets or clears a version's submission URL. Reads come with the
+  // version.
   setSubmissionUrl(
     namespaceSlug: string,
     librarySlug: string,

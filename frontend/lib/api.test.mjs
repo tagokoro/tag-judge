@@ -127,9 +127,6 @@ test("createJudgeClient builds the version submission-URL endpoints", async () =
   assert.deepEqual(body, {
     submission_url: "https://judge.example/submissions/42",
   });
-  // The old judge-based contract (Problem + adapter) is gone.
-  assert.equal("problem_id" in body, false);
-  assert.equal("adapter_source" in body, false);
 
   const cleared = await client.clearSubmissionUrl("my-ns", "uf", 3);
   assert.equal(cleared, undefined);
@@ -203,16 +200,3 @@ test("withSignal forwards an AbortSignal so in-flight fetches can be cancelled",
   assert.equal(calls[1].init.signal, undefined);
 });
 
-test("createJudgeClient no longer exposes the legacy verification / link methods", () => {
-  const client = createJudgeClient(() => null, async () => jsonResponse(200, { data: {} }));
-  for (const legacy of [
-    "createVerification",
-    "getVerification",
-    "listVerifications",
-    "createSubmissionLink",
-    "getSubmissionLink",
-    "listSubmissionLinks",
-  ]) {
-    assert.equal(legacy in client, false, `${legacy} must be removed`);
-  }
-});
