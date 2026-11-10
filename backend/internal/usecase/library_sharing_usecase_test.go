@@ -494,8 +494,6 @@ func (r *fakeLibraryVersionRepository) Create(_ context.Context, params reposito
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: params.ContentSHA256,
-		ByteSize:      params.ByteSize,
 		CreatedBy:     params.CreatedBy,
 	}, nil
 }
@@ -516,7 +514,7 @@ func (r *fakeLibraryVersionRepository) ListSummaries(_ context.Context, params r
 	return r.summaries, nil
 }
 
-func TestCreateLibraryVersionStoresExactHash(t *testing.T) {
+func TestCreateLibraryVersionPassesSourceToRepository(t *testing.T) {
 	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
 	versions := &fakeLibraryVersionRepository{}
 	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
@@ -525,19 +523,13 @@ func TestCreateLibraryVersionStoresExactHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if versions.createParams.ContentSHA256 != "b24916acf9a8670a4e088af2bbc2591d02eca1f33ddad1aec0ed3a41d57568af" {
-		t.Fatalf("content sha = %q", versions.createParams.ContentSHA256)
-	}
-	if versions.createParams.ByteSize != 86 {
-		t.Fatalf("byte size = %d", versions.createParams.ByteSize)
-	}
 	if versions.createParams.SourceCode != source {
 		t.Fatalf("source code round-trip failed: %q", versions.createParams.SourceCode)
 	}
 	if versions.createParams.CreatedBy != authorUserID {
 		t.Fatalf("created_by = %q", versions.createParams.CreatedBy)
 	}
-	if version.SourceCode != source || version.ContentSHA256 != versions.createParams.ContentSHA256 {
+	if version.SourceCode != source {
 		t.Fatalf("version = %+v", version)
 	}
 }

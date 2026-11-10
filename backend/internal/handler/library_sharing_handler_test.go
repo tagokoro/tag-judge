@@ -92,8 +92,8 @@ func (r *fakeVersionRepo) Create(_ context.Context, params repository.CreateLibr
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: params.ContentSHA256,
-		ByteSize:      params.ByteSize,
+		ContentSHA256: librarysource.ContentSHA256(params.SourceCode),
+		ByteSize:      len([]byte(params.SourceCode)),
 		CreatedBy:     params.CreatedBy,
 	}
 	r.created = version
@@ -309,20 +309,20 @@ func TestOpenAPINullableFieldsUseUnionTypes(t *testing.T) {
 	}
 }
 
-// TestOpenAPIVerificationLinkHasNoJudgeFields pins the URL-link contract: the
-// verification schemas expose only a self-declared submission_url and link
+// TestOpenAPISubmissionLinkHasNoJudgeFields pins the URL-link contract: the
+// submissionLink schemas expose only a self-declared submission_url and link
 // metadata, never a verdict/score/status/adapter/case-result field, and the
 // POST request no longer accepts problem_id or adapter_source.
-func TestOpenAPIVerificationLinkHasNoJudgeFields(t *testing.T) {
+func TestOpenAPISubmissionLinkHasNoJudgeFields(t *testing.T) {
 	content, err := os.ReadFile("../../docs/openapi.yaml")
 	if err != nil {
 		t.Fatalf("read openapi.yaml: %v", err)
 	}
 	text := string(content)
-	start := strings.Index(text, "    CreateVerificationRequest:")
+	start := strings.Index(text, "    CreateSubmissionLinkRequest:")
 	end := strings.Index(text, "    ErrorResponse:")
 	if start < 0 || end < 0 || end <= start {
-		t.Fatal("verification schemas region not found in openapi.yaml")
+		t.Fatal("submissionLink schemas region not found in openapi.yaml")
 	}
 	// Drop comment lines so the descriptive contract text does not trigger the
 	// banned-field scan; only actual YAML schema entries remain.
@@ -336,14 +336,14 @@ func TestOpenAPIVerificationLinkHasNoJudgeFields(t *testing.T) {
 	}
 	block := schemaOnly.String()
 	if !strings.Contains(block, "submission_url") {
-		t.Fatal("verification schemas must expose submission_url")
+		t.Fatal("submissionLink schemas must expose submission_url")
 	}
 	for _, banned := range []string{
 		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
 		"case_results", "case_result", "verdict", "score", "judged_at", "status",
 	} {
 		if strings.Contains(block, banned) {
-			t.Fatalf("verification schemas must not carry the judge field %q", banned)
+			t.Fatalf("submissionLink schemas must not carry the judge field %q", banned)
 		}
 	}
 }

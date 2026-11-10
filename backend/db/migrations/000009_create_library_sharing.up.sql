@@ -70,9 +70,8 @@ CREATE TRIGGER library_versions_no_update_delete
     FOR EACH ROW
     EXECUTE FUNCTION reject_library_version_mutation();
 
--- library_verifications stores self-declared "related submission" links for a
--- library version. The table name is kept from the earlier design to keep the
--- PR review diff small, but a row is only a plain absolute HTTP(S) submission
+-- library_submission_links stores self-declared "related submission" links for a
+-- library version. A row is only a plain absolute HTTP(S) submission
 -- URL plus its registrant and timestamp. There is NO adapter, harness,
 -- Submission, Outbox, Judge run, verdict, score, or case result. The URL is
 -- never fetched, parsed for content, or judged; a link is self-declared and is
@@ -106,21 +105,21 @@ CREATE TRIGGER library_versions_no_update_delete
 -- domain validator can be rejected at INSERT time. Unicode/IDN hosts and IPv6
 -- literals remain valid. no_space_check/no_control_check and the length check
 -- back up whitespace, control and size rules (the tail .* may contain them).
-CREATE TABLE library_verifications (
+CREATE TABLE library_submission_links (
     id bigserial PRIMARY KEY,
     library_version_id uuid NOT NULL REFERENCES library_versions (id),
     created_by uuid NOT NULL REFERENCES users (id),
     submission_url text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT library_verifications_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
-    CONSTRAINT library_verifications_submission_url_absolute_check CHECK (
+    CONSTRAINT library_submission_links_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
+    CONSTRAINT library_submission_links_submission_url_absolute_check CHECK (
         submission_url ~ '^https?://([^/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]][^/?#@[:space:][:cntrl:]]*([/?#].*)?$'
     ),
-    CONSTRAINT library_verifications_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
-    CONSTRAINT library_verifications_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
+    CONSTRAINT library_submission_links_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
+    CONSTRAINT library_submission_links_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
 );
 
-CREATE INDEX library_verifications_version_idx
-    ON library_verifications (library_version_id);
-CREATE INDEX library_verifications_created_idx
-    ON library_verifications (created_at DESC, id DESC);
+CREATE INDEX library_submission_links_version_idx
+    ON library_submission_links (library_version_id);
+CREATE INDEX library_submission_links_created_idx
+    ON library_submission_links (created_at DESC, id DESC);

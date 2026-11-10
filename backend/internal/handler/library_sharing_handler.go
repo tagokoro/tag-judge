@@ -21,7 +21,7 @@ import (
 // decoded source at librarysource.MaxSourceBytes bytes, but JSON escaping can
 // expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
 // fully escaped valid body is still admitted while memory stays bounded.
-// Verification-link requests carry only a short URL but share this decoder.
+// Submission-link requests carry only a short URL but share this decoder.
 // Submission and code-run endpoints keep decodeJSON's original unbounded
 // contract.
 const maxLibraryRequestBytes = 6*librarysource.MaxSourceBytes + 64*1024
@@ -342,27 +342,27 @@ type libraryVersionSummaryResponse struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// LibraryVerificationHandler serves self-declared "related submission" URL
+// LibrarySubmissionLinkHandler serves self-declared "related submission" URL
 // links. Responses carry only link data (URL, version identifiers, registrant,
 // timestamp); they never expose a verdict, score, status, adapter, or case
-// result because a link is not a verification/judge result.
-type LibraryVerificationHandler struct {
-	verifications *usecase.LibraryVerificationUsecase
+// result because a link is not a judge result.
+type LibrarySubmissionLinkHandler struct {
+	submissionLinks *usecase.LibrarySubmissionLinkUsecase
 }
 
-func NewLibraryVerificationHandler(v *usecase.LibraryVerificationUsecase) *LibraryVerificationHandler {
-	return &LibraryVerificationHandler{verifications: v}
+func NewLibrarySubmissionLinkHandler(v *usecase.LibrarySubmissionLinkUsecase) *LibrarySubmissionLinkHandler {
+	return &LibrarySubmissionLinkHandler{submissionLinks: v}
 }
 
-// createVerificationRequest is the only accepted POST body: a single absolute
+// createSubmissionLinkRequest is the only accepted POST body: a single absolute
 // HTTP(S) submission URL. No problem_id or adapter_source is accepted.
-type createVerificationRequest struct {
+type createSubmissionLinkRequest struct {
 	SubmissionURL string `json:"submission_url"`
 }
 
-func (h *LibraryVerificationHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *LibrarySubmissionLinkHandler) Create(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
-	var req createVerificationRequest
+	var req createSubmissionLinkRequest
 	if err := decodeLibraryJSON(r, &req); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
@@ -372,41 +372,41 @@ func (h *LibraryVerificationHandler) Create(w http.ResponseWriter, r *http.Reque
 		WriteError(w, r, err)
 		return
 	}
-	link, err := h.verifications.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, req.SubmissionURL)
+	link, err := h.submissionLinks.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, req.SubmissionURL)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, newVerificationResponse(*link))
+	writeJSON(w, http.StatusCreated, newSubmissionLinkResponse(*link))
 }
 
-func parseVerificationID(r *http.Request) (int64, error) {
-	v, err := strconv.ParseInt(chi.URLParam(r, "verification_id"), 10, 64)
+func parseSubmissionLinkID(r *http.Request) (int64, error) {
+	v, err := strconv.ParseInt(chi.URLParam(r, "submission_link_id"), 10, 64)
 	if err != nil {
-		return 0, apperror.InvalidInput("INVALID_LIBRARY_VERIFICATION_ID", "verification_id must be an integer")
+		return 0, apperror.InvalidInput("INVALID_LIBRARY_SUBMISSION_LINK_ID", "submission_link_id must be an integer")
 	}
 	if v <= 0 {
-		return 0, apperror.InvalidInput("INVALID_LIBRARY_VERIFICATION_ID", "verification_id must be a positive integer")
+		return 0, apperror.InvalidInput("INVALID_LIBRARY_SUBMISSION_LINK_ID", "submission_link_id must be a positive integer")
 	}
 	return v, nil
 }
 
-func (h *LibraryVerificationHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVerificationID(r)
+func (h *LibrarySubmissionLinkHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id, err := parseSubmissionLinkID(r)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
-	link, err := h.verifications.Get(r.Context(), actor, id)
+	link, err := h.submissionLinks.Get(r.Context(), actor, id)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newVerificationResponse(*link))
+	writeJSON(w, http.StatusOK, newSubmissionLinkResponse(*link))
 }
 
-func (h *LibraryVerificationHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *LibrarySubmissionLinkHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, provided, err := parseOptionalInt(r, "limit")
 	if err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
@@ -423,25 +423,25 @@ func (h *LibraryVerificationHandler) List(w http.ResponseWriter, r *http.Request
 		return
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
-	items, err := h.verifications.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, limit, provided, offset)
+	items, err := h.submissionLinks.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, limit, provided, offset)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
-	result := make([]verificationResponse, 0, len(items))
+	result := make([]submissionLinkResponse, 0, len(items))
 	for _, item := range items {
-		result = append(result, newVerificationResponse(item))
+		result = append(result, newSubmissionLinkResponse(item))
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-// verificationResponse is the self-declared "related submission" link shape.
-// It is deliberately NOT a verification result: verdict, score, status,
+// submissionLinkResponse is the self-declared "related submission" link shape.
+// It is deliberately NOT a judge result: verdict, score, status,
 // adapter_source, case_results, judged_at, submission_id, and problem_id are
 // absent. The submission_url is a plain pointer to a submission the registrant
 // says is related; authenticity of the submitter, verdict, or library version
 // used is not guaranteed.
-type verificationResponse struct {
+type submissionLinkResponse struct {
 	ID               int64     `json:"id"`
 	LibraryVersionID string    `json:"library_version_id"`
 	NamespaceSlug    string    `json:"namespace_slug"`
@@ -452,8 +452,8 @@ type verificationResponse struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
-func newVerificationResponse(v domain.LibraryVerification) verificationResponse {
-	return verificationResponse{
+func newSubmissionLinkResponse(v domain.LibrarySubmissionLink) submissionLinkResponse {
+	return submissionLinkResponse{
 		ID:               v.ID,
 		LibraryVersionID: v.LibraryVersionID,
 		NamespaceSlug:    v.NamespaceSlug,

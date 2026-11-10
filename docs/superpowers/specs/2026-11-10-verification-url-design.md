@@ -13,9 +13,9 @@
 
 ## データとAPI
 
-- `library_verifications` は `id`, `library_version_id`, `created_by`, `submission_url`, `created_at` を持つ。`submission_id`, `adapter_source`, `adapter_sha256` は削除する。検証済みの意味を避けるため、新しいコード・API・UIでは「提出リンク」と呼ぶ。既存PRのレビュー差分を小さくするためテーブル名は維持する。
-- `POST /api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/verifications` は `{ "submission_url": "https://..." }` を受けてリンクを作成する。レスポンスはURL、Version識別子、登録者、作成時刻を返し、`submission_id`, `problem_id`, `status`, `score`, `adapter_source`, `case_results` は返さない。
-- 同じVersionのリンク一覧を `GET` 同一パスで提供する。単一リンク取得は `GET /api/v1/library-verifications/{id}` を維持する。認可はリンクの属するLibraryの現在の公開範囲で判定する。
+- `library_submission_links` は `id`, `library_version_id`, `created_by`, `submission_url`, `created_at` を持つ。検証済みの意味を避けるため、コード・API・UIでも「提出リンク」と呼ぶ。
+- `POST /api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-links` は `{ "submission_url": "https://..." }` を受けてリンクを作成する。レスポンスはURL、Version識別子、登録者、作成時刻を返し、`submission_id`, `problem_id`, `status`, `score`, `adapter_source`, `case_results` は返さない。
+- 同じVersionのリンク一覧を `GET` 同一パスで提供する。単一リンク取得は `GET /api/v1/library-submission-links/{id}` とする。認可はリンクの属するLibraryの現在の公開範囲で、取得 SQL と同時に判定する。
 - URLの重複、削除、リンク先の失効確認は今回扱わない。
 
 ## PR境界

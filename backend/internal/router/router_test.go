@@ -13,6 +13,7 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -708,23 +709,23 @@ func newTestRouterWithRepositories(groups repository.GroupRepository, submission
 }
 
 type testRouterOptions struct {
-	groups        repository.GroupRepository
-	submissions   repository.SubmissionRepository
-	namespaces    repository.NamespaceRepository
-	libraries     *fakeLibraryRouterRepository
-	versions      *fakeLibraryVersionRouterRepository
-	verifications *fakeLibraryVerificationRouterRepository
+	groups          repository.GroupRepository
+	submissions     repository.SubmissionRepository
+	namespaces      repository.NamespaceRepository
+	libraries       *fakeLibraryRouterRepository
+	versions        *fakeLibraryVersionRouterRepository
+	submissionLinks *fakeLibrarySubmissionLinkRouterRepository
 }
 
 func newTestRouterOptions(groups repository.GroupRepository, submissions repository.SubmissionRepository) *testRouterOptions {
 	libraries := newFakeLibraryRouterRepository(domain.LibraryVisibilityPublic)
 	return &testRouterOptions{
-		groups:        groups,
-		submissions:   submissions,
-		namespaces:    newRouterNamespaceRepository(),
-		libraries:     libraries,
-		versions:      newFakeLibraryVersionRouterRepository(),
-		verifications: newFakeLibraryVerificationRouterRepository(),
+		groups:          groups,
+		submissions:     submissions,
+		namespaces:      newRouterNamespaceRepository(),
+		libraries:       libraries,
+		versions:        newFakeLibraryVersionRouterRepository(),
+		submissionLinks: newFakeLibrarySubmissionLinkRouterRepository(),
 	}
 }
 
@@ -760,9 +761,9 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 		LibraryVersions: handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(
 			usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions,
 		)),
-		LibraryVerifications: handler.NewLibraryVerificationHandler(usecase.NewLibraryVerificationUsecase(
+		LibrarySubmissionLinks: handler.NewLibrarySubmissionLinkHandler(usecase.NewLibrarySubmissionLinkUsecase(
 			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions),
-			options.verifications,
+			options.submissionLinks,
 		)),
 	})
 }
@@ -1014,7 +1015,7 @@ func (r *fakeRouterTestCaseRepository) Delete(_ context.Context, _, _ int64) err
 	return nil
 }
 
-const verificationPath = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications"
+const submissionLinkPath = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/submission-links"
 
 // assertLinkHasNoJudgeFields guards the self-declared link contract: a link
 // response must never leak a verdict/score/status/adapter/case-result field.
@@ -1030,13 +1031,13 @@ func assertLinkHasNoJudgeFields(t *testing.T, body string) {
 	}
 }
 
-func TestVerificationRoutesRegisterAndExposeURLOnly(t *testing.T) {
+func TestSubmissionLinkRoutesRegisterAndExposeURLOnly(t *testing.T) {
 	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
 	router := newTestRouterWithHandlers(options)
 	const url = "https://judge.example.com/submissions/7"
 
 	// Registration requires authentication (401 for an anonymous caller).
-	anonPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
+	anonPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
 	anonPost.Header.Set("Content-Type", "application/json")
 	anonRes := httptest.NewRecorder()
 	router.ServeHTTP(anonRes, anonPost)
@@ -1045,7 +1046,7 @@ func TestVerificationRoutesRegisterAndExposeURLOnly(t *testing.T) {
 	}
 
 	// An authenticated POST creates a link exposing only link fields.
-	post := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
+	post := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
 	post.Header.Set("Content-Type", "application/json")
 	setAuth(post, "user")
 	res := httptest.NewRecorder()
@@ -1060,7 +1061,7 @@ func TestVerificationRoutesRegisterAndExposeURLOnly(t *testing.T) {
 
 	// The version-path list and the detail are anonymously readable for a
 	// public library, and both stay free of judge fields.
-	for _, path := range []string{verificationPath, "/api/v1/library-verifications/1"} {
+	for _, path := range []string{submissionLinkPath, "/api/v1/library-submission-links/1"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		got := httptest.NewRecorder()
 		router.ServeHTTP(got, req)
@@ -1074,9 +1075,9 @@ func TestVerificationRoutesRegisterAndExposeURLOnly(t *testing.T) {
 	}
 }
 
-func TestVerificationLinkRejectsInvalidURL(t *testing.T) {
+func TestSubmissionLinkRejectsInvalidURL(t *testing.T) {
 	router := newTestRouter()
-	post := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"ftp://example.com/x"}`))
+	post := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"ftp://example.com/x"}`))
 	post.Header.Set("Content-Type", "application/json")
 	setAuth(post, "user")
 	res := httptest.NewRecorder()
@@ -1087,13 +1088,13 @@ func TestVerificationLinkRejectsInvalidURL(t *testing.T) {
 	assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
 }
 
-func TestVerificationLinkCreateHidesPrivateLibrary(t *testing.T) {
+func TestSubmissionLinkCreateHidesPrivateLibrary(t *testing.T) {
 	options := newTestRouterWithPrivateLibrary()
 	router := newTestRouterWithHandlers(options)
 	body := `{"submission_url":"https://judge.example.com/submissions/7"}`
 
 	// A non-owner (admin) cannot register on a hidden private library.
-	adminPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(body))
+	adminPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(body))
 	adminPost.Header.Set("Content-Type", "application/json")
 	setAuthAsUser(adminPost, adminUserID, string(domain.UserRoleAdmin))
 	adminRes := httptest.NewRecorder()
@@ -1103,7 +1104,7 @@ func TestVerificationLinkCreateHidesPrivateLibrary(t *testing.T) {
 	}
 
 	// The owner can still register on their own private library.
-	ownerPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(body))
+	ownerPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(body))
 	ownerPost.Header.Set("Content-Type", "application/json")
 	setAuth(ownerPost, "user")
 	ownerRes := httptest.NewRecorder()
@@ -1520,22 +1521,22 @@ func TestLibraryVersionNumberRejectsInt32Overflow(t *testing.T) {
 		}
 		assertErrorCode(t, getRes, "INVALID_VERSION_NUMBER")
 
-		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/verifications", bytes.NewBufferString(`{"submission_url":"https://judge.example.com/submissions/7"}`))
-		verifyReq.Header.Set("Content-Type", "application/json")
-		setAuth(verifyReq, "user")
-		verifyRes := httptest.NewRecorder()
-		router.ServeHTTP(verifyRes, verifyReq)
-		if verifyRes.Code != http.StatusBadRequest {
-			t.Fatalf("verify version %q status = %d, want 400: %s", raw, verifyRes.Code, verifyRes.Body.String())
+		linkReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/submission-links", bytes.NewBufferString(`{"submission_url":"https://judge.example.com/submissions/7"}`))
+		linkReq.Header.Set("Content-Type", "application/json")
+		setAuth(linkReq, "user")
+		linkRes := httptest.NewRecorder()
+		router.ServeHTTP(linkRes, linkReq)
+		if linkRes.Code != http.StatusBadRequest {
+			t.Fatalf("submission link version %q status = %d, want 400: %s", raw, linkRes.Code, linkRes.Body.String())
 		}
-		assertErrorCode(t, verifyRes, "INVALID_VERSION_NUMBER")
+		assertErrorCode(t, linkRes, "INVALID_VERSION_NUMBER")
 	}
 }
 
-// TestCreateVerificationRejectsOversizedURL pins the URL format gate: a URL
+// TestCreateSubmissionLinkRejectsOversizedURL pins the URL format gate: a URL
 // longer than MaxSubmissionURLLength bytes must be rejected with 400 before
 // any link row is written. There is no adapter field in the URL-link model.
-func TestCreateVerificationRejectsOversizedURL(t *testing.T) {
+func TestCreateSubmissionLinkRejectsOversizedURL(t *testing.T) {
 	router := newTestRouter()
 	url := "https://judge.example.com/" + strings.Repeat("a", domain.MaxSubmissionURLLength)
 	body, err := json.Marshal(struct {
@@ -1544,7 +1545,7 @@ func TestCreateVerificationRejectsOversizedURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	setAuth(req, "user")
 	res := httptest.NewRecorder()
@@ -1603,7 +1604,7 @@ func TestLibraryListOffsetRejectsInt32Overflow(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/namespaces/seed-author/libraries",
 		"/api/v1/namespaces/seed-author/libraries/union-find/versions",
-		verificationPath,
+		submissionLinkPath,
 	} {
 		for _, raw := range []string{"2147483648", "4294967297"} {
 			req := httptest.NewRequest(http.MethodGet, path+"?offset="+raw, nil)
@@ -1758,17 +1759,17 @@ type fakeLibraryVersionRouterRepository struct {
 	listParams   repository.ListLibraryVersionsParams
 }
 
-type fakeLibraryVerificationRouterRepository struct {
-	verification *domain.LibraryVerification
-	listParams   repository.ListLibraryVerificationsParams
+type fakeLibrarySubmissionLinkRouterRepository struct {
+	submissionLink *domain.LibrarySubmissionLink
+	listParams     repository.ListLibrarySubmissionLinksParams
 }
 
-func newFakeLibraryVerificationRouterRepository() *fakeLibraryVerificationRouterRepository {
-	return &fakeLibraryVerificationRouterRepository{}
+func newFakeLibrarySubmissionLinkRouterRepository() *fakeLibrarySubmissionLinkRouterRepository {
+	return &fakeLibrarySubmissionLinkRouterRepository{}
 }
 
-func (r *fakeLibraryVerificationRouterRepository) Create(_ context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, error) {
-	r.verification = &domain.LibraryVerification{
+func (r *fakeLibrarySubmissionLinkRouterRepository) Create(_ context.Context, params repository.CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error) {
+	r.submissionLink = &domain.LibrarySubmissionLink{
 		ID:               1,
 		LibraryVersionID: params.LibraryVersionID,
 		SubmissionURL:    params.SubmissionURL,
@@ -1779,25 +1780,28 @@ func (r *fakeLibraryVerificationRouterRepository) Create(_ context.Context, para
 		Visibility:       domain.LibraryVisibilityPublic,
 		OwnerUserID:      routerUserID,
 	}
-	return r.verification, nil
+	return r.submissionLink, nil
 }
 
-func (r *fakeLibraryVerificationRouterRepository) FindByID(_ context.Context, id int64) (*domain.LibraryVerification, error) {
-	if r.verification == nil {
-		return nil, apperror.NotFound("LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
+func (r *fakeLibrarySubmissionLinkRouterRepository) FindByID(_ context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error) {
+	if r.submissionLink == nil {
+		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
 	}
-	v := *r.verification
+	if r.submissionLink.Visibility == domain.LibraryVisibilityPrivate && r.submissionLink.OwnerUserID != actorUserID {
+		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
+	}
+	v := *r.submissionLink
 	v.ID = id
 	return &v, nil
 }
 
-func (r *fakeLibraryVerificationRouterRepository) ListByVersion(_ context.Context, params repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
+func (r *fakeLibrarySubmissionLinkRouterRepository) ListByVersion(_ context.Context, params repository.ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error) {
 	r.listParams = params
-	if r.verification == nil {
-		return []domain.LibraryVerification{}, nil
+	if r.submissionLink == nil {
+		return []domain.LibrarySubmissionLink{}, nil
 	}
-	v := *r.verification
-	return []domain.LibraryVerification{v}, nil
+	v := *r.submissionLink
+	return []domain.LibrarySubmissionLink{v}, nil
 }
 
 func newFakeLibraryVersionRouterRepository() *fakeLibraryVersionRouterRepository {
@@ -1819,8 +1823,8 @@ func (r *fakeLibraryVersionRouterRepository) Create(_ context.Context, params re
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: params.ContentSHA256,
-		ByteSize:      params.ByteSize,
+		ContentSHA256: librarysource.ContentSHA256(params.SourceCode),
+		ByteSize:      len([]byte(params.SourceCode)),
 		CreatedBy:     params.CreatedBy,
 	}, nil
 }
