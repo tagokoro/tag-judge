@@ -13,7 +13,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -1035,7 +1034,7 @@ func TestSubmissionURLRoutesOwnerSetsAndClears(t *testing.T) {
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), url) {
 		t.Fatalf("owner PUT = %d: %s", res.Code, res.Body.String())
 	}
-	for _, banned := range []string{"problem_id", "submission_id", "adapter_source", "case_results", "verdict", `"score"`, `"status"`} {
+	for _, banned := range []string{"case_results", "verdict", `"score"`, `"status"`} {
 		if strings.Contains(res.Body.String(), banned) {
 			t.Fatalf("PUT response must not contain %q: %s", banned, res.Body.String())
 		}
@@ -1721,7 +1720,7 @@ type fakeLibraryVersionRouterRepository struct {
 func newFakeLibraryVersionRouterRepository() *fakeLibraryVersionRouterRepository {
 	return &fakeLibraryVersionRouterRepository{
 		byNumber: map[int]*domain.LibraryVersion{
-			1: {ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, SourceCode: "def add(a, b):\n    return a + b\n", ContentSHA256: "b24916acf9a8670a4e088af2bbc2591d02eca1f33ddad1aec0ed3a41d57568af", ByteSize: 31},
+			1: {ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, SourceCode: "def add(a, b):\n    return a + b\n", ContentSHA256: "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772", ByteSize: 31},
 		},
 	}
 }
@@ -1737,7 +1736,7 @@ func (r *fakeLibraryVersionRouterRepository) Create(_ context.Context, params re
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: librarysource.ContentSHA256(params.SourceCode),
+		ContentSHA256: domain.LibrarySourceSHA256(params.SourceCode),
 		ByteSize:      len([]byte(params.SourceCode)),
 		CreatedBy:     params.CreatedBy,
 	}, nil

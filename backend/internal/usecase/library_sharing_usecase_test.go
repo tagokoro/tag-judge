@@ -528,7 +528,7 @@ func TestCreateLibraryVersionPassesSourceToRepository(t *testing.T) {
 	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
 	versions := &fakeLibraryVersionRepository{}
 	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	source := "def add(a, b):\n    return a + b\n\nif __name__ == \"__main__\":\n    print(\"library-main\")\n"
+	source := "def add(a, b):\n    return a + b\n"
 	version, err := use.Create(context.Background(), authorActor(), "seed-author", "union-find", source)
 	if err != nil {
 		t.Fatalf("Create: %v", err)

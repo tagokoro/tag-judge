@@ -99,14 +99,13 @@ var ErrInvalidSubmissionURL = errors.New("invalid submission URL")
 // whitespace, and at most MaxSubmissionURLLength bytes. The host check uses
 // net/url's Hostname(), so ANY absolute HTTP(S) URL with a host is accepted,
 // including internationalized/Unicode hosts (e.g. https://例え.jp/...) and
-// IPv6 literals; no ASCII-only host restriction is applied. It never fetches
-// the URL, parses its content, or invokes the judge; it only checks the
+// IPv6 literals; no ASCII-only host restriction is applied. It only checks the
 // string's shape. The returned value is the trimmed URL, with its scheme
 // lowercased, to persist.
 //
 // This is the authoritative validator, not a comment or a DB CHECK: the
 // repository calls it before any write, so invalid URLs are rejected even when
-// Create is called directly, outside the future API layer. Hostname() rejects
+// the repository is called directly, outside the API layer. Hostname() rejects
 // hostless authorities such as "https://?x", "https://@", "https://:443" and
 // userinfo-only forms like "https://user@" (empty host). The DB CHECK
 // constraints are a backstop that mirrors this structure - an authority
