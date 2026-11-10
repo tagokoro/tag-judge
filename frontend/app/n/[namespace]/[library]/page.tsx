@@ -65,48 +65,67 @@ export default function LibraryPage({
       )}
 
       {library.data ? (
-        <Card title="Version">
-          {versions.data ? (
-            versions.data.length === 0 ? (
-              <p className="empty">
-                {owner
-                  ? "まだ Version がありません。下のフォームからソースを登録すると v1 になります。"
-                  : "まだ Version がありません。"}
-              </p>
-            ) : (
-              <ol className="version-line">
-                {versions.data.map((version) => (
-                  <li key={version.id}>
-                    <Link
-                      className="version-node"
-                      href={versionPath(namespaceSlug, librarySlug, version.version_number)}
-                    >
-                      <span className="version-dot">v{version.version_number}</span>
-                      <span className="version-meta">
-                        <span className="num">{formatDateTime(version.created_at)}</span>
-                        <span className="muted num">{version.byte_size} バイト</span>
-                        {version.submission_url ? <span className="chip">提出 URL あり</span> : null}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ol>
-            )
-          ) : (
-            <LoadState loading={versions.loading} error={versions.error} notFound="" />
-          )}
-        </Card>
-      ) : null}
-
-      {owner && library.data ? (
-        <>
-          <CreateVersionForm namespaceSlug={namespaceSlug} librarySlug={librarySlug} />
-          <LibrarySettings
-            namespaceSlug={namespaceSlug}
-            library={library.data}
-            onSaved={library.setData}
-          />
-        </>
+        <div className="split">
+          <div>
+            <Card title="Version">
+              {versions.data ? (
+                versions.data.length === 0 ? (
+                  <p className="empty">
+                    {owner
+                      ? "まだ Version がありません。下のフォームからソースを登録すると v1 になります。"
+                      : "まだ Version がありません。"}
+                  </p>
+                ) : (
+                  <ol className="version-line">
+                    {versions.data.map((version) => (
+                      <li key={version.id}>
+                        <Link
+                          className="version-node"
+                          href={versionPath(namespaceSlug, librarySlug, version.version_number)}
+                        >
+                          <span className="version-dot">v{version.version_number}</span>
+                          <span className="version-meta">
+                            <span className="num">{formatDateTime(version.created_at)}</span>
+                            <span className="muted num">{version.byte_size} バイト</span>
+                            {version.submission_url ? <span className="chip">提出 URL あり</span> : null}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              ) : (
+                <LoadState loading={versions.loading} error={versions.error} notFound="" />
+              )}
+            </Card>
+            {owner ? <CreateVersionForm namespaceSlug={namespaceSlug} librarySlug={librarySlug} /> : null}
+          </div>
+          <aside>
+            <Card title="この Library について">
+              <dl className="kv">
+                <dt>作成者</dt>
+                <dd>
+                  <Link href={namespacePath(namespaceSlug)}>@{namespaceSlug}</Link>
+                </dd>
+                <dt>公開範囲</dt>
+                <dd>
+                  <VisibilityBadge visibility={library.data.visibility} />
+                </dd>
+                <dt>Version 数</dt>
+                <dd className="num">{versions.data ? versions.data.length : "—"}</dd>
+                <dt>作成日時</dt>
+                <dd className="num">{formatDateTime(library.data.created_at)}</dd>
+              </dl>
+            </Card>
+            {owner ? (
+              <LibrarySettings
+                namespaceSlug={namespaceSlug}
+                library={library.data}
+                onSaved={library.setData}
+              />
+            ) : null}
+          </aside>
+        </div>
       ) : null}
     </div>
   );

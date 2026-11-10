@@ -33,7 +33,7 @@ export function Header() {
       <div className="site-header-inner">
         <Link href={HOME_PATH} className="brand">
           <VersionMark />
-          Library Sharing Judge
+          TagJudge
         </Link>
         <nav className="site-nav" aria-label="メインメニュー">
           {NAV_ITEMS.map((item) => (
@@ -128,6 +128,7 @@ function UserMenu() {
               <button
                 type="button"
                 role="menuitem"
+                className="menu-danger"
                 onClick={() => run(async () => {
                   await logout();
                   setOpen(false);

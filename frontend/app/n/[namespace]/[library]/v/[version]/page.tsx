@@ -46,25 +46,33 @@ export default function VersionPage({
               {librarySlug} v{version.data.version_number}
             </h1>
           </div>
-          <Card title="ソース">
-            <dl className="kv">
-              <dt>登録日時</dt>
-              <dd className="num">{formatDateTime(version.data.created_at)}</dd>
-              <dt>サイズ</dt>
-              <dd className="num">{version.data.byte_size} バイト</dd>
-              <dt>SHA-256</dt>
-              <dd className="hash">{version.data.content_sha256}</dd>
-            </dl>
-            {/* Source is untrusted text: rendered as a text node, never as HTML. */}
-            <pre className="source-view">{version.data.source_code}</pre>
-          </Card>
-          <SubmissionUrlCard
-            namespaceSlug={namespaceSlug}
-            librarySlug={librarySlug}
-            version={version.data}
-            owner={owner}
-            onChange={version.setData}
-          />
+          <div className="split">
+            <div>
+              <Card title="ソース">
+                {/* Source is untrusted text: rendered as a text node, never as HTML. */}
+                <pre className="source-view">{version.data.source_code}</pre>
+              </Card>
+            </div>
+            <aside>
+              <Card title="この Version について">
+                <dl className="kv">
+                  <dt>登録日時</dt>
+                  <dd className="num">{formatDateTime(version.data.created_at)}</dd>
+                  <dt>サイズ</dt>
+                  <dd className="num">{version.data.byte_size} バイト</dd>
+                  <dt>SHA-256</dt>
+                  <dd className="hash">{version.data.content_sha256}</dd>
+                </dl>
+              </Card>
+              <SubmissionUrlCard
+                namespaceSlug={namespaceSlug}
+                librarySlug={librarySlug}
+                version={version.data}
+                owner={owner}
+                onChange={version.setData}
+              />
+            </aside>
+          </div>
         </>
       ) : (
         <LoadState

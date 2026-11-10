@@ -45,24 +45,31 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
       )}
 
       {namespace.data ? (
-        <Card title="Library">
-          {libraries.data ? (
-            libraries.data.length === 0 ? (
-              <p className="empty">
-                {owner
-                  ? "まだ Library がありません。下のフォームから最初の Library を作成してください。"
-                  : "公開されている Library はまだありません。"}
-              </p>
-            ) : (
-              <LibraryList libraries={libraries.data} />
-            )
-          ) : (
-            <LoadState loading={libraries.loading} error={libraries.error} notFound="" />
-          )}
-        </Card>
+        <div className={owner ? "split" : undefined}>
+          <div>
+            <Card title="Library">
+              {libraries.data ? (
+                libraries.data.length === 0 ? (
+                  <p className="empty">
+                    {owner
+                      ? "まだ Library がありません。「Library を作成」から最初の Library を作ってください。"
+                      : "公開されている Library はまだありません。"}
+                  </p>
+                ) : (
+                  <LibraryList libraries={libraries.data} />
+                )
+              ) : (
+                <LoadState loading={libraries.loading} error={libraries.error} notFound="" />
+              )}
+            </Card>
+          </div>
+          {owner ? (
+            <aside>
+              <CreateLibraryForm namespaceSlug={namespaceSlug} />
+            </aside>
+          ) : null}
+        </div>
       ) : null}
-
-      {owner ? <CreateLibraryForm namespaceSlug={namespaceSlug} /> : null}
     </div>
   );
 }
