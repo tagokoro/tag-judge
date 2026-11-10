@@ -12,16 +12,20 @@ import (
 )
 
 const getLibraryVersionByNumber = `-- name: GetLibraryVersionByNumber :one
-SELECT id::text AS id, library_id::text AS library_id, version_number, source_code,
-       content_sha256, byte_size, created_by::text AS created_by, created_at
-FROM library_versions
-WHERE library_id = (($1::text)::uuid)
-  AND version_number = $2
+SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, lv.source_code,
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+FROM library_versions lv
+JOIN libraries l ON l.id = lv.library_id
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE lv.library_id = (($1::text)::uuid)
+  AND lv.version_number = $2
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower($3::text))
 `
 
 type GetLibraryVersionByNumberParams struct {
 	LibraryID     string `json:"library_id"`
 	VersionNumber int32  `json:"version_number"`
+	ActorUserID   string `json:"actor_user_id"`
 }
 
 type GetLibraryVersionByNumberRow struct {
@@ -36,7 +40,7 @@ type GetLibraryVersionByNumberRow struct {
 }
 
 func (q *Queries) GetLibraryVersionByNumber(ctx context.Context, arg GetLibraryVersionByNumberParams) (GetLibraryVersionByNumberRow, error) {
-	row := q.db.QueryRow(ctx, getLibraryVersionByNumber, arg.LibraryID, arg.VersionNumber)
+	row := q.db.QueryRow(ctx, getLibraryVersionByNumber, arg.LibraryID, arg.VersionNumber, arg.ActorUserID)
 	var i GetLibraryVersionByNumberRow
 	err := row.Scan(
 		&i.ID,
@@ -124,16 +128,20 @@ func (q *Queries) InsertLibraryVersion(ctx context.Context, arg InsertLibraryVer
 }
 
 const listLibraryVersionSummaries = `-- name: ListLibraryVersionSummaries :many
-SELECT id::text AS id, library_id::text AS library_id, version_number,
-       content_sha256, byte_size, created_by::text AS created_by, created_at
-FROM library_versions
-WHERE library_id = (($1::text)::uuid)
-ORDER BY version_number DESC
-LIMIT $3 OFFSET $2
+SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+FROM library_versions lv
+JOIN libraries l ON l.id = lv.library_id
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE lv.library_id = (($1::text)::uuid)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower($2::text))
+ORDER BY lv.version_number DESC
+LIMIT $4 OFFSET $3
 `
 
 type ListLibraryVersionSummariesParams struct {
 	LibraryID    string `json:"library_id"`
+	ActorUserID  string `json:"actor_user_id"`
 	ResultOffset int32  `json:"result_offset"`
 	ResultLimit  int32  `json:"result_limit"`
 }
@@ -149,7 +157,12 @@ type ListLibraryVersionSummariesRow struct {
 }
 
 func (q *Queries) ListLibraryVersionSummaries(ctx context.Context, arg ListLibraryVersionSummariesParams) ([]ListLibraryVersionSummariesRow, error) {
-	rows, err := q.db.Query(ctx, listLibraryVersionSummaries, arg.LibraryID, arg.ResultOffset, arg.ResultLimit)
+	rows, err := q.db.Query(ctx, listLibraryVersionSummaries,
+		arg.LibraryID,
+		arg.ActorUserID,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

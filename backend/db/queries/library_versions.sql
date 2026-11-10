@@ -38,16 +38,22 @@ RETURNING
     created_at;
 
 -- name: GetLibraryVersionByNumber :one
-SELECT id::text AS id, library_id::text AS library_id, version_number, source_code,
-       content_sha256, byte_size, created_by::text AS created_by, created_at
-FROM library_versions
-WHERE library_id = ((sqlc.arg(library_id)::text)::uuid)
-  AND version_number = sqlc.arg(version_number);
+SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, lv.source_code,
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+FROM library_versions lv
+JOIN libraries l ON l.id = lv.library_id
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
+  AND lv.version_number = sqlc.arg(version_number)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text));
 
 -- name: ListLibraryVersionSummaries :many
-SELECT id::text AS id, library_id::text AS library_id, version_number,
-       content_sha256, byte_size, created_by::text AS created_by, created_at
-FROM library_versions
-WHERE library_id = ((sqlc.arg(library_id)::text)::uuid)
-ORDER BY version_number DESC
+SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+FROM library_versions lv
+JOIN libraries l ON l.id = lv.library_id
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
+  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text))
+ORDER BY lv.version_number DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

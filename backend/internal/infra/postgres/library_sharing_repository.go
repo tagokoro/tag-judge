@@ -229,14 +229,16 @@ func (r *LibraryVersionRepository) Create(ctx context.Context, params repository
 		return nil, fmt.Errorf("begin library version transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := r.queries.WithTx(tx).LockLibraryByVersion(ctx, params.LibraryID); err != nil {
+	if _, err := r.queries.WithTx(tx).LockLibraryByVersion(ctx, params.LibraryID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	} else if err != nil {
 		return nil, err
 	}
 	row, err := r.queries.WithTx(tx).InsertLibraryVersion(ctx, sqlc.InsertLibraryVersionParams{
 		LibraryID:     params.LibraryID,
 		SourceCode:    params.SourceCode,
-		ContentSha256: params.ContentSHA256,
-		ByteSize:      int32(params.ByteSize),
+		ContentSha256: ContentSHA256(params.SourceCode),
+		ByteSize:      int32(len([]byte(params.SourceCode))),
 		CreatedBy:     params.CreatedBy,
 	})
 	if err != nil {
@@ -257,10 +259,11 @@ func (r *LibraryVersionRepository) Create(ctx context.Context, params repository
 	}, nil
 }
 
-func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID string, versionNumber int) (*domain.LibraryVersion, error) {
+func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error) {
 	row, err := r.queries.GetLibraryVersionByNumber(ctx, sqlc.GetLibraryVersionByNumberParams{
 		LibraryID:     libraryID,
 		VersionNumber: int32(versionNumber),
+		ActorUserID:   actorUserID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
@@ -285,6 +288,7 @@ func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params rep
 		LibraryID:    params.LibraryID,
 		ResultLimit:  int32(params.Limit),
 		ResultOffset: int32(params.Offset),
+		ActorUserID:  params.ActorUserID,
 	})
 	if err != nil {
 		return nil, err
@@ -304,17 +308,17 @@ func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params rep
 	return versions, nil
 }
 
-// LibraryVerificationRepository persists self-declared submission URL links.
+// LibrarySubmissionLinkRepository persists self-declared submission URL links.
 // Create opens a plain transaction (no admission lock): a link is not an
 // execution and must not create a Submission, Outbox record, S3 object, or
-// Judge run. The only write is the library_verifications row.
-type LibraryVerificationRepository struct {
+// Judge run. The only write is the library_submission_links row.
+type LibrarySubmissionLinkRepository struct {
 	db      *pgxpool.Pool
 	queries *sqlc.Queries
 }
 
-func NewLibraryVerificationRepository(db *pgxpool.Pool) *LibraryVerificationRepository {
-	return &LibraryVerificationRepository{db: db, queries: sqlc.New(db)}
+func NewLibrarySubmissionLinkRepository(db *pgxpool.Pool) *LibrarySubmissionLinkRepository {
+	return &LibrarySubmissionLinkRepository{db: db, queries: sqlc.New(db)}
 }
 
 // Create stores one self-declared submission URL link. It first runs the
@@ -323,24 +327,24 @@ func NewLibraryVerificationRepository(db *pgxpool.Pool) *LibraryVerificationRepo
 // persists the trimmed URL. The transaction holds a FOR SHARE lock on the
 // library row while re-checking visibility and version membership, so a
 // concurrent PATCH that privatizes the library cannot let a non-owner commit a
-// link. Only the library_verifications row is written: no Submission, Outbox
+// link. Only the library_submission_links row is written: no Submission, Outbox
 // record, S3 object, Judge run, or admission check. A rejected create commits
 // nothing and returns INVALID_SUBMISSION_URL or LIBRARY_NOT_FOUND.
-func (r *LibraryVerificationRepository) Create(ctx context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, error) {
+func (r *LibrarySubmissionLinkRepository) Create(ctx context.Context, params repository.CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error) {
 	submissionURL, err := domain.ValidateSubmissionURL(params.SubmissionURL)
 	if err != nil {
 		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
 	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin library verification transaction: %w", err)
+		return nil, fmt.Errorf("begin library submission link transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := r.queries.WithTx(tx)
 
 	// FOR SHARE locks the library row; a concurrent visibility PATCH cannot
 	// commit between this read and our commit.
-	locked, err := queries.LockLibraryForVerification(ctx, sqlc.LockLibraryForVerificationParams{
+	locked, err := queries.LockLibraryForSubmissionLink(ctx, sqlc.LockLibraryForSubmissionLinkParams{
 		NamespaceID: params.NamespaceID,
 		LibraryID:   params.LibraryID,
 	})
@@ -348,7 +352,7 @@ func (r *LibraryVerificationRepository) Create(ctx context.Context, params repos
 		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lock library for verification: %w", err)
+		return nil, fmt.Errorf("lock library for submission link: %w", err)
 	}
 	if locked.Visibility != string(domain.LibraryVisibilityPublic) && formatUUID(locked.OwnerUserID) != params.ActorUserID {
 		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
@@ -365,61 +369,62 @@ func (r *LibraryVerificationRepository) Create(ctx context.Context, params repos
 		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
 	}
 
-	id, err := queries.InsertLibraryVerification(ctx, sqlc.InsertLibraryVerificationParams{
+	id, err := queries.InsertLibrarySubmissionLink(ctx, sqlc.InsertLibrarySubmissionLinkParams{
 		LibraryVersionID: params.LibraryVersionID,
 		CreatedBy:        params.ActorUserID,
 		SubmissionUrl:    submissionURL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create library verification link: %w", err)
+		return nil, fmt.Errorf("create library submission link: %w", err)
 	}
 
 	// Re-read the joined row inside the same transaction so the returned link
 	// carries the same current library/version context as FindByID.
-	detail, err := queries.GetLibraryVerification(ctx, id)
+	detail, err := queries.GetLibrarySubmissionLink(ctx, sqlc.GetLibrarySubmissionLinkParams{SubmissionLinkID: id, ActorUserID: params.ActorUserID})
 	if err != nil {
-		return nil, fmt.Errorf("read created library verification link: %w", err)
+		return nil, fmt.Errorf("read created library submission link: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit library verification transaction: %w", err)
+		return nil, fmt.Errorf("commit library submission link transaction: %w", err)
 	}
-	return libraryVerificationFromRow(detail), nil
+	return librarySubmissionLinkFromRow(detail), nil
 }
 
-func (r *LibraryVerificationRepository) FindByID(ctx context.Context, id int64) (*domain.LibraryVerification, error) {
-	row, err := r.queries.GetLibraryVerification(ctx, id)
+func (r *LibrarySubmissionLinkRepository) FindByID(ctx context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error) {
+	row, err := r.queries.GetLibrarySubmissionLink(ctx, sqlc.GetLibrarySubmissionLinkParams{SubmissionLinkID: id, ActorUserID: actorUserID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_VERIFICATION_NOT_FOUND", "library verification not found")
+		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
 	}
 	if err != nil {
 		return nil, err
 	}
-	return libraryVerificationFromRow(row), nil
+	return librarySubmissionLinkFromRow(row), nil
 }
 
-func (r *LibraryVerificationRepository) ListByVersion(ctx context.Context, params repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
-	rows, err := r.queries.ListLibraryVerificationsByVersion(ctx, sqlc.ListLibraryVerificationsByVersionParams{
+func (r *LibrarySubmissionLinkRepository) ListByVersion(ctx context.Context, params repository.ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error) {
+	rows, err := r.queries.ListLibrarySubmissionLinksByVersion(ctx, sqlc.ListLibrarySubmissionLinksByVersionParams{
 		LibraryVersionID: params.LibraryVersionID,
 		ResultLimit:      int32(params.Limit),
 		ResultOffset:     int32(params.Offset),
+		ActorUserID:      params.ActorUserID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	links := make([]domain.LibraryVerification, 0, len(rows))
+	links := make([]domain.LibrarySubmissionLink, 0, len(rows))
 	for _, row := range rows {
 		// The :one and :many queries select identical columns, so the generated
 		// row structs have identical underlying types and can be converted.
-		links = append(links, *libraryVerificationFromRow(sqlc.GetLibraryVerificationRow(row)))
+		links = append(links, *librarySubmissionLinkFromRow(sqlc.GetLibrarySubmissionLinkRow(row)))
 	}
 	return links, nil
 }
 
-// libraryVerificationFromRow maps a joined link row into the domain object.
+// librarySubmissionLinkFromRow maps a joined link row into the domain object.
 // Both Create (via its in-transaction re-read) and FindByID use it, so the
 // created object and the read object are identical.
-func libraryVerificationFromRow(row sqlc.GetLibraryVerificationRow) *domain.LibraryVerification {
-	return &domain.LibraryVerification{
+func librarySubmissionLinkFromRow(row sqlc.GetLibrarySubmissionLinkRow) *domain.LibrarySubmissionLink {
+	return &domain.LibrarySubmissionLink{
 		ID:               row.ID,
 		LibraryVersionID: row.LibraryVersionID,
 		SubmissionURL:    row.SubmissionUrl,
