@@ -15,6 +15,7 @@ import {
   LoadState,
   VisibilityBadge,
 } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
 import { HOME_PATH, namespacePath, versionPath } from "@/lib/routes";
 import { isOwner } from "@/lib/session";
 import type { Library, Visibility } from "@/lib/types";
@@ -53,9 +54,7 @@ export default function LibraryPage({
             <h1>{library.data.name}</h1>
             <VisibilityBadge visibility={library.data.visibility} />
           </div>
-          {library.data.description ? (
-            <p className="text-block">{library.data.description}</p>
-          ) : null}
+          {library.data.description ? <p className="lede">{library.data.description}</p> : null}
         </>
       ) : (
         <LoadState
@@ -69,23 +68,29 @@ export default function LibraryPage({
         <Card title="Version">
           {versions.data ? (
             versions.data.length === 0 ? (
-              <p className="muted">Version はまだありません。</p>
+              <p className="empty">
+                {owner
+                  ? "まだ Version がありません。下のフォームからソースを登録すると v1 になります。"
+                  : "まだ Version がありません。"}
+              </p>
             ) : (
-              <ul className="list">
+              <ol className="version-line">
                 {versions.data.map((version) => (
                   <li key={version.id}>
                     <Link
-                      className="list-item"
+                      className="version-node"
                       href={versionPath(namespaceSlug, librarySlug, version.version_number)}
                     >
-                      <strong className="mono">v{version.version_number}</strong>
-                      <span className="muted">{version.created_at}</span>
-                      <span className="muted">{version.byte_size} bytes</span>
-                      {version.submission_url ? <span className="pill">提出 URL あり</span> : null}
+                      <span className="version-dot">v{version.version_number}</span>
+                      <span className="version-meta">
+                        <span className="num">{formatDateTime(version.created_at)}</span>
+                        <span className="muted num">{version.byte_size} バイト</span>
+                        {version.submission_url ? <span className="chip">提出 URL あり</span> : null}
+                      </span>
                     </Link>
                   </li>
                 ))}
-              </ul>
+              </ol>
             )
           ) : (
             <LoadState loading={versions.loading} error={versions.error} notFound="" />
@@ -122,7 +127,8 @@ function CreateVersionForm({
   return (
     <Card
       title="Version を追加"
-      note="Python のソース 1 ファイルです（100,000 バイトまで）。作成した Version のソースは変更・削除できません。"
+      owner
+      note="Python のソース 1 ファイル（100,000 バイトまで）を登録します。登録した Version は変更も削除もできません。"
     >
       <Field label="ソース">
         <textarea
@@ -169,7 +175,11 @@ function LibrarySettings({
   const [visibility, setVisibility] = useState<Visibility>(library.visibility);
 
   return (
-    <Card title="Library の設定" note="private にすると、所有者以外からは Library も Version も見えなくなります。">
+    <Card
+      title="Library の設定"
+      owner
+      note="非公開にすると、自分以外からは Library も Version も見えなくなります。"
+    >
       <div className="row">
         <Field label="名前">
           <input value={name} onChange={(event) => setName(event.target.value)} />
@@ -179,8 +189,8 @@ function LibrarySettings({
             value={visibility}
             onChange={(event) => setVisibility(event.target.value as Visibility)}
           >
-            <option value="private">private（自分だけ）</option>
-            <option value="public">public（誰でも閲覧可）</option>
+            <option value="private">非公開（自分だけ）</option>
+            <option value="public">公開（誰でも見られる）</option>
           </select>
         </Field>
       </div>

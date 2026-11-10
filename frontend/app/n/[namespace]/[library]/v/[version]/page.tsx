@@ -5,6 +5,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
 import { Breadcrumbs, Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
 import { HOME_PATH, libraryPath, namespacePath, parseVersionParam } from "@/lib/routes";
 import { isOwner } from "@/lib/session";
 import { isValidSubmissionUrl } from "@/lib/submissionUrl";
@@ -37,23 +38,23 @@ export default function VersionPage({
         ]}
       />
       {versionNumber === null ? (
-        <p className="note">Version 番号が正しくありません。</p>
+        <p className="empty">Version 番号が正しくありません。v1 のような番号で開いてください。</p>
       ) : version.data ? (
         <>
           <div className="page-title">
             <h1>
-              {librarySlug} <span className="mono">v{version.data.version_number}</span>
+              {librarySlug} v{version.data.version_number}
             </h1>
           </div>
           <Card title="ソース">
-            <div className="kv">
-              <span>作成日時</span>
-              <span className="mono">{version.data.created_at}</span>
-              <span>サイズ</span>
-              <span className="mono">{version.data.byte_size} bytes</span>
-              <span>SHA-256</span>
-              <span className="mono hash">{version.data.content_sha256}</span>
-            </div>
+            <dl className="kv">
+              <dt>登録日時</dt>
+              <dd className="num">{formatDateTime(version.data.created_at)}</dd>
+              <dt>サイズ</dt>
+              <dd className="num">{version.data.byte_size} バイト</dd>
+              <dt>SHA-256</dt>
+              <dd className="hash">{version.data.content_sha256}</dd>
+            </dl>
             {/* Source is untrusted text: rendered as a text node, never as HTML. */}
             <pre className="source-view">{version.data.source_code}</pre>
           </Card>
@@ -96,15 +97,25 @@ function SubmissionUrlCard({
   return (
     <Card
       title="関連する提出 URL"
-      note="所有者が自己申告した、このライブラリを使った提出の URL です。URL の内容や判定結果は確認していません。"
+      note="この版を使った提出の URL です。所有者が登録したもので、提出の内容や判定結果は確認していません。"
     >
-      <div className="kv">
-        <span>URL</span>
-        {/* Self-declared, untrusted text: shown as text, never fetched or followed automatically. */}
-        <span className="mono">{version.submission_url ?? "未設定"}</span>
-        <span>更新日時</span>
-        <span className="mono">{version.submission_url_updated_at ?? "—"}</span>
-      </div>
+      {version.submission_url ? (
+        <dl className="kv">
+          <dt>URL</dt>
+          {/* Self-declared, untrusted text: shown as text, never fetched or followed automatically. */}
+          <dd className="url-text">{version.submission_url}</dd>
+          <dt>更新日時</dt>
+          <dd className="num">
+            {version.submission_url_updated_at
+              ? formatDateTime(version.submission_url_updated_at)
+              : ""}
+          </dd>
+        </dl>
+      ) : (
+        <p className="empty">
+          {owner ? "まだ提出 URL がありません。下の欄に入力して保存してください。" : "提出 URL は登録されていません。"}
+        </p>
+      )}
 
       {owner ? (
         <>

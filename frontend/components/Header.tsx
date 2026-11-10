@@ -19,6 +19,7 @@ export function Header() {
     <header className="site-header">
       <div className="site-header-inner">
         <Link href={HOME_PATH} className="brand">
+          <VersionMark />
           Library Sharing Judge
         </Link>
         <nav className="site-nav">
@@ -30,9 +31,9 @@ export function Header() {
           {SHOW_DEV_AUTH && !state.session ? <DevAuthMenu /> : null}
           {!state.cookieChecked ? null : actor ? (
             <>
-              <span className="pill" title={actor.userId}>
-                {actor.source === "dev" ? "dev: " : ""}
-                {actor.role} / {actor.userId.slice(0, 8)}
+              <span className="who" title={actor.userId}>
+                {actor.source === "dev" ? "dev 認証 " : ""}
+                <strong>{actor.userId.slice(0, 8)}</strong>（{actor.role}）
               </span>
               {actor.source === "cookie" ? (
                 <button
@@ -59,6 +60,18 @@ export function Header() {
         </p>
       ) : null}
     </header>
+  );
+}
+
+/** Three versions on one line: the site's version-line motif. */
+function VersionMark() {
+  return (
+    <svg className="brand-mark" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true">
+      <line x1="5" y1="7" x2="29" y2="7" stroke="var(--mizu)" strokeWidth="2" />
+      <circle cx="5" cy="7" r="4" fill="var(--paper)" stroke="var(--mizu)" strokeWidth="2" />
+      <circle cx="17" cy="7" r="4" fill="var(--paper)" stroke="var(--mizu)" strokeWidth="2" />
+      <circle cx="29" cy="7" r="5" fill="var(--deep)" />
+    </svg>
   );
 }
 

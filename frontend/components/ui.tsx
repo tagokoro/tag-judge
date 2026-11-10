@@ -40,7 +40,7 @@ export function LoadState({
     return null;
   }
   if (isApiRequestError(error) && error.status === 404) {
-    return <p className="note">{notFound}</p>;
+    return <p className="empty">{notFound}</p>;
   }
   return (
     <p className="error" role="alert">
@@ -49,18 +49,24 @@ export function LoadState({
   );
 }
 
+/** A page section. `owner` marks tools only the namespace owner can use. */
 export function Card({
   title,
   note,
+  owner = false,
   children,
 }: {
   title: string;
   note?: ReactNode;
+  owner?: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className="card">
-      <h2>{title}</h2>
+    <section className={owner ? "section section-owner" : "section"}>
+      <h2>
+        {title}
+        {owner ? <span className="owner-tag">所有者のみ</span> : null}
+      </h2>
       {note ? <p className="note">{note}</p> : null}
       {children}
     </section>
@@ -122,7 +128,7 @@ export function ErrorNote({ error }: { error: string | null }) {
 export function VisibilityBadge({ visibility }: { visibility: Visibility }) {
   return (
     <span className={`badge badge-${visibility}`}>
-      {visibility === "public" ? "public" : "private"}
+      {visibility === "public" ? "公開" : "非公開"}
     </span>
   );
 }

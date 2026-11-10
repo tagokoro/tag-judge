@@ -8,6 +8,7 @@ import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
 import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
 import { GOOGLE_LOGIN_PATH, isApiRequestError } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
 import { namespacePath } from "@/lib/routes";
 
 export default function MyPage() {
@@ -37,12 +38,12 @@ export default function MyPage() {
       <h1>自分の Namespace</h1>
       {mine.data ? (
         <Card title={mine.data.display_name}>
-          <div className="kv">
-            <span>slug</span>
-            <span className="mono">{mine.data.slug}</span>
-            <span>作成日時</span>
-            <span className="mono">{mine.data.created_at}</span>
-          </div>
+          <dl className="kv">
+            <dt>slug</dt>
+            <dd>@{mine.data.slug}</dd>
+            <dt>作成日時</dt>
+            <dd className="num">{formatDateTime(mine.data.created_at)}</dd>
+          </dl>
           <div className="row">
             <Link className="btn btn-primary" href={namespacePath(mine.data.slug)}>
               Library 一覧を開く
@@ -68,7 +69,7 @@ function CreateNamespaceForm() {
   return (
     <Card
       title="Namespace を作成"
-      note="まだ自分の Namespace がありません。1 ユーザーにつき 1 つ作成でき、slug は後から変更できません。"
+      note="まだ自分の Namespace がありません。1 人 1 つ作れます。slug は URL に使われ、あとから変更できません。"
     >
       <div className="row">
         <Field label="slug" hint="2〜32 文字の英小文字・数字・ハイフン">

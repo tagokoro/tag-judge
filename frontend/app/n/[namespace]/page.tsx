@@ -35,7 +35,7 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
       {namespace.data ? (
         <div className="page-title">
           <h1>{namespace.data.display_name}</h1>
-          <span className="mono muted">@{namespace.data.slug}</span>
+          <span className="page-sub">@{namespace.data.slug}</span>
         </div>
       ) : (
         <LoadState
@@ -49,17 +49,23 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
         <Card title="Library">
           {libraries.data ? (
             libraries.data.length === 0 ? (
-              <p className="muted">表示できる Library はありません。</p>
+              <p className="empty">
+                {owner
+                  ? "まだ Library がありません。下のフォームから最初の Library を作成してください。"
+                  : "公開されている Library はまだありません。"}
+              </p>
             ) : (
-              <ul className="list">
+              <ul className="lib-list">
                 {libraries.data.map((library) => (
                   <li key={library.id}>
-                    <Link className="list-item" href={libraryPath(namespaceSlug, library.slug)}>
-                      <strong>{library.name}</strong>
-                      <span className="mono muted">{library.slug}</span>
+                    <Link className="lib-row" href={libraryPath(namespaceSlug, library.slug)}>
+                      <span>
+                        <span className="lib-name">{library.name}</span>
+                        <span className="lib-slug">{library.slug}</span>
+                      </span>
                       <VisibilityBadge visibility={library.visibility} />
                       {library.description ? (
-                        <span className="muted list-item-desc">{library.description}</span>
+                        <span className="lib-desc">{library.description}</span>
                       ) : null}
                     </Link>
                   </li>
@@ -87,7 +93,7 @@ function CreateLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
   const [visibility, setVisibility] = useState<Visibility>("private");
 
   return (
-    <Card title="Library を作成">
+    <Card title="Library を作成" owner>
       <div className="row">
         <Field label="slug" hint="Namespace 内で一意 / 2〜48 文字">
           <input
@@ -109,8 +115,8 @@ function CreateLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
             value={visibility}
             onChange={(event) => setVisibility(event.target.value as Visibility)}
           >
-            <option value="private">private（自分だけ）</option>
-            <option value="public">public（誰でも閲覧可）</option>
+            <option value="private">非公開（自分だけ）</option>
+            <option value="public">公開（誰でも見られる）</option>
           </select>
         </Field>
       </div>
