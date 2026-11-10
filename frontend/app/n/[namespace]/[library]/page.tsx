@@ -89,7 +89,6 @@ export default function LibraryPage({
                       <span className="version-meta">
                         <span className="num">{formatDateTime(version.created_at)}</span>
                         <span className="muted num">{version.byte_size} バイト</span>
-                        {version.submission_url ? <span className="chip">提出 URL あり</span> : null}
                       </span>
                     </Link>
                   </li>

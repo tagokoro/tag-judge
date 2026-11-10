@@ -73,8 +73,8 @@ function LibrarySettingsForm({
         </Field>
         <Field label="Visibility">
           <select value={visibility} onChange={(event) => setVisibility(event.target.value as Visibility)}>
-            <option value="private">private（自分だけ）</option>
-            <option value="public">public（誰でも見られる）</option>
+            <option value="private">private</option>
+            <option value="public">public</option>
           </select>
         </Field>
       </div>
