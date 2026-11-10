@@ -1,5 +1,4 @@
-// Types mirroring backend/docs/openapi.yaml (PR #45 URL-link contract) and the
-// agreed design (docs/superpowers/specs/2026-11-10-verification-url-design.md).
+// Types mirroring backend/docs/openapi.yaml (PR #45 submission-link contract).
 // A submission link on a library version is ONLY a self-declared related-
 // submission URL — not a verification/judge result. There is no adapter,
 // Problem selection, Submission, Judge run, verdict, score, status, or case

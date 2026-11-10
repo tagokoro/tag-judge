@@ -4,8 +4,8 @@ Next.js（App Router）+ TypeScript で実装したライブラリ共有 MVP の
 PR3 で用意した環境・`/api/:path*` rewrite の上に、実際に操作できる UI を載せています。
 単一 HTML や Go による静的配信は使わず、Go API（`:8080`）と Next.js（`:3000`）は別プロセスです。
 
-API 契約は `backend/docs/openapi.yaml`、提出 URL リンクの設計は
-`docs/superpowers/specs/2026-11-10-verification-url-design.md` に従います。
+API 契約は `backend/docs/openapi.yaml`、要件は
+`docs/library-sharing-judge-requirements.md` に従います。
 
 ## 実装したフロー
 

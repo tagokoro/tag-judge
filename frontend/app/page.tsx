@@ -217,7 +217,7 @@ export default function Home() {
 
         <footer className="app-footer">
           <p className="muted">
-            API 契約: <code>backend/docs/openapi.yaml</code> ／ 設計: <code>docs/superpowers/specs/2026-11-10-verification-url-design.md</code>
+            API 契約: <code>backend/docs/openapi.yaml</code> ／ 要件: <code>docs/library-sharing-judge-requirements.md</code>
           </p>
           <p className="muted">
             Library / Version のソースと提出 URL はすべてテキストとして表示し、HTML として解釈しません。private Library のリンクは所有者以外には API の認可により表示されません。
