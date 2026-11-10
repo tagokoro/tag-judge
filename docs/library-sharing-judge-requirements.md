@@ -1,5 +1,18 @@
 # ライブラリ共有ジャッジシステム 要件定義
 
+> ⚠️ **検証モデルの置き換え（2026-11-10）— 本書の検証・判定設計は失効しています**
+>
+> 本書は「Library Version を Test Suite / adapter / Judge Run で検証し、verdict・ケース結果を保存・公開する」という**初期構想**の要件定義です。この検証モデルは [提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) と [実装計画](superpowers/plans/2026-11-10-verification-url.md) により**全面的に置き換えられました**。実装の唯一の根拠はこれら新しい文書です。
+>
+> 現行の契約は次のとおりです。
+>
+> - Library Version に登録するのは**絶対 HTTP(S) の提出URLリンク**（`submission_url`）だけ。URL の取得・解析・判定はしない。
+> - adapter / harness / コード結合 / 問題選択は行わない。**Submission / Outbox / S3 / Judge は新規作成しない**。既存の Submission API と Judge は変更しない。
+> - リンクは提出者が自己宣言した「関連する提出」であり、**検証済みの証明ではない**。verdict / score / status / case_results / AC・Verify バッジは存在しない。
+> - 登録・閲覧の認可はリンクが属する Library の**現在の公開範囲**で判定する（公開は匿名閲覧可、private は所有者のみ）。
+>
+> したがって本書の §3（中心価値・Judge Run 図）、§10.5 Library Verification、§11 判定要件、§12.2 scope、§13.1 ER 図、§15.1、§16（MVP受け入れ条件全体）、§17.2〜17.4（移行）、§18.3 検証方式、§19 仮決定のうち、検証・判定に関する記述は**歴史的なものであり、現在の実装契約でも受け入れ条件でもありません**。特に §16.2「Library検証」と §16.3「AI操作」の検証開始・結果取得に関する受け入れ条件は無効です。新しい受け入れ条件は [提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) の「受け入れ確認」を参照してください。Namespace / Library / 不変 Version / ライセンスなど検証と無関係な部分は引き続き将来構想として参考になります。
+
 ## 1. 本書の目的
 
 本書は、現在のオンラインジャッジ基盤を、競技プログラミング向けのライブラリを公開・検証・再利用できる「ライブラリ共有ジャッジシステム」へ拡張するための要件を整理する。
@@ -269,7 +282,9 @@ version     : text
 | TST-07 | 隠しTest Caseの入力と期待出力を一般APIで返さない |
 | TST-08 | 判定実行時はTest Suite Versionのartifactとハッシュを固定する |
 
-### 10.5 Library Verification
+### 10.5 Library Verification <!-- 失効: 2026-11-10 提出URL設計で URL リンク方式へ置き換え -->
+
+> **失効:** この節の VER-01〜VER-10（Test Suite / Judge Run / verdict / ケース結果による検証）は旧方式の要件であり、現在の要件ではありません。現行は「提出URLリンク」（`submission_url`）の登録・一覧・詳細のみです。[提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) を参照してください。
 
 | ID | 要件 |
 | --- | --- |
@@ -623,7 +638,9 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 
 ## 15. MVP
 
-### 15.1 MVPで実装する
+### 15.1 MVPで実装する <!-- 失効: 検証・判定に関する項目は無効 -->
+
+> **失効:** 「Library VersionとTest Suite Versionの検証」「検証結果の保存と公開」「AIによる検証」など検証・判定に関する項目は無効です。現行の MVP は提出URLリンクの登録・一覧・詳細です。[提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) を参照してください。
 
 既存ジャッジを維持しながら、次を最初のリリース範囲とする。
 
@@ -671,7 +688,9 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 5. 公開日時、公開者、内容ハッシュを取得できる
 6. 修正する場合は新しいdraftバージョンを作成できる
 
-### 16.2 Library検証
+### 16.2 Library検証 <!-- 失効: adapter/Judge 検証方式は 2026-11-10 提出URL設計で廃止。以下の受け入れ条件は無効 -->
+
+> **失効:** この節の受け入れ条件は旧 adapter/Judge 検証方式のものであり、現在の契約ではありません。URL リンク方式の受け入れ条件は [提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) を参照してください。
 
 1. Library VersionとTest Suite Versionを指定して検証を開始できる
 2. Workerがライブラリファイルとharnessを取得して実行できる
@@ -680,7 +699,9 @@ MVPでは具体的なSLOを未確定とするが、次を満たす設計とす�
 5. Queueが重複配送されても終端結果が壊れない
 6. 隠しケースの入力と期待出力がレスポンスに含まれない
 
-### 16.3 AI操作
+### 16.3 AI操作 <!-- 失効: 「検証を開始できる」など検証に関する受け入れ条件は無効 -->
+
+> **失効:** 「検証を開始できる」「検証結果を取得できる」など検証・判定に関する受け入れ条件は無効です（[提出URL設計](superpowers/specs/2026-11-10-verification-url-design.md) 参照）。
 
 1. 利用者がscope付きAPI Tokenを発行できる
 2. Tokenを使用してLibrary情報を取得できる

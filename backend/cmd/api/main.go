@@ -85,11 +85,12 @@ func run() error {
 	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
 	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
 	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
-	// Verification submissions must share the very same AdmissionControl used by
-	// origin/main's submission and code-run paths so they hold the same global
-	// admission lock and obey identical rate/outstanding limits.
-	libraryVerificationRepo := postgres.NewLibraryVerificationRepository(db, admissionControl)
-	libraryVerificationUsecase := usecase.NewLibraryVerificationUsecase(libraryVersionUsecase, problemRepo, sourceCodeStorage, libraryVerificationRepo, submissionRepo)
+	// A library verification is now just a self-declared submission URL link.
+	// It needs no AdmissionControl, Problem reader, source-code storage, or
+	// Submission reader: the only write is the link row, and no judge run,
+	// Outbox record, or S3 object is created.
+	libraryVerificationRepo := postgres.NewLibraryVerificationRepository(db)
+	libraryVerificationUsecase := usecase.NewLibraryVerificationUsecase(libraryVersionUsecase, libraryVerificationRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
 	testCaseHandler := handler.NewTestCaseHandler(testCaseUsecase)
