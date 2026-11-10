@@ -10,3 +10,6 @@ judge/core/src/tmp/
 *.tfstate
 *.tfstate.*
 *.tfplan
+
+# Agent-generated design notes and plans
+docs/superpowers/
