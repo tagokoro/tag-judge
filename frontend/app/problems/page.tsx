@@ -14,7 +14,9 @@ export default function ProblemsPage() {
         problems.data.length === 0 ? (
           <p className="empty">公開されている問題はまだありません。</p>
         ) : (
-          <ProblemList problems={problems.data} />
+          <div className="panel">
+            <ProblemList problems={problems.data} />
+          </div>
         )
       ) : (
         <LoadState loading={problems.loading} error={problems.error} notFound="" />

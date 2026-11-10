@@ -17,14 +17,16 @@ export default function SubmissionsPage() {
         submissions.data.length === 0 ? (
           <p className="empty">まだ提出がありません。</p>
         ) : (
-          <SubmissionTable
-            showSubmitter
-            submissions={submissions.data.map((submission) => ({
-              ...submission,
-              problem: submission.problem_title,
-              submitter: submission.submitter_namespace_slug,
-            }))}
-          />
+          <div className="panel">
+            <SubmissionTable
+              showSubmitter
+              submissions={submissions.data.map((submission) => ({
+                ...submission,
+                problem: submission.problem_title,
+                submitter: submission.submitter_namespace_slug,
+              }))}
+            />
+          </div>
         )
       ) : (
         <LoadState loading={submissions.loading} error={submissions.error} notFound="" />

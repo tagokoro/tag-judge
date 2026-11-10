@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { libraryPath, namespacePath, parseVersionParam, versionPath } from "./routes.ts";
+import {
+  libraryEditPath,
+  libraryPath,
+  namespacePath,
+  newVersionPath,
+  parseVersionParam,
+  versionEditPath,
+  versionPath,
+} from "./routes.ts";
 
 test("page paths live under /n/ and encode each slug as one segment", () => {
   assert.equal(namespacePath("seed-author"), "/n/seed-author");
@@ -15,4 +23,10 @@ test("parseVersionParam accepts 1..int32 max only", () => {
   for (const raw of ["0", "-1", "01", "1.5", "abc", "", "2147483648"]) {
     assert.equal(parseVersionParam(raw), null, raw);
   }
+});
+
+test("edit pages live beside the read-only pages", () => {
+  assert.equal(libraryEditPath("ns", "uf"), "/n/ns/uf/edit");
+  assert.equal(newVersionPath("ns", "uf"), "/n/ns/uf/versions/new");
+  assert.equal(versionEditPath("ns", "uf", 2), "/n/ns/uf/v/2/edit");
 });

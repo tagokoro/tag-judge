@@ -17,7 +17,9 @@ export default function LibrariesPage() {
         libraries.data.length === 0 ? (
           <p className="empty">公開されている Library はまだありません。</p>
         ) : (
-          <LibraryList libraries={libraries.data} showNamespace />
+          <div className="panel">
+            <LibraryList libraries={libraries.data} showNamespace />
+          </div>
         )
       ) : (
         <LoadState loading={libraries.loading} error={libraries.error} notFound="" />

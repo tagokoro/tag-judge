@@ -21,12 +21,19 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 | `/me` | 自分のライブラリ。Namespace があればそのページへ移動し、無ければ作成フォーム | `GET /me/namespace`、`POST /namespaces` |
 | `/me/submissions` | 自分の提出 | `GET /submissions` |
 | `/me/problems` | 自分が作った問題（非公開を含む） | `GET /me/problems` |
-| `/n/[namespace]` | Namespace の Library 一覧。所有者には Library の作成フォーム | `GET /namespaces/{ns}`、`GET .../libraries`、`POST .../libraries` |
-| `/n/[namespace]/[library]` | Library の詳細と Version 一覧。所有者には Version の追加と Library の設定 | `GET .../libraries/{lib}`、`GET .../versions`、`POST .../versions`、`PATCH .../libraries/{lib}` |
-| `/n/[namespace]/[library]/v/[version]` | Version のソースと提出 URL。所有者には提出 URL の設定・削除 | `GET .../versions/{n}`、`PUT` / `DELETE .../versions/{n}/submission-url` |
+| `/n/[namespace]` | Namespace の Library 一覧（閲覧のみ） | `GET /namespaces/{ns}`、`GET .../libraries` |
+| `/n/[namespace]/[library]` | Library の詳細と Version 一覧（閲覧のみ） | `GET .../libraries/{lib}`、`GET .../versions` |
+| `/n/[namespace]/[library]/v/[version]` | Version のソースと提出 URL（閲覧のみ） | `GET .../versions/{n}` |
+| `/libraries/new` | Library の作成（自分の Namespace に作る） | `GET /me/namespace`、`POST .../libraries` |
+| `/n/[namespace]/[library]/edit` | Library の設定（名前・説明・公開範囲） | `PATCH .../libraries/{lib}` |
+| `/n/[namespace]/[library]/versions/new` | Version の追加 | `POST .../versions` |
+| `/n/[namespace]/[library]/v/[version]/edit` | 提出 URL の設定・削除 | `PUT` / `DELETE .../versions/{n}/submission-url` |
 
 - Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
-- 所有者向けのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
+- 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
+  「設定を編集」「Version を追加」「提出 URL を編集」などのボタンから編集ページへ移ります。
+- 編集ボタンと編集ページのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。
+  表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
 - 各 Version の「関連する提出 URL」は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
   判定は行わず、検証済み（AC など）バッジやステータス・スコアも表示しません。設定しても
   Submission / Outbox / S3 オブジェクト / Judge 実行は作られません。

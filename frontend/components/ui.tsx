@@ -100,7 +100,7 @@ export function Button({
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
-  variant?: "default" | "primary" | "ghost";
+  variant?: "default" | "primary" | "ghost" | "danger";
 }) {
   return (
     <button
