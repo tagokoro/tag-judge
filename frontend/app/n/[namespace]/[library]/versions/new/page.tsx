@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { CodeEditor } from "@/components/CodeEditor";
 import { OwnerOnly } from "@/components/OwnerOnly";
 import { useAsyncAction } from "@/components/useAsyncAction";
-import { Breadcrumbs, Button, Card, ErrorNote, Field } from "@/components/ui";
+import { Breadcrumbs, Button, Card, ErrorNote } from "@/components/ui";
 import { HOME_PATH, libraryPath, namespacePath, versionPath } from "@/lib/routes";
 
 const SOURCE_TEMPLATE = "def add(a, b):\n    return a + b\n";
@@ -57,14 +58,10 @@ function NewVersionForm({
       owner
       note="Python のソース 1 ファイル（100,000 バイトまで）を登録します。登録した Version は変更も削除もできません。"
     >
-      <Field label="ソース">
-        <textarea
-          className="code-input"
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          spellCheck={false}
-        />
-      </Field>
+      <div className="field">
+        <span className="field-label">ソース（Python）</span>
+        <CodeEditor value={source} onChange={setSource} label="ソース（Python）" />
+      </div>
       <div className="row">
         <Button
           variant="primary"

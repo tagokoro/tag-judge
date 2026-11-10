@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ActorScope, AuthProvider } from "@/components/AuthProvider";
 import { Header } from "@/components/Header";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 // Loaded by the browser so the build never needs network access. Zen Kaku

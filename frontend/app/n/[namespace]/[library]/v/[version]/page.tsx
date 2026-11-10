@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use } from "react";
+import { CodeView } from "@/components/CodeEditor";
 import { useNamespaceOwner } from "@/components/OwnerOnly";
 import { useResource } from "@/components/useResource";
 import { Breadcrumbs, Card, LoadState } from "@/components/ui";
@@ -65,8 +66,10 @@ export default function VersionPage({
               <dt>SHA-256</dt>
               <dd className="hash">{version.data.content_sha256}</dd>
             </dl>
-            {/* Source is untrusted text: rendered as a text node, never as HTML. */}
-            <pre className="source-view">{version.data.source_code}</pre>
+            {/* Source is untrusted text: CodeMirror shows it as text, never as HTML. */}
+            <div className="code-block">
+              <CodeView value={version.data.source_code} label="ソース" />
+            </div>
           </Card>
           <Card
             title="関連する提出 URL"

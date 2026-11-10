@@ -12,9 +12,18 @@
     "test:watch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --watch lib/*.test.mjs"
   },
   "dependencies": {
+    "@codemirror/lang-python": "6.2.1",
+    "@codemirror/language": "6.13.1",
+    "@lezer/highlight": "1.2.5",
+    "@uiw/react-codemirror": "4.25.12",
+    "katex": "0.19.1",
     "next": "16.4.5",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
   },
   "devDependencies": {
     "@types/node": "20.19.43",
@@ -27,5 +36,8 @@
   "engines": {
     "node": ">=20.9.0",
     "npm": ">=10.0.0"
+  },
+  "overrides": {
+    "katex": "0.19.1"
   }
 }

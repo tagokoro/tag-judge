@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use } from "react";
 import { useNamespaceOwner } from "@/components/OwnerOnly";
+import { RichText } from "@/components/RichText";
 import { useResource } from "@/components/useResource";
 import { Breadcrumbs, Card, LoadState, VisibilityBadge } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
@@ -53,7 +54,11 @@ export default function LibraryPage({
               </div>
             ) : null}
           </div>
-          {library.data.description ? <p className="lede">{library.data.description}</p> : null}
+          {library.data.description ? (
+            <Card title="説明">
+              <RichText source={library.data.description} />
+            </Card>
+          ) : null}
         </>
       ) : (
         <LoadState

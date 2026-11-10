@@ -51,9 +51,12 @@ API 契約は `backend/docs/openapi.yaml`、要件は
   `API_SERVER_ORIGIN` はサーバー側 rewrite だけで使い、ブラウザには公開しません（`NEXT_PUBLIC_` 不使用）。
 - **private ソース / 提出 URL の規則を維持**。private Library の `source_code` と提出 URL は
   API の認可（所有者）に従って表示されます。公開 Library の Version は匿名で読めます。
-- **テキスト表示のみ**。Library / Version のソースと提出 URL は React のテキストノードと
-  `<pre>{...}</pre>` で描画し、`innerHTML` / `dangerouslySetInnerHTML` は一切使いません。
-  提出 URL はリンクにせずテキストとして表示し、自動取得・自動遷移もしません。
+- **HTML は描画しない**。`innerHTML` / `dangerouslySetInnerHTML` は使いません。
+  - Library の説明は Markdown と TeX の数式（`$...$` / `$$...$$`）として描画します
+    （react-markdown + remark-gfm + remark-math + rehype-katex）。説明に書かれた生の HTML は描画されず、
+    リンクの URL は react-markdown の安全な URL フィルタを通ります。
+  - Version のソースは CodeMirror（Python のシンタックスハイライト）でテキストとして表示・編集します。
+  - 提出 URL はリンクにせずテキストとして表示し、自動取得・自動遷移もしません。
 
 ## データの読み込みと actor の切り替え
 

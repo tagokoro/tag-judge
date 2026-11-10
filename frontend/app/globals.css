@@ -865,6 +865,110 @@ textarea.code-input {
   }
 }
 
+/* ---------- Markdown + TeX ---------- */
+
+.rich-text {
+  overflow-wrap: anywhere;
+}
+
+.rich-text > * + * {
+  margin-top: 0.75em;
+}
+
+.rich-text h1,
+.rich-text h2,
+.rich-text h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-top: 1.2em;
+}
+
+.rich-text ul,
+.rich-text ol {
+  padding-left: 1.4em;
+}
+
+.rich-text pre {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-control);
+  background: var(--mist);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.rich-text pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.rich-text blockquote {
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--mizu);
+  color: var(--muted);
+}
+
+.rich-text table {
+  border-collapse: collapse;
+}
+
+.rich-text th,
+.rich-text td {
+  border: 1px solid var(--line);
+  padding: 0.3rem 0.6rem;
+}
+
+.rich-text .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tabs {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--mist);
+}
+
+.tabs button {
+  padding: 0.15rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--paper);
+  color: var(--deep);
+  box-shadow: 0 1px 2px rgb(15 94 140 / 0.12);
+}
+
+.preview {
+  min-height: 5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+}
+
+.code-block {
+  margin-top: 1rem;
+}
+
 /* ---------- Detail views ---------- */
 
 .kv {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginRequired } from "@/components/LoginRequired";
+import { MarkdownField } from "@/components/MarkdownField";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
 import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
@@ -72,9 +73,12 @@ function NewLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
           </select>
         </Field>
       </div>
-      <Field label="説明" hint="2000 文字まで">
-        <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
-      </Field>
+      <MarkdownField
+        label="説明"
+        hint="Markdown と TeX の数式（$a^2$、$$\\sum_{i} a_i$$）が使えます。2000 文字まで。"
+        value={description}
+        onChange={setDescription}
+      />
       <div className="row">
         <Button
           variant="primary"
