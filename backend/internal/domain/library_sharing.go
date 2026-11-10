@@ -128,9 +128,12 @@ var ErrInvalidSubmissionURL = errors.New("invalid submission URL")
 // Create is called directly, outside the future API layer. Hostname() rejects
 // hostless authorities such as "https://?x", "https://@", "https://:443" and
 // userinfo-only forms like "https://user@" (empty host). The DB CHECK
-// constraints are deliberately a WEAKER subset backstop (they only require the
-// first host character to be a non-structural delimiter plus no whitespace/
-// control/oversize), so every URL accepted here also passes the DB backstop.
+// constraints are a backstop that mirrors this structure - an authority
+// anchored to the URL end with '@' excluded from host characters - so that
+// hostless and no-host authorities are rejected at raw-SQL INSERT time too,
+// while every URL with a real host that this validator accepts (including
+// Unicode/IDN hosts, IPv6 literals, and userinfo containing '@') also passes
+// the DB backstop and can never be rejected at INSERT time.
 func ValidateSubmissionURL(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" || len(value) > MaxSubmissionURLLength {

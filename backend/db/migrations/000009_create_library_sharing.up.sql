@@ -86,17 +86,26 @@ CREATE TRIGGER library_versions_no_update_delete
 -- absolute HTTP(S) URL with a host, including internationalized/Unicode hosts,
 -- so the DB backstop must NOT impose an ASCII-only first-host-character rule.
 --
--- absolute_check requires the first HOST character (after any optional
--- userinfo ending in @) to be NOT a structural delimiter (/, ?, #, :, @) and
--- not whitespace/control. This rejects the hostless authorities the old
--- '^https?://[^/[:space:][:cntrl:]]+' pattern wrongly accepted - 'https://?x',
--- 'https://@', 'https://:443', 'https://#frag', 'https:///path' - because '?',
--- '@', ':' and '#' were allowed as the first authority character. It accepts
--- ASCII hosts, IPv6 literals ('['), and Unicode/IDN hosts ('例え.jp', etc.).
--- It is a prefix/backstop check only: the authoritative net/url Hostname()
--- check in the repository is what rejects ALL no-host forms (including a bare
--- userinfo like 'https://user@'). no_space_check/no_control_check and the
--- length check back up the same rules.
+-- absolute_check is ANCHORED to the URL end (with an optional /, ? or #
+-- path/query/fragment tail) and EXCLUDES '@' from HOST characters:
+--   ^https?://                         scheme
+--   ([^/?#[:space:][:cntrl:]]*@)?      optional userinfo, ending at the LAST @
+--   [^/?#:@[:space:][:cntrl:]]         first host char (not a delimiter,
+--                                      Unicode/IDN/'['/'.'/alnum all allowed)
+--   [^/?#@[:space:][:cntrl:]]*         remaining host chars (no '@', no /?#,
+--                                      no whitespace/control)
+--   ([/?#].*)?$                        optional path/query/fragment, then end
+-- Anchoring + excluding '@' from host chars rejects hostless authorities
+-- ('https://?x', 'https://@', 'https://:443', 'https://#frag',
+-- 'https:///path') AND userinfo-only/no-host forms ('https://user@',
+-- 'https://user@/', 'https://user@?x', 'https://user@#frag') that a prefix-only
+-- CHECK wrongly accepted. Optional userinfo allows '@' (greedy to the last @)
+-- to match net/url, so URLs with a REAL host such as 'https://user@example.com'
+-- or 'https://a@b@c' (host 'c') are accepted. This keeps the DB backstop a
+-- SUBSET of the authoritative net/url Hostname() check: no URL accepted by the
+-- domain validator can be rejected at INSERT time. Unicode/IDN hosts and IPv6
+-- literals remain valid. no_space_check/no_control_check and the length check
+-- back up whitespace, control and size rules (the tail .* may contain them).
 CREATE TABLE library_verifications (
     id bigserial PRIMARY KEY,
     library_version_id uuid NOT NULL REFERENCES library_versions (id),
@@ -105,7 +114,7 @@ CREATE TABLE library_verifications (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT library_verifications_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
     CONSTRAINT library_verifications_submission_url_absolute_check CHECK (
-        submission_url ~ '^https?://([^@/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]]'
+        submission_url ~ '^https?://([^/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]][^/?#@[:space:][:cntrl:]]*([/?#].*)?$'
     ),
     CONSTRAINT library_verifications_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
     CONSTRAINT library_verifications_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
