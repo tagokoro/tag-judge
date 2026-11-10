@@ -12,7 +12,7 @@
 // No React here, and NO runtime imports from other local modules: node:test
 // loads this file directly with Node's built-in TypeScript stripping (which
 // requires extensionless relative imports to be type-only). The default values
-// mirror lib/submissionLink.ts; workspaceState.test.mjs asserts they stay in sync.
+// mirror lib/submissionUrl.ts; workspaceState.test.mjs asserts they stay in sync.
 
 import type {
   Library,
@@ -21,7 +21,6 @@ import type {
   Me,
   Namespace,
   Role,
-  SubmissionLink,
   Visibility,
 } from "./types";
 
@@ -54,11 +53,9 @@ export interface ScopedData {
   libraries: Library[] | null;
   libraryDetail: Library | null;
   versionSummaries: LibraryVersionSummary[] | null;
-  versionSource: LibraryVersion | null; // displayed source_code (private)
+  // Displayed version: source_code (private) and its self-declared submission URL.
+  versionSource: LibraryVersion | null;
   versionCreated: LibraryVersion | null;
-  // Self-declared related-submission URL links for the selected version.
-  links: SubmissionLink[] | null;
-  currentLink: SubmissionLink | null; // selected link detail
   // Inputs / transient view state that could still carry a previous actor's text.
   submissionUrlInput: string;
   librarySourceInput: string;
@@ -119,8 +116,6 @@ export function emptyScopedData(): ScopedData {
     versionSummaries: null,
     versionSource: null,
     versionCreated: null,
-    links: null,
-    currentLink: null,
     submissionUrlInput: WORKSPACE_DEFAULTS.submissionUrl,
     librarySourceInput: WORKSPACE_DEFAULTS.librarySource,
     patchVisibility: "private",
@@ -135,20 +130,18 @@ export function emptyScopedData(): ScopedData {
  */
 export type SelectionScope = "namespace" | "library" | "version";
 
-/** Data fetched for a specific VERSION (links + the displayed source). */
+/** Data fetched for a specific VERSION (the displayed source and its URL). */
 function clearedVersionData(): Partial<ScopedData> {
-  return { versionSource: null, links: null, currentLink: null };
+  return { versionSource: null };
 }
 
-/** Data fetched for a specific LIBRARY (detail, versions, links, source). */
+/** Data fetched for a specific LIBRARY (detail, versions, source). */
 function clearedLibraryData(): Partial<ScopedData> {
   return {
     libraryDetail: null,
     versionSummaries: null,
     versionSource: null,
     versionCreated: null,
-    links: null,
-    currentLink: null,
   };
 }
 
@@ -328,7 +321,7 @@ export function workspaceReducer(
     }
     case "SET_NAMESPACE_SLUG":
       // A namespace change invalidates the namespace profile, its library list
-      // and every library/version/link detail. Bound version is deliberately
+      // and every library/version detail. Bound version is deliberately
       // NOT reset: effectiveVersion() binds it to the namespace/library it was
       // chosen under, so a slug change makes it unusable WITHOUT silently
       // reusing an old number (issue 2), and it becomes valid again if the user
@@ -337,15 +330,15 @@ export function workspaceReducer(
         namespaceSlug: action.slug,
       });
     case "SET_LIBRARY_SLUG":
-      // A library change invalidates the library detail, versions, source and
-      // links, but keeps the namespace profile / library list (still valid for
+      // A library change invalidates the library detail, versions and source,
+      // but keeps the namespace profile / library list (still valid for
       // the same namespace) and the input widgets.
       return applySelectionChange(state, "library", action.patch, {
         librarySlug: action.slug,
       });
     case "SET_VERSION":
       // A version change invalidates only version-scoped data (the displayed
-      // source and the links/currentLink). Library-level data stays.
+      // source and its submission URL). Library-level data stays.
       return applySelectionChange(state, "version", action.patch, {
         boundVersion:
           action.version === null
@@ -358,10 +351,10 @@ export function workspaceReducer(
       });
     case "CLEAR_LIBRARY_DETAIL":
       // A failed (e.g. 404 private) Library detail refetch must not leave the
-      // previous detail, version source OR related-submission links mounted for
+      // previous detail or version source (with its submission URL) mounted for
       // a library the actor can no longer see. Bump selectionGeneration so any
-      // in-flight link/detail fetch for the same (now-failed) target is also
-      // discarded instead of restoring the stale private/foreign links.
+      // in-flight version/detail fetch for the same (now-failed) target is also
+      // discarded instead of restoring stale private/foreign data.
       return {
         ...state,
         selectionGeneration: state.selectionGeneration + 1,

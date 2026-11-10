@@ -10,7 +10,6 @@
 import type {
   CreateLibraryInput,
   CreateNamespaceInput,
-  CreateSubmissionLinkInput,
   DevHeaders,
   Library,
   LibraryVersion,
@@ -18,8 +17,8 @@ import type {
   Me,
   Namespace,
   Problem,
+  SetSubmissionUrlInput,
   UpdateLibraryInput,
-  SubmissionLink,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -155,22 +154,17 @@ export interface JudgeClient {
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
   // The existing, untouched judge Problems API. PR #47 changes only the
-  // library submission-link flow.
+  // library submission-URL flow.
   listProblems(): Promise<Problem[]>;
-  // Submission-link endpoints only handle self-declared related-submission
-  // URLs (no Problem, adapter, Submission, or judge result).
-  createSubmissionLink(
+  // The owner sets or clears a version's self-declared submission URL (no
+  // Problem, adapter, Submission, or judge result). Reads come with the version.
+  setSubmissionUrl(
     namespaceSlug: string,
     librarySlug: string,
     version: number,
-    input: CreateSubmissionLinkInput,
-  ): Promise<SubmissionLink>;
-  getSubmissionLink(id: number): Promise<SubmissionLink>;
-  listSubmissionLinks(
-    namespaceSlug: string,
-    librarySlug: string,
-    version: number,
-  ): Promise<SubmissionLink[]>;
+    input: SetSubmissionUrlInput,
+  ): Promise<LibraryVersion>;
+  clearSubmissionUrl(namespaceSlug: string, librarySlug: string, version: number): Promise<void>;
   /** Return a client whose requests carry `signal` so they can be aborted. */
   withSignal(signal: AbortSignal | undefined): JudgeClient;
 }
@@ -224,16 +218,15 @@ export function createJudgeClient(
         json: { source_code: sourceCode },
       }),
     listProblems: () => call<Problem[]>(list("/problems")),
-    createSubmissionLink: (namespaceSlug, librarySlug, version, input) =>
-      call<SubmissionLink>(
-        `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-links`,
-        { method: "POST", json: input },
+    setSubmissionUrl: (namespaceSlug, librarySlug, version, input) =>
+      call<LibraryVersion>(
+        `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-url`,
+        { method: "PUT", json: input },
       ),
-    getSubmissionLink: (id) => call<SubmissionLink>(`/library-submission-links/${id}`),
-    listSubmissionLinks: (namespaceSlug, librarySlug, version) =>
-      call<SubmissionLink[]>(
-        list(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-links`),
-      ),
+    clearSubmissionUrl: (namespaceSlug, librarySlug, version) =>
+      call<void>(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-url`, {
+        method: "DELETE",
+      }),
     withSignal: (nextSignal) => createJudgeClient(getDevHeaders, fetchImpl, nextSignal),
   };
 }

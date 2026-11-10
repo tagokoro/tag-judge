@@ -14,7 +14,7 @@ export function VersionPanel() {
   return (
     <Card
       title="Library Version"
-      note="Version は作成時点で不変です（更新・削除 API はありません / §5.1）。source_code は読める人にだけ返り、private Library は所有者以外 404 です。ソースは必ずテキストとして表示します。"
+      note="Version のコードは作成時点で不変です（更新・削除 API はありません / §5.1。変更できるのは所有者が設定する提出 URL だけです）。source_code は読める人にだけ返り、private Library は所有者以外 404 です。ソースは必ずテキストとして表示します。"
     >
       <Field label="Python ソース（1 本 / 100000 バイトまで）">
         <textarea
@@ -37,7 +37,7 @@ export function VersionPanel() {
               );
               const versionSummaries = await api.listVersions(namespaceSlug, librarySlug);
               // Atomically select the new version AND show its source/list:
-              // stale links/source from the previous version are cleared first.
+              // stale source from the previous version is cleared first.
               setVersion(version.version_number, {
                 versionCreated: version,
                 versionSource: version,
@@ -64,7 +64,7 @@ export function VersionPanel() {
         </Button>
       </div>
       <p className="muted">
-        提出リンクの対象 Version: <strong>{effectiveVersion ?? "未選択"}</strong>
+        提出URLの対象 Version: <strong>{effectiveVersion ?? "未選択"}</strong>
         （Namespace / Library を変えると選択は無効になります）
       </p>
 
@@ -94,7 +94,7 @@ export function VersionPanel() {
                           summary.version_number,
                         );
                         // Atomic: switch version + show its source, clearing
-                        // the previous version's links / source first.
+                        // the previous version's source first.
                         setVersion(version.version_number, {
                           versionSource: version,
                         });
@@ -104,6 +104,9 @@ export function VersionPanel() {
                     <span className="mono">v{summary.version_number}</span>
                     <span className="mono muted">{summary.content_sha256.slice(0, 12)}…</span>
                     <span>{summary.byte_size} bytes</span>
+                    <span className="muted">
+                      {summary.submission_url ? "提出URLあり" : "提出URLなし"}
+                    </span>
                   </button>
                 </li>
               ))}

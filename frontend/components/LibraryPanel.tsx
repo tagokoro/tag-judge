@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_LIBRARY_SLUG } from "@/lib/submissionLink";
+import { DEFAULT_LIBRARY_SLUG } from "@/lib/submissionUrl";
 import type { Visibility } from "@/lib/types";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
@@ -119,7 +119,7 @@ export function LibraryPanel() {
               });
               const libraries = await api.listLibraries(namespaceSlug);
               // Atomically select the created library AND apply its data: the
-              // reducer clears any stale links/detail/versions, then applies
+              // reducer clears any stale detail/versions/source, then applies
               // this patch in one guarded dispatch.
               setLibrarySlug(created.slug, {
                 libraryDetail: created,
@@ -205,7 +205,7 @@ export function LibraryPanel() {
                         const api = client.withSignal(signal);
                         const detail = await api.getLibrary(namespaceSlug, library.slug);
                         // Atomic: switch target + show its detail, so the old
-                        // library's links / version source are cleared first.
+                        // library's version source is cleared first.
                         setLibrarySlug(library.slug, {
                           libraryDetail: detail,
                           patchVisibility: detail.visibility,

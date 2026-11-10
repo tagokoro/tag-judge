@@ -107,20 +107,22 @@ test("createJudgeClient keeps the existing GET /problems behavior", async () => 
   assert.equal(calls[0].url, "/api/v1/problems?limit=100");
 });
 
-// A submission link is a self-declared related-submission URL. The
-// create body carries ONLY submission_url; list is scoped to a version.
-test("createJudgeClient builds the submission-URL link endpoints", async () => {
-  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+// A version's submission URL is a self-declared related-submission URL set by
+// the owner. PUT carries ONLY submission_url; DELETE clears it (204).
+test("createJudgeClient builds the version submission-URL endpoints", async () => {
+  const { calls, fake } = recorder((url, init) =>
+    init.method === "DELETE" ? jsonResponse(204) : jsonResponse(200, { data: {} }),
+  );
   const client = createJudgeClient(() => null, fake);
 
-  await client.createSubmissionLink("my-ns", "uf", 3, {
+  await client.setSubmissionUrl("my-ns", "uf", 3, {
     submission_url: "https://judge.example/submissions/42",
   });
   assert.equal(
     calls[0].url,
-    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/submission-links",
+    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/submission-url",
   );
-  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.method, "PUT");
   const body = JSON.parse(calls[0].init.body);
   assert.deepEqual(body, {
     submission_url: "https://judge.example/submissions/42",
@@ -129,14 +131,13 @@ test("createJudgeClient builds the submission-URL link endpoints", async () => {
   assert.equal("problem_id" in body, false);
   assert.equal("adapter_source" in body, false);
 
-  await client.listSubmissionLinks("my-ns", "uf", 3);
+  const cleared = await client.clearSubmissionUrl("my-ns", "uf", 3);
+  assert.equal(cleared, undefined);
   assert.equal(
     calls[1].url,
-    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/submission-links?limit=100",
+    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/submission-url",
   );
-
-  await client.getSubmissionLink(7);
-  assert.equal(calls[2].url, "/api/v1/library-submission-links/7");
+  assert.equal(calls[1].init.method, "DELETE");
 });
 
 test("createJudgeClient keeps the namespace/library/version contract", async () => {
@@ -202,9 +203,16 @@ test("withSignal forwards an AbortSignal so in-flight fetches can be cancelled",
   assert.equal(calls[1].init.signal, undefined);
 });
 
-test("createJudgeClient no longer exposes the legacy verification methods", () => {
+test("createJudgeClient no longer exposes the legacy verification / link methods", () => {
   const client = createJudgeClient(() => null, async () => jsonResponse(200, { data: {} }));
-  for (const legacy of ["createVerification", "getVerification", "listVerifications"]) {
+  for (const legacy of [
+    "createVerification",
+    "getVerification",
+    "listVerifications",
+    "createSubmissionLink",
+    "getSubmissionLink",
+    "listSubmissionLinks",
+  ]) {
     assert.equal(legacy in client, false, `${legacy} must be removed`);
   }
 });

@@ -1,6 +1,6 @@
-// Types mirroring backend/docs/openapi.yaml (PR #45 submission-link contract).
-// A submission link on a library version is ONLY a self-declared related-
-// submission URL — not a verification/judge result. There is no adapter,
+// Types mirroring backend/docs/openapi.yaml (PR #45 submission-URL contract).
+// A library version's submission URL is ONLY a self-declared related-
+// submission URL set by the owner — not a verification/judge result. There is no adapter,
 // Problem selection, Submission, Judge run, verdict, score, status, or case
 // result in this flow. This module is type-only: it is imported with
 // `import type` everywhere and never loaded at runtime, which also keeps the
@@ -57,6 +57,11 @@ export interface UpdateLibraryInput {
   visibility?: Visibility;
 }
 
+/**
+ * submission_url is the owner's self-declared "related submission" URL (null
+ * when unset). It is never fetched, parsed for content, or judged: authenticity
+ * of the submitter, verdict, or library version used is NOT guaranteed.
+ */
 export interface LibraryVersion {
   id: string;
   version_number: number;
@@ -64,6 +69,8 @@ export interface LibraryVersion {
   content_sha256: string;
   byte_size: number;
   created_at: string;
+  submission_url: string | null;
+  submission_url_updated_at: string | null;
 }
 
 export interface LibraryVersionSummary {
@@ -72,6 +79,8 @@ export interface LibraryVersionSummary {
   content_sha256: string;
   byte_size: number;
   created_at: string;
+  submission_url: string | null;
+  submission_url_updated_at: string | null;
 }
 
 // The existing, untouched judge Problems API (GET /problems). PR #47 does not
@@ -89,25 +98,7 @@ export interface Problem {
   updated_at: string;
 }
 
-/**
- * A self-declared "related submission" URL link (OpenAPI `SubmissionLink`).
- * The URL is never fetched, parsed for content, or judged: authenticity of the
- * submitter, verdict, or library version used is NOT guaranteed. Verdict,
- * score, status, adapter_source, case_results, judged_at, submission_id, and
- * problem_id are intentionally absent.
- */
-export interface SubmissionLink {
-  id: number;
-  library_version_id: string;
-  namespace_slug: string;
-  library_slug: string;
-  version_number: number;
-  submission_url: string;
-  created_by: string;
-  created_at: string;
-}
-
-/** POST body for registering one link: a single absolute HTTP(S) URL. */
-export interface CreateSubmissionLinkInput {
+/** PUT body for setting a version's submission URL: one absolute HTTP(S) URL. */
+export interface SetSubmissionUrlInput {
   submission_url: string;
 }

@@ -15,16 +15,16 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 | Namespace | `POST /namespaces`、`GET /me/namespace`、`GET /namespaces/{slug}` |
 | Library | `POST /namespaces/{slug}/libraries`、`GET .../libraries`、`GET .../libraries/{lib}`、`PATCH .../libraries/{lib}`（public/private） |
 | Version | `POST .../versions`、`GET .../versions`、`GET .../versions/{n}`（ソース表示） |
-| 関連する提出URL | `POST .../versions/{n}/submission-links`（`{ "submission_url": "https://..." }` で登録）、`GET .../versions/{n}/submission-links`（一覧）、`GET /library-submission-links/{id}`（詳細） |
+| 関連する提出URL | `PUT .../versions/{n}/submission-url`（`{ "submission_url": "https://..." }` で設定・置き換え）、`DELETE .../versions/{n}/submission-url`（削除）。現在の値は Version の取得・一覧に含まれます |
 
-- 各 Version に貼られた「関連する提出 URL」は提出者の**自己宣言**です。URL の取得・内容解析・
-  判定は行わず、提出者・判定結果・使用 Library Version の真正性も保証しません。
+- 各 Version に付けられる「関連する提出 URL」は 1 件だけで、Library 所有者の**自己宣言**です。URL の取得・内容解析・
+  判定は行わず、判定結果・使用 Library Version の真正性も保証しません。
   **検証済み（AC など）バッジやステータス・スコア・ケース結果は表示しません。**
-- 登録は認証済みユーザーが行います。公開 Library は誰でも、private Library は所有者だけが
-  追加できます。閲覧は公開 Library なら匿名でも可能で、private Library のリンクは所有者以外
-  404 です（公開範囲の切り替えに追従）。未認証の登録は 401、不正 URL は 400 です。
+- 設定・変更・削除は Library の所有者だけが行えます（所有者以外は公開 Library なら 403、
+  private Library なら 404）。閲覧は Version と同じで、公開 Library なら匿名でも可能、
+  private Library は所有者以外 404 です（公開範囲の切り替えに追従）。未認証は 401、不正 URL は 400 です。
 - URL は絶対 HTTP(S)（ホストあり・前後空白除去・制御文字なし・2048 バイト以内）。
-  登録しても Submission / Outbox / S3 オブジェクト / Judge 実行は一切作られません。
+  設定しても Submission / Outbox / S3 オブジェクト / Judge 実行は一切作られず、Version のコードも変わりません。
   既存の Submission API と Judge のコード・挙動は変更していません。
 - Version は不変です。更新・削除の UI はありません（API も `405`）。
 - 「ユーザー切替」は dev ヘッダーの値を seed author / admin で入れ替え、現在の Library 詳細を
@@ -40,8 +40,8 @@ API 契約は `backend/docs/openapi.yaml`、要件は
   専用・本番では使用禁止」の警告を画面に表示します（サーバー側で `DEV_HEADER_AUTH=true` が必要）。
 - すべてのリクエストは `credentials: "same-origin"` で `/api/v1/*` のみを呼びます。
   `API_SERVER_ORIGIN` はサーバー側 rewrite だけで使い、ブラウザには公開しません（`NEXT_PUBLIC_` 不使用）。
-- **private ソース / リンクの規則を維持**。private Library の `source_code` と提出リンクは
-  API の認可（所有者）に従って表示されます。公開リンクは匿名で読めます。
+- **private ソース / 提出 URL の規則を維持**。private Library の `source_code` と提出 URL は
+  API の認可（所有者）に従って表示されます。公開 Library の Version は匿名で読めます。
 - **テキスト表示のみ**。Library / Version のソースと提出 URL は React のテキストノードと
   `<pre>{...}</pre>` で描画し、`innerHTML` / `dangerouslySetInnerHTML` は一切使いません。
   URL を自動取得・自動遷移させず、JSON レスポンスも `JSON.stringify` を `<pre>` に表示するだけです。
@@ -59,25 +59,24 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 
 実効 actor が変わると次をまとめて行います。
 
-- Namespace / Library 詳細、Library / Version 一覧、Version の `source_code`、提出リンク一覧・
-  選択中のリンク詳細、URL 入力など、actor に紐づくデータをすべてクリアし、選択 Version をリセット。
+- Namespace / Library 詳細、Library / Version 一覧、Version の `source_code` と提出 URL、URL 入力など、actor に紐づくデータをすべてクリアし、選択 Version をリセット。
 - 選択 Version は Namespace / Library の slug に**バインド**され、slug が変わると
   `effectiveVersion()` が `null` を返すため、別ライブラリの古い Version 番号を黙って使いません。
 - 各パネルを `authGeneration` で再マウントし、`useAsyncAction` の `AbortController` が実行中の
   fetch を中止。遅れて届いたレスポンスは世代ガードで破棄され、前の actor の private データが復活しません。
 
 選択対象が変わったとき（slug の編集、一覧からの Library / Version 選択、Version の作成・選択）は、
-その対象に紐づくデータ（Library 詳細・Version 一覧・`source_code` に加え、**提出リンク一覧 `links`
-と選択中リンク `currentLink`**）をスコープ単位でクリアします。入力ウィジェットや、同じ Namespace
+その対象に紐づくデータ（Library 詳細・Version 一覧・`source_code` と提出 URL を含む `versionSource`）を
+スコープ単位でクリアします。入力ウィジェットや、同じ Namespace
 内でまだ有効な一覧は保持します。一覧クリックなどの「対象の変更 ＋ 新しい対象のデータ表示」は
 1 つの reducer アクション（atomic select + apply）で行うため、クリアで新データが消えたり、
 古い選択の遅延応答が新しい選択を上書きしたりしません。
 
 `APPLY_DATA` / `CLEAR_LIBRARY_DETAIL` / atomic select はすべて `DataGuard`
 （`authGeneration` + `selectionGeneration`）を持ち、開始時と世代が異なる書き込みは reducer が破棄します。
-private Library 詳細の再取得が 404 になった場合は、古い詳細・Version ソースに加えて提出リンク
-`links` / `currentLink` も明示的にクリアし、同時に `selectionGeneration` を進めてその対象向けの
-in-flight 取得（リンク一覧など）も無効化します。
+private Library 詳細の再取得が 404 になった場合は、古い詳細と Version ソース（提出 URL を含む）を
+明示的にクリアし、同時に `selectionGeneration` を進めてその対象向けの
+in-flight 取得（Version 取得など）も無効化します。
 
 ## 必要なもの・起動
 
@@ -114,11 +113,11 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 
 - `lib/api.test.mjs` — `apiRequest` の `{data}` アンラップ、same-origin credentials、`/api/v1` 前缀、
   dev ヘッダーのオプトイン、JSON ボディ、`ApiRequestError`、`204`（logout）、
-  `probeCookieSession` が dev ヘッダーを送らないこと、提出リンク用エンドポイントの
+  `probeCookieSession` が dev ヘッダーを送らないこと、提出 URL の PUT / DELETE の
   パス・メソッド・ボディ（旧 `problem_id` / `adapter_source` を含まないこと）、
   既存の Problems / Namespace / Library / Version 契約、slug の URL エンコード、
   `withSignal` による `AbortSignal` の伝播。
-- `lib/submissionLink.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
+- `lib/submissionUrl.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
   制御文字・IDN/IPv6）、旧 judge/polling ヘルパーが**存在しない**こと、デフォルト値。
 - `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
   消去・世代インクリメント・Version リセット、`authGeneration` / `selectionGeneration` による
@@ -131,7 +130,7 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 
 `DEV_HEADER_AUTH=true` のローカルで、seed（author `...0001` / admin `...0002`）を使います。
 dev 認証をチェック → Namespace 作成 → private Library 作成 → 別ユーザーで 404 → public 化 →
-Version 作成 → 絶対 HTTP(S) URL を貼ってリンク登録 → 一覧・詳細で読めることを確認 →
+Version 作成 → 所有者で絶対 HTTP(S) URL を設定 → Version の取得・一覧で読めること、別ユーザーでは設定できない（403）ことを確認 →
 public/private を切り替えて匿名・非所有者から読める/読めないことを確認します。
 Problem 選択・adapter 入力・判定ポーリング・Submission 作成は行いません。
 

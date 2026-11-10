@@ -15,7 +15,7 @@ import { SessionBar } from "@/components/SessionBar";
 import { NamespacePanel } from "@/components/NamespacePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { VersionPanel } from "@/components/VersionPanel";
-import { SubmissionLinkPanel } from "@/components/SubmissionLinkPanel";
+import { SubmissionUrlPanel } from "@/components/SubmissionUrlPanel";
 
 export default function Home() {
   const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState);
@@ -199,7 +199,7 @@ export default function Home() {
             すべての API 呼び出しは同一オリジンの <code>/api/v1/*</code> に対して <code>credentials: &quot;same-origin&quot;</code> で行います。Google ログインも同一オリジンのリンクです。dev ヘッダー認証はチェックを入れたときだけ有効になるローカル開発専用の機能です。
           </p>
           <p className="note">
-            認証・利用者の切替があったときは、表示中の Namespace / Library 詳細・Version ソース・提出リンクをすべてクリアし、選択 Version をリセットし、実行中の取得を無効化します。
+            認証・利用者の切替があったときは、表示中の Namespace / Library 詳細・Version ソース・提出 URL をすべてクリアし、選択 Version をリセットし、実行中の取得を無効化します。
           </p>
         </header>
 
@@ -212,7 +212,7 @@ export default function Home() {
           <NamespacePanel />
           <LibraryPanel />
           <VersionPanel />
-          <SubmissionLinkPanel />
+          <SubmissionUrlPanel />
         </div>
 
         <footer className="app-footer">
@@ -220,7 +220,7 @@ export default function Home() {
             API 契約: <code>backend/docs/openapi.yaml</code> ／ 要件: <code>docs/library-sharing-judge-requirements.md</code>
           </p>
           <p className="muted">
-            Library / Version のソースと提出 URL はすべてテキストとして表示し、HTML として解釈しません。private Library のリンクは所有者以外には API の認可により表示されません。
+            Library / Version のソースと提出 URL はすべてテキストとして表示し、HTML として解釈しません。private Library の提出 URL は所有者以外には API の認可により表示されません。
           </p>
         </footer>
       </main>

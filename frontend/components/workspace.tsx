@@ -30,7 +30,7 @@ export interface WorkspaceValue {
 
   // Selection shared across panels. The optional `patch` makes a selection
   // change + the data loaded for the NEW target ATOMIC (see workspaceState):
-  // the reducer clears stale version/library/link data, bumps the selection
+  // the reducer clears stale version/library data, bumps the selection
   // generation, then applies the patch in one dispatch. Pure navigation (typing
   // a slug) omits the patch and always applies.
   setNamespaceSlug: (value: string, patch?: Partial<ScopedData>) => void;
@@ -40,7 +40,7 @@ export interface WorkspaceValue {
   // Data helpers. patchData is guarded by authGeneration AND
   // selectionGeneration: a result from a fetch started under a previous actor
   // OR a previous target is dropped by the reducer. This also applies to the
-  // selected submission link (currentLink) and the link list (links).
+  // displayed version and its submission URL (versionSource).
   patchData: (patch: Partial<ScopedData>) => void;
   clearLibraryDetail: () => void;
 }
