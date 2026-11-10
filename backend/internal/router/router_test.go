@@ -709,23 +709,21 @@ func newTestRouterWithRepositories(groups repository.GroupRepository, submission
 }
 
 type testRouterOptions struct {
-	groups          repository.GroupRepository
-	submissions     repository.SubmissionRepository
-	namespaces      repository.NamespaceRepository
-	libraries       *fakeLibraryRouterRepository
-	versions        *fakeLibraryVersionRouterRepository
-	submissionLinks *fakeLibrarySubmissionLinkRouterRepository
+	groups      repository.GroupRepository
+	submissions repository.SubmissionRepository
+	namespaces  repository.NamespaceRepository
+	libraries   *fakeLibraryRouterRepository
+	versions    *fakeLibraryVersionRouterRepository
 }
 
 func newTestRouterOptions(groups repository.GroupRepository, submissions repository.SubmissionRepository) *testRouterOptions {
 	libraries := newFakeLibraryRouterRepository(domain.LibraryVisibilityPublic)
 	return &testRouterOptions{
-		groups:          groups,
-		submissions:     submissions,
-		namespaces:      newRouterNamespaceRepository(),
-		libraries:       libraries,
-		versions:        newFakeLibraryVersionRouterRepository(),
-		submissionLinks: newFakeLibrarySubmissionLinkRouterRepository(),
+		groups:      groups,
+		submissions: submissions,
+		namespaces:  newRouterNamespaceRepository(),
+		libraries:   libraries,
+		versions:    newFakeLibraryVersionRouterRepository(),
 	}
 }
 
@@ -760,10 +758,6 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 		Libraries:  handler.NewLibraryHandler(usecase.NewLibraryUsecase(options.namespaces, options.libraries)),
 		LibraryVersions: handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(
 			usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions,
-		)),
-		LibrarySubmissionLinks: handler.NewLibrarySubmissionLinkHandler(usecase.NewLibrarySubmissionLinkUsecase(
-			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions),
-			options.submissionLinks,
 		)),
 	})
 }
@@ -1015,102 +1009,91 @@ func (r *fakeRouterTestCaseRepository) Delete(_ context.Context, _, _ int64) err
 	return nil
 }
 
-const submissionLinkPath = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/submission-links"
+const submissionURLPath = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/submission-url"
 
-// assertLinkHasNoJudgeFields guards the self-declared link contract: a link
-// response must never leak a verdict/score/status/adapter/case-result field.
-func assertLinkHasNoJudgeFields(t *testing.T, body string) {
+func putSubmissionURL(t *testing.T, router http.Handler, userID, role, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	for _, banned := range []string{
-		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
-		"case_results", "verdict", `"score"`, `"status"`, "judged_at",
-	} {
-		if strings.Contains(body, banned) {
-			t.Fatalf("link response must not contain %q: %s", banned, body)
-		}
+	req := httptest.NewRequest(http.MethodPut, submissionURLPath, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	if userID != "" {
+		setAuthAsUser(req, userID, role)
 	}
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	return res
 }
 
-func TestSubmissionLinkRoutesRegisterAndExposeURLOnly(t *testing.T) {
+func TestSubmissionURLRoutesOwnerSetsAndClears(t *testing.T) {
 	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
 	router := newTestRouterWithHandlers(options)
 	const url = "https://judge.example.com/submissions/7"
 
-	// Registration requires authentication (401 for an anonymous caller).
-	anonPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
-	anonPost.Header.Set("Content-Type", "application/json")
-	anonRes := httptest.NewRecorder()
-	router.ServeHTTP(anonRes, anonPost)
-	if anonRes.Code != http.StatusUnauthorized {
-		t.Fatalf("anonymous POST status = %d, want 401", anonRes.Code)
+	if res := putSubmissionURL(t, router, "", "", `{"submission_url":"`+url+`"}`); res.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous PUT status = %d, want 401", res.Code)
+	}
+	res := putSubmissionURL(t, router, routerUserID, "user", `{"submission_url":"`+url+`"}`)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), url) {
+		t.Fatalf("owner PUT = %d: %s", res.Code, res.Body.String())
+	}
+	for _, banned := range []string{"problem_id", "submission_id", "adapter_source", "case_results", "verdict", `"score"`, `"status"`} {
+		if strings.Contains(res.Body.String(), banned) {
+			t.Fatalf("PUT response must not contain %q: %s", banned, res.Body.String())
+		}
 	}
 
-	// An authenticated POST creates a link exposing only link fields.
-	post := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
-	post.Header.Set("Content-Type", "application/json")
-	setAuth(post, "user")
-	res := httptest.NewRecorder()
-	router.ServeHTTP(res, post)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("POST status = %d: %s", res.Code, res.Body.String())
-	}
-	assertLinkHasNoJudgeFields(t, res.Body.String())
-	if !strings.Contains(res.Body.String(), url) {
-		t.Fatalf("POST response must expose submission_url: %s", res.Body.String())
+	get := httptest.NewRecorder()
+	router.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1", nil))
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), url) {
+		t.Fatalf("anonymous version read must expose the URL: %d %s", get.Code, get.Body.String())
 	}
 
-	// The version-path list and the detail are anonymously readable for a
-	// public library, and both stay free of judge fields.
-	for _, path := range []string{submissionLinkPath, "/api/v1/library-submission-links/1"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		got := httptest.NewRecorder()
-		router.ServeHTTP(got, req)
-		if got.Code != http.StatusOK {
-			t.Fatalf("GET %s status = %d: %s", path, got.Code, got.Body.String())
-		}
-		assertLinkHasNoJudgeFields(t, got.Body.String())
-		if !strings.Contains(got.Body.String(), "submission_url") {
-			t.Fatalf("GET %s must expose the link: %s", path, got.Body.String())
-		}
+	del := httptest.NewRequest(http.MethodDelete, submissionURLPath, nil)
+	setAuth(del, "user")
+	delRes := httptest.NewRecorder()
+	router.ServeHTTP(delRes, del)
+	if delRes.Code != http.StatusNoContent {
+		t.Fatalf("owner DELETE status = %d, want 204: %s", delRes.Code, delRes.Body.String())
+	}
+	if options.versions.byNumber[1].SubmissionURL != "" {
+		t.Fatalf("DELETE left URL %q", options.versions.byNumber[1].SubmissionURL)
 	}
 }
 
-func TestSubmissionLinkRejectsInvalidURL(t *testing.T) {
-	router := newTestRouter()
-	post := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(`{"submission_url":"ftp://example.com/x"}`))
-	post.Header.Set("Content-Type", "application/json")
-	setAuth(post, "user")
-	res := httptest.NewRecorder()
-	router.ServeHTTP(res, post)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("invalid URL status = %d, want 400: %s", res.Code, res.Body.String())
-	}
-	assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
-}
-
-func TestSubmissionLinkCreateHidesPrivateLibrary(t *testing.T) {
-	options := newTestRouterWithPrivateLibrary()
-	router := newTestRouterWithHandlers(options)
+func TestSubmissionURLRoutesRejectNonOwner(t *testing.T) {
 	body := `{"submission_url":"https://judge.example.com/submissions/7"}`
 
-	// A non-owner (admin) cannot register on a hidden private library.
-	adminPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(body))
-	adminPost.Header.Set("Content-Type", "application/json")
-	setAuthAsUser(adminPost, adminUserID, string(domain.UserRoleAdmin))
-	adminRes := httptest.NewRecorder()
-	router.ServeHTTP(adminRes, adminPost)
-	if adminRes.Code != http.StatusNotFound {
-		t.Fatalf("non-owner POST on private library status = %d, want 404: %s", adminRes.Code, adminRes.Body.String())
+	public := newTestRouterWithHandlers(newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{}))
+	res := putSubmissionURL(t, public, adminUserID, string(domain.UserRoleAdmin), body)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("non-owner PUT on public library status = %d, want 403: %s", res.Code, res.Body.String())
 	}
+	assertErrorCode(t, res, "LIBRARY_FORBIDDEN")
 
-	// The owner can still register on their own private library.
-	ownerPost := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewBufferString(body))
-	ownerPost.Header.Set("Content-Type", "application/json")
-	setAuth(ownerPost, "user")
-	ownerRes := httptest.NewRecorder()
-	router.ServeHTTP(ownerRes, ownerPost)
-	if ownerRes.Code != http.StatusCreated {
-		t.Fatalf("owner POST on private library status = %d, want 201: %s", ownerRes.Code, ownerRes.Body.String())
+	options := newTestRouterWithPrivateLibrary()
+	private := newTestRouterWithHandlers(options)
+	res = putSubmissionURL(t, private, adminUserID, string(domain.UserRoleAdmin), body)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("non-owner PUT on private library status = %d, want 404: %s", res.Code, res.Body.String())
+	}
+	if res := putSubmissionURL(t, private, routerUserID, "user", body); res.Code != http.StatusOK {
+		t.Fatalf("owner PUT on private library status = %d, want 200: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestSubmissionURLRejectsInvalidURL(t *testing.T) {
+	router := newTestRouter()
+	for _, url := range []string{"ftp://example.com/x", "https://judge.example.com/" + strings.Repeat("a", domain.MaxSubmissionURLLength)} {
+		body, err := json.Marshal(struct {
+			SubmissionURL string `json:"submission_url"`
+		}{SubmissionURL: url})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := putSubmissionURL(t, router, routerUserID, "user", string(body))
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("invalid URL status = %d, want 400: %s", res.Code, res.Body.String())
+		}
+		assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
 	}
 }
 
@@ -1521,39 +1504,16 @@ func TestLibraryVersionNumberRejectsInt32Overflow(t *testing.T) {
 		}
 		assertErrorCode(t, getRes, "INVALID_VERSION_NUMBER")
 
-		linkReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/submission-links", bytes.NewBufferString(`{"submission_url":"https://judge.example.com/submissions/7"}`))
+		linkReq := httptest.NewRequest(http.MethodPut, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/submission-url", bytes.NewBufferString(`{"submission_url":"https://judge.example.com/submissions/7"}`))
 		linkReq.Header.Set("Content-Type", "application/json")
 		setAuth(linkReq, "user")
 		linkRes := httptest.NewRecorder()
 		router.ServeHTTP(linkRes, linkReq)
 		if linkRes.Code != http.StatusBadRequest {
-			t.Fatalf("submission link version %q status = %d, want 400: %s", raw, linkRes.Code, linkRes.Body.String())
+			t.Fatalf("submission URL version %q status = %d, want 400: %s", raw, linkRes.Code, linkRes.Body.String())
 		}
 		assertErrorCode(t, linkRes, "INVALID_VERSION_NUMBER")
 	}
-}
-
-// TestCreateSubmissionLinkRejectsOversizedURL pins the URL format gate: a URL
-// longer than MaxSubmissionURLLength bytes must be rejected with 400 before
-// any link row is written. There is no adapter field in the URL-link model.
-func TestCreateSubmissionLinkRejectsOversizedURL(t *testing.T) {
-	router := newTestRouter()
-	url := "https://judge.example.com/" + strings.Repeat("a", domain.MaxSubmissionURLLength)
-	body, err := json.Marshal(struct {
-		SubmissionURL string `json:"submission_url"`
-	}{SubmissionURL: url})
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, submissionLinkPath, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	setAuth(req, "user")
-	res := httptest.NewRecorder()
-	router.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("oversized URL status = %d, want 400: %s", res.Code, res.Body.String())
-	}
-	assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
 }
 
 // TestLibraryErrorMessagesMatchSpecContract pins the exact spec §10 messages
@@ -1604,7 +1564,6 @@ func TestLibraryListOffsetRejectsInt32Overflow(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/namespaces/seed-author/libraries",
 		"/api/v1/namespaces/seed-author/libraries/union-find/versions",
-		submissionLinkPath,
 	} {
 		for _, raw := range []string{"2147483648", "4294967297"} {
 			req := httptest.NewRequest(http.MethodGet, path+"?offset="+raw, nil)
@@ -1759,51 +1718,6 @@ type fakeLibraryVersionRouterRepository struct {
 	listParams   repository.ListLibraryVersionsParams
 }
 
-type fakeLibrarySubmissionLinkRouterRepository struct {
-	submissionLink *domain.LibrarySubmissionLink
-	listParams     repository.ListLibrarySubmissionLinksParams
-}
-
-func newFakeLibrarySubmissionLinkRouterRepository() *fakeLibrarySubmissionLinkRouterRepository {
-	return &fakeLibrarySubmissionLinkRouterRepository{}
-}
-
-func (r *fakeLibrarySubmissionLinkRouterRepository) Create(_ context.Context, params repository.CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error) {
-	r.submissionLink = &domain.LibrarySubmissionLink{
-		ID:               1,
-		LibraryVersionID: params.LibraryVersionID,
-		SubmissionURL:    params.SubmissionURL,
-		CreatedBy:        params.ActorUserID,
-		NamespaceSlug:    "seed-author",
-		LibrarySlug:      "union-find",
-		VersionNumber:    1,
-		Visibility:       domain.LibraryVisibilityPublic,
-		OwnerUserID:      routerUserID,
-	}
-	return r.submissionLink, nil
-}
-
-func (r *fakeLibrarySubmissionLinkRouterRepository) FindByID(_ context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error) {
-	if r.submissionLink == nil {
-		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
-	}
-	if r.submissionLink.Visibility == domain.LibraryVisibilityPrivate && r.submissionLink.OwnerUserID != actorUserID {
-		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
-	}
-	v := *r.submissionLink
-	v.ID = id
-	return &v, nil
-}
-
-func (r *fakeLibrarySubmissionLinkRouterRepository) ListByVersion(_ context.Context, params repository.ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error) {
-	r.listParams = params
-	if r.submissionLink == nil {
-		return []domain.LibrarySubmissionLink{}, nil
-	}
-	v := *r.submissionLink
-	return []domain.LibrarySubmissionLink{v}, nil
-}
-
 func newFakeLibraryVersionRouterRepository() *fakeLibraryVersionRouterRepository {
 	return &fakeLibraryVersionRouterRepository{
 		byNumber: map[int]*domain.LibraryVersion{
@@ -1839,4 +1753,16 @@ func (r *fakeLibraryVersionRouterRepository) FindByNumber(_ context.Context, _ s
 func (r *fakeLibraryVersionRouterRepository) ListSummaries(_ context.Context, params repository.ListLibraryVersionsParams) ([]domain.LibraryVersion, error) {
 	r.listParams = params
 	return r.summaries, nil
+}
+
+func (r *fakeLibraryVersionRouterRepository) SetSubmissionURL(_ context.Context, params repository.SetLibraryVersionSubmissionURLParams) (*domain.LibraryVersion, error) {
+	version, ok := r.byNumber[params.VersionNumber]
+	if !ok {
+		return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
+	}
+	version.SubmissionURL = ""
+	if params.SubmissionURL != nil {
+		version.SubmissionURL = *params.SubmissionURL
+	}
+	return version, nil
 }
