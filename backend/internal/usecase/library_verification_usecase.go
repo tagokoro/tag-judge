@@ -6,160 +6,107 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
 const (
-	verificationAdapterInvalidMessage = "adapter_source must be 1-100000 bytes, non-blank, and must not contain NUL"
-	verificationIDInvalidMessage      = "verification_id must be a positive integer"
+	verificationURLInvalidMessage = "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters"
+	verificationIDInvalidMessage  = "verification_id must be a positive integer"
 )
 
+// LibraryVerificationUsecase handles self-declared "related submission" URL
+// links for a library version. A link is NOT a verification or a judge result:
+// there is no Problem, adapter, Submission, Outbox, S3 object, Judge run,
+// verdict, score, status, or case result. The URL is never fetched, parsed for
+// content, or judged. Read authorization uses the library's CURRENT visibility,
+// which the repository joins onto every link at read time.
+//
+// The only dependency that can write is the link repository. Registration never
+// reaches the existing Submission/Judge execution path.
 type LibraryVerificationUsecase struct {
 	versions      *LibraryVersionUsecase
-	problems      repository.PublicProblemReader
-	storage       repository.SourceCodeStorage
 	verifications repository.LibraryVerificationRepository
-	submissions   submissionDetailReader
-}
-
-// submissionDetailReader is the existing submission read path reused for
-// verification case results; no new query object is introduced.
-type submissionDetailReader interface {
-	FindByID(ctx context.Context, submissionID int64) (*domain.Submission, error)
-	ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error)
 }
 
 func NewLibraryVerificationUsecase(
 	versions *LibraryVersionUsecase,
-	problems repository.PublicProblemReader,
-	storage repository.SourceCodeStorage,
 	verifications repository.LibraryVerificationRepository,
-	submissions submissionDetailReader,
 ) *LibraryVerificationUsecase {
 	return &LibraryVerificationUsecase{
 		versions:      versions,
-		problems:      problems,
-		storage:       storage,
 		verifications: verifications,
-		submissions:   submissions,
 	}
 }
 
-// Create starts one verification. It combines the existing version source with
-// adapter_source, stores the combined file on the existing storage path, and
-// asks the repository to commit the submission rows in one DB transaction.
-// Only the repository knows the final decision about visibility; this method
-// never commits anything on a hidden library.
-func (u *LibraryVerificationUsecase) Create(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber, problemID int64, adapterSource string) (*domain.LibraryVerification, error) {
+// Create registers one self-declared submission URL link on a version. Any
+// authenticated user may add a link to a public library; private libraries are
+// hidden from everyone but the owner. Resolve enforces read visibility, and the
+// repository re-checks the current visibility under a lock so a concurrent
+// privatization cannot let a non-owner commit a link. The only write is the
+// link row.
+func (u *LibraryVerificationUsecase) Create(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, rawURL string) (*domain.LibraryVerification, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
-	}
-	if problemID <= 0 {
-		return nil, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")
 	}
 	if versionNumber <= 0 {
 		return nil, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
 	}
-	if err := librarycombine.ValidateSource(adapterSource); err != nil {
-		return nil, apperror.InvalidInput("INVALID_ADAPTER_SOURCE", verificationAdapterInvalidMessage)
+	submissionURL, err := domain.ValidateSubmissionURL(rawURL)
+	if err != nil {
+		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", verificationURLInvalidMessage)
 	}
-
-	problem, err := u.problems.FindPublicByID(ctx, problemID)
+	resolved, err := u.versions.Resolve(ctx, actor, namespaceSlug, librarySlug, versionNumber)
 	if err != nil {
 		return nil, err
 	}
-	if problem.CurrentTestCasesKey == "" {
-		return nil, apperror.Conflict("PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
-	}
-
-	resolved, err := u.versions.Resolve(ctx, actor, namespaceSlug, librarySlug, int(versionNumber))
-	if err != nil {
-		return nil, err
-	}
-
-	combined, err := librarycombine.Combine(resolved.Version.SourceCode, adapterSource)
-	if err != nil {
-		return nil, apperror.InvalidInput("INVALID_ADAPTER_SOURCE", verificationAdapterInvalidMessage)
-	}
-	sourceCodeKey, err := newSourceCodeKey(actor.UserID, problem.ID, domain.SubmissionLanguagePython)
-	if err != nil {
-		return nil, err
-	}
-	if err := u.storage.PutSourceCode(ctx, repository.PutSourceCodeParams{
-		Key:        sourceCodeKey,
-		Language:   domain.ExecutionLanguagePython,
-		SourceCode: combined,
-	}); err != nil {
-		return nil, err
-	}
-
-	verification, _, err := u.verifications.CreateWithSubmission(ctx, repository.CreateLibraryVerificationParams{
+	return u.verifications.Create(ctx, repository.CreateLibraryVerificationParams{
 		ActorUserID:      actor.UserID,
 		NamespaceID:      resolved.Library.NamespaceID,
 		LibraryID:        resolved.Library.ID,
 		LibraryVersionID: resolved.Version.ID,
-		ProblemID:        problem.ID,
-		Language:         domain.SubmissionLanguagePython,
-		SourceCodeKey:    sourceCodeKey,
-		TestCasesKey:     problem.CurrentTestCasesKey,
-		TimeLimitMS:      problem.TimeLimitMS,
-		AdapterSource:    adapterSource,
+		SubmissionURL:    submissionURL,
 	})
-	if err == nil {
-		verification.NamespaceSlug = resolved.Library.NamespaceSlug
-		verification.LibrarySlug = resolved.Library.Slug
-		verification.VersionNumber = resolved.Version.VersionNumber
-	}
-	return verification, err
 }
 
-// Get is the verification detail. adapter_source is visible only to the
-// starter; admins read the same detail they may read for submissions.
-func (u *LibraryVerificationUsecase) Get(ctx context.Context, actor auth.Actor, verificationID int64) (*domain.LibraryVerification, []domain.SubmissionCaseResult, error) {
-	if err := validateActor(actor); err != nil {
-		return nil, nil, err
-	}
+// verificationReadable reports whether the link's CURRENT library visibility
+// allows actor to read it. Public links are viewable by anyone (anonymous
+// included); private links only by the library owner, with no admin bypass.
+func verificationReadable(link domain.LibraryVerification, actor auth.Actor) bool {
+	return link.Visibility != domain.LibraryVisibilityPrivate || actor.UserID == link.OwnerUserID
+}
+
+// Get is the link detail. Authentication is NOT required: a public link is
+// readable anonymously. A private link is indistinguishable from a missing one
+// (404) for every non-owner, including admins, so existence is not leaked.
+func (u *LibraryVerificationUsecase) Get(ctx context.Context, actor auth.Actor, verificationID int64) (*domain.LibraryVerification, error) {
 	if verificationID <= 0 {
-		return nil, nil, apperror.InvalidInput("INVALID_LIBRARY_VERIFICATION_ID", verificationIDInvalidMessage)
+		return nil, apperror.InvalidInput("INVALID_LIBRARY_VERIFICATION_ID", verificationIDInvalidMessage)
 	}
-	verification, err := u.verifications.FindByID(ctx, verificationID)
+	link, err := u.verifications.FindByID(ctx, verificationID)
 	if err != nil {
-		return nil, nil, err
-	}
-	if actor.UserID != verification.UserID && actor.Role != domain.UserRoleAdmin {
-		return nil, nil, apperror.Forbidden("LIBRARY_VERIFICATION_FORBIDDEN", "library verification is not accessible")
-	}
-	// The worker commits case results together with the terminal status. Reading
-	// them while the verification is still pending/running can observe a
-	// committed result alongside a stale nonterminal status; mirror the
-	// submission detail contract and return an empty array for those states.
-	if verification.Status == domain.SubmissionStatusPending || verification.Status == domain.SubmissionStatusRunning {
-		return verification, []domain.SubmissionCaseResult{}, nil
-	}
-	results, err := u.submissions.ListCaseResults(ctx, verification.SubmissionID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if results == nil {
-		results = []domain.SubmissionCaseResult{}
-	}
-	return verification, results, nil
-}
-
-// List returns only the caller's own verifications for every role, admins
-// included; the authorization table has no admin bypass here.
-func (u *LibraryVerificationUsecase) List(ctx context.Context, actor auth.Actor, limit int, limitProvided bool, offset int) ([]domain.LibraryVerification, error) {
-	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
+	if !verificationReadable(*link, actor) {
+		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	}
+	return link, nil
+}
+
+// List returns the links for one version. Resolve first checks the current read
+// visibility of the library (public to anyone, private to the owner only), then
+// the shared paging contract is applied before the repository is reached.
+func (u *LibraryVerificationUsecase) List(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, limit int, limitProvided bool, offset int) ([]domain.LibraryVerification, error) {
 	limit, offset, err := validatePaging(limit, limitProvided, offset)
 	if err != nil {
 		return nil, err
 	}
-	return u.verifications.ListByUserID(ctx, repository.ListLibraryVerificationsParams{
-		UserID: actor.UserID,
-		Limit:  limit,
-		Offset: offset,
+	resolved, err := u.versions.Resolve(ctx, actor, namespaceSlug, librarySlug, versionNumber)
+	if err != nil {
+		return nil, err
+	}
+	return u.verifications.ListByVersion(ctx, repository.ListLibraryVerificationsParams{
+		LibraryVersionID: resolved.Version.ID,
+		Limit:            limit,
+		Offset:           offset,
 	})
 }

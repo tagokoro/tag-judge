@@ -14,7 +14,7 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
+	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -236,7 +236,7 @@ func TestLibraryVersionRequestBodyShape(t *testing.T) {
 // accept it while the submission endpoint keeps its original contract.
 func TestCreateLibraryVersionAcceptsEscapedMaxSizeSource(t *testing.T) {
 	router, versions := newVersionRouter()
-	source := strings.Repeat("<", librarycombine.MaxSourceBytes) // 100000 decoded bytes
+	source := strings.Repeat("<", librarysource.MaxSourceBytes) // 100000 decoded bytes
 	body, err := json.Marshal(struct {
 		SourceCode string `json:"source_code"`
 	}{SourceCode: source})
@@ -269,7 +269,7 @@ func TestCreateLibraryVersionRejectsOversizedBody(t *testing.T) {
 	}
 	// Trailing whitespace is valid JSON but pushes the raw body past the bound.
 	body := append(valid, []byte(strings.Repeat(" ", 700000))...)
-	if int64(len(body)) <= 6*librarycombine.MaxSourceBytes+64*1024 {
+	if int64(len(body)) <= 6*librarysource.MaxSourceBytes+64*1024 {
 		t.Fatalf("body is too small to exercise the cap: %d", len(body))
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
@@ -298,26 +298,52 @@ func TestCreateLibraryVersionRejectsOversizedBody(t *testing.T) {
 
 // TestOpenAPINullableFieldsUseUnionTypes guards the OpenAPI 3.1 fix: the 3.0
 // "nullable" keyword is invalid in 3.1 and would not describe the actual null
-// responses emitted for these fields.
+// responses emitted for other schemas.
 func TestOpenAPINullableFieldsUseUnionTypes(t *testing.T) {
 	content, err := os.ReadFile("../../docs/openapi.yaml")
 	if err != nil {
 		t.Fatalf("read openapi.yaml: %v", err)
 	}
-	text := string(content)
-	if strings.Contains(text, "nullable:") {
+	if strings.Contains(string(content), "nullable:") {
 		t.Fatal("OpenAPI 3.1 schemas must use type unions, not the 3.0 nullable keyword")
 	}
-	start := strings.Index(text, "    VerificationCaseResult:")
+}
+
+// TestOpenAPIVerificationLinkHasNoJudgeFields pins the URL-link contract: the
+// verification schemas expose only a self-declared submission_url and link
+// metadata, never a verdict/score/status/adapter/case-result field, and the
+// POST request no longer accepts problem_id or adapter_source.
+func TestOpenAPIVerificationLinkHasNoJudgeFields(t *testing.T) {
+	content, err := os.ReadFile("../../docs/openapi.yaml")
+	if err != nil {
+		t.Fatalf("read openapi.yaml: %v", err)
+	}
+	text := string(content)
+	start := strings.Index(text, "    CreateVerificationRequest:")
 	end := strings.Index(text, "    ErrorResponse:")
 	if start < 0 || end < 0 || end <= start {
 		t.Fatal("verification schemas region not found in openapi.yaml")
 	}
-	block := text[start:end]
-	if got := strings.Count(block, `type: [integer, "null"]`); got != 2 {
-		t.Fatalf("execution_time_ms/memory_kb union types = %d, want 2", got)
+	// Drop comment lines so the descriptive contract text does not trigger the
+	// banned-field scan; only actual YAML schema entries remain.
+	var schemaOnly strings.Builder
+	for _, line := range strings.Split(text[start:end], "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		schemaOnly.WriteString(line)
+		schemaOnly.WriteString("\n")
 	}
-	if got := strings.Count(block, `type: [string, "null"]`); got != 1 {
-		t.Fatalf("judged_at union type = %d, want 1", got)
+	block := schemaOnly.String()
+	if !strings.Contains(block, "submission_url") {
+		t.Fatal("verification schemas must expose submission_url")
+	}
+	for _, banned := range []string{
+		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
+		"case_results", "case_result", "verdict", "score", "judged_at", "status",
+	} {
+		if strings.Contains(block, banned) {
+			t.Fatalf("verification schemas must not carry the judge field %q", banned)
+		}
 	}
 }

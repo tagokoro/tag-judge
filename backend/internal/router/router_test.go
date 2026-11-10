@@ -13,7 +13,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/librarycombine"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -763,7 +762,7 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 		)),
 		LibraryVerifications: handler.NewLibraryVerificationHandler(usecase.NewLibraryVerificationUsecase(
 			usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(options.namespaces, options.libraries), options.versions),
-			problemRepo, &fakeSourceCodeStorage{}, options.verifications, options.submissions,
+			options.verifications,
 		)),
 	})
 }
@@ -1015,11 +1014,38 @@ func (r *fakeRouterTestCaseRepository) Delete(_ context.Context, _, _ int64) err
 	return nil
 }
 
-func TestVerificationRoutesAreRegisteredAndProtectData(t *testing.T) {
+const verificationPath = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications"
+
+// assertLinkHasNoJudgeFields guards the self-declared link contract: a link
+// response must never leak a verdict/score/status/adapter/case-result field.
+func assertLinkHasNoJudgeFields(t *testing.T, body string) {
+	t.Helper()
+	for _, banned := range []string{
+		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
+		"case_results", "verdict", `"score"`, `"status"`, "judged_at",
+	} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("link response must not contain %q: %s", banned, body)
+		}
+	}
+}
+
+func TestVerificationRoutesRegisterAndExposeURLOnly(t *testing.T) {
 	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
 	router := newTestRouterWithHandlers(options)
+	const url = "https://judge.example.com/submissions/7"
 
-	post := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications", bytes.NewBufferString(`{"problem_id":42,"adapter_source":"print(1)"}`))
+	// Registration requires authentication (401 for an anonymous caller).
+	anonPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
+	anonPost.Header.Set("Content-Type", "application/json")
+	anonRes := httptest.NewRecorder()
+	router.ServeHTTP(anonRes, anonPost)
+	if anonRes.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous POST status = %d, want 401", anonRes.Code)
+	}
+
+	// An authenticated POST creates a link exposing only link fields.
+	post := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"`+url+`"}`))
 	post.Header.Set("Content-Type", "application/json")
 	setAuth(post, "user")
 	res := httptest.NewRecorder()
@@ -1027,49 +1053,63 @@ func TestVerificationRoutesAreRegisteredAndProtectData(t *testing.T) {
 	if res.Code != http.StatusCreated {
 		t.Fatalf("POST status = %d: %s", res.Code, res.Body.String())
 	}
+	assertLinkHasNoJudgeFields(t, res.Body.String())
+	if !strings.Contains(res.Body.String(), url) {
+		t.Fatalf("POST response must expose submission_url: %s", res.Body.String())
+	}
 
-	for _, path := range []string{"/api/v1/library-verifications"} {
+	// The version-path list and the detail are anonymously readable for a
+	// public library, and both stay free of judge fields.
+	for _, path := range []string{verificationPath, "/api/v1/library-verifications/1"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
-		setAuth(req, "user")
 		got := httptest.NewRecorder()
 		router.ServeHTTP(got, req)
 		if got.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d: %s", path, got.Code, got.Body.String())
 		}
-		if strings.Contains(got.Body.String(), "print(1)") {
-			t.Fatalf("adapter_source leaked from %s: %s", path, got.Body.String())
+		assertLinkHasNoJudgeFields(t, got.Body.String())
+		if !strings.Contains(got.Body.String(), "submission_url") {
+			t.Fatalf("GET %s must expose the link: %s", path, got.Body.String())
 		}
 	}
-	detailOwner := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
-	setAuth(detailOwner, "user")
-	detailOwnerRes := httptest.NewRecorder()
-	router.ServeHTTP(detailOwnerRes, detailOwner)
-	if !strings.Contains(detailOwnerRes.Body.String(), "print(1)") {
-		t.Fatalf("owner detail should include adapter source: %s", detailOwnerRes.Body.String())
+}
+
+func TestVerificationLinkRejectsInvalidURL(t *testing.T) {
+	router := newTestRouter()
+	post := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(`{"submission_url":"ftp://example.com/x"}`))
+	post.Header.Set("Content-Type", "application/json")
+	setAuth(post, "user")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, post)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("invalid URL status = %d, want 400: %s", res.Code, res.Body.String())
 	}
-	// The fixture belongs to routerUserID. An admin must be a different user so
-	// this assertion proves authorization comes from the admin role, not the
-	// owner check.
-	detailAdmin := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
-	setAuthAsUser(detailAdmin, adminUserID, string(domain.UserRoleAdmin))
-	detailAdminRes := httptest.NewRecorder()
-	router.ServeHTTP(detailAdminRes, detailAdmin)
-	if detailAdminRes.Code != http.StatusOK {
-		t.Fatalf("admin detail status = %d: %s", detailAdminRes.Code, detailAdminRes.Body.String())
+	assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
+}
+
+func TestVerificationLinkCreateHidesPrivateLibrary(t *testing.T) {
+	options := newTestRouterWithPrivateLibrary()
+	router := newTestRouterWithHandlers(options)
+	body := `{"submission_url":"https://judge.example.com/submissions/7"}`
+
+	// A non-owner (admin) cannot register on a hidden private library.
+	adminPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(body))
+	adminPost.Header.Set("Content-Type", "application/json")
+	setAuthAsUser(adminPost, adminUserID, string(domain.UserRoleAdmin))
+	adminRes := httptest.NewRecorder()
+	router.ServeHTTP(adminRes, adminPost)
+	if adminRes.Code != http.StatusNotFound {
+		t.Fatalf("non-owner POST on private library status = %d, want 404: %s", adminRes.Code, adminRes.Body.String())
 	}
-	if !strings.Contains(detailAdminRes.Body.String(), "adapter_source") || !strings.Contains(detailAdminRes.Body.String(), "print(1)") {
-		t.Fatalf("admin detail should include adapter source: %s", detailAdminRes.Body.String())
-	}
-	detailThirdParty := httptest.NewRequest(http.MethodGet, "/api/v1/library-verifications/1", nil)
-	setAuth(detailThirdParty, "user")
-	detailThirdParty.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000003")
-	detailThirdPartyRes := httptest.NewRecorder()
-	router.ServeHTTP(detailThirdPartyRes, detailThirdParty)
-	if detailThirdPartyRes.Code != http.StatusForbidden && detailThirdPartyRes.Code != http.StatusNotFound {
-		t.Fatalf("third-party detail status = %d, want 403 or 404: %s", detailThirdPartyRes.Code, detailThirdPartyRes.Body.String())
-	}
-	if strings.Contains(detailThirdPartyRes.Body.String(), "adapter_source") || strings.Contains(detailThirdPartyRes.Body.String(), "print(1)") {
-		t.Fatalf("third-party detail leaked adapter source: %s", detailThirdPartyRes.Body.String())
+
+	// The owner can still register on their own private library.
+	ownerPost := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewBufferString(body))
+	ownerPost.Header.Set("Content-Type", "application/json")
+	setAuth(ownerPost, "user")
+	ownerRes := httptest.NewRecorder()
+	router.ServeHTTP(ownerRes, ownerPost)
+	if ownerRes.Code != http.StatusCreated {
+		t.Fatalf("owner POST on private library status = %d, want 201: %s", ownerRes.Code, ownerRes.Body.String())
 	}
 }
 
@@ -1480,7 +1520,7 @@ func TestLibraryVersionNumberRejectsInt32Overflow(t *testing.T) {
 		}
 		assertErrorCode(t, getRes, "INVALID_VERSION_NUMBER")
 
-		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/verifications", bytes.NewBufferString(`{"problem_id":42,"adapter_source":"print(1)"}`))
+		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/"+raw+"/verifications", bytes.NewBufferString(`{"submission_url":"https://judge.example.com/submissions/7"}`))
 		verifyReq.Header.Set("Content-Type", "application/json")
 		setAuth(verifyReq, "user")
 		verifyRes := httptest.NewRecorder()
@@ -1492,30 +1532,27 @@ func TestLibraryVersionNumberRejectsInt32Overflow(t *testing.T) {
 	}
 }
 
-// TestCreateVerificationAcceptsEscapedMaxSizeAdapter covers the other large
-// string field: a decoded adapter of MaxSourceBytes bytes JSON-escapes to a raw
-// body far above the old 300001 cap and must still be accepted.
-func TestCreateVerificationAcceptsEscapedMaxSizeAdapter(t *testing.T) {
+// TestCreateVerificationRejectsOversizedURL pins the URL format gate: a URL
+// longer than MaxSubmissionURLLength bytes must be rejected with 400 before
+// any link row is written. There is no adapter field in the URL-link model.
+func TestCreateVerificationRejectsOversizedURL(t *testing.T) {
 	router := newTestRouter()
-	adapter := strings.Repeat("<", librarycombine.MaxSourceBytes)
+	url := "https://judge.example.com/" + strings.Repeat("a", domain.MaxSubmissionURLLength)
 	body, err := json.Marshal(struct {
-		ProblemID     int64  `json:"problem_id"`
-		AdapterSource string `json:"adapter_source"`
-	}{ProblemID: 42, AdapterSource: adapter})
+		SubmissionURL string `json:"submission_url"`
+	}{SubmissionURL: url})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(body) <= 300001 {
-		t.Fatalf("escaped body is only %d bytes; the regression needs a body over 300001", len(body))
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1/verifications", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, verificationPath, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	setAuth(req, "user")
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201: %s", res.Code, res.Body.String())
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("oversized URL status = %d, want 400: %s", res.Code, res.Body.String())
 	}
+	assertErrorCode(t, res, "INVALID_SUBMISSION_URL")
 }
 
 // TestLibraryErrorMessagesMatchSpecContract pins the exact spec §10 messages
@@ -1566,7 +1603,7 @@ func TestLibraryListOffsetRejectsInt32Overflow(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/namespaces/seed-author/libraries",
 		"/api/v1/namespaces/seed-author/libraries/union-find/versions",
-		"/api/v1/library-verifications",
+		verificationPath,
 	} {
 		for _, raw := range []string{"2147483648", "4294967297"} {
 			req := httptest.NewRequest(http.MethodGet, path+"?offset="+raw, nil)
@@ -1723,15 +1760,26 @@ type fakeLibraryVersionRouterRepository struct {
 
 type fakeLibraryVerificationRouterRepository struct {
 	verification *domain.LibraryVerification
+	listParams   repository.ListLibraryVerificationsParams
 }
 
 func newFakeLibraryVerificationRouterRepository() *fakeLibraryVerificationRouterRepository {
 	return &fakeLibraryVerificationRouterRepository{}
 }
 
-func (r *fakeLibraryVerificationRouterRepository) CreateWithSubmission(_ context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, *domain.Submission, error) {
-	r.verification = &domain.LibraryVerification{ID: 1, LibraryVersionID: params.LibraryVersionID, UserID: params.ActorUserID, ProblemID: params.ProblemID, SubmissionID: 1, Status: domain.SubmissionStatusPending, AdapterSource: params.AdapterSource, AdapterSHA256: "sha"}
-	return r.verification, &domain.Submission{ID: 1, UserID: params.ActorUserID, ProblemID: params.ProblemID}, nil
+func (r *fakeLibraryVerificationRouterRepository) Create(_ context.Context, params repository.CreateLibraryVerificationParams) (*domain.LibraryVerification, error) {
+	r.verification = &domain.LibraryVerification{
+		ID:               1,
+		LibraryVersionID: params.LibraryVersionID,
+		SubmissionURL:    params.SubmissionURL,
+		CreatedBy:        params.ActorUserID,
+		NamespaceSlug:    "seed-author",
+		LibrarySlug:      "union-find",
+		VersionNumber:    1,
+		Visibility:       domain.LibraryVisibilityPublic,
+		OwnerUserID:      routerUserID,
+	}
+	return r.verification, nil
 }
 
 func (r *fakeLibraryVerificationRouterRepository) FindByID(_ context.Context, id int64) (*domain.LibraryVerification, error) {
@@ -1743,13 +1791,12 @@ func (r *fakeLibraryVerificationRouterRepository) FindByID(_ context.Context, id
 	return &v, nil
 }
 
-func (r *fakeLibraryVerificationRouterRepository) ListByUserID(_ context.Context, _ repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
+func (r *fakeLibraryVerificationRouterRepository) ListByVersion(_ context.Context, params repository.ListLibraryVerificationsParams) ([]domain.LibraryVerification, error) {
+	r.listParams = params
 	if r.verification == nil {
 		return []domain.LibraryVerification{}, nil
 	}
 	v := *r.verification
-	// List responses intentionally omit adapter_source at the handler boundary.
-	v.AdapterSource = ""
 	return []domain.LibraryVerification{v}, nil
 }
 
