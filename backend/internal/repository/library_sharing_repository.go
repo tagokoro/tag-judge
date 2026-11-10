@@ -53,36 +53,17 @@ type LibraryVersionRepository interface {
 	Create(ctx context.Context, params CreateLibraryVersionParams) (*domain.LibraryVersion, error)
 	FindByNumber(ctx context.Context, libraryID string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error)
 	ListSummaries(ctx context.Context, params ListLibraryVersionsParams) ([]domain.LibraryVersion, error)
+	SetSubmissionURL(ctx context.Context, params SetLibraryVersionSubmissionURLParams) (*domain.LibraryVersion, error)
 }
 
-// CreateLibrarySubmissionLinkParams carries a self-declared submission URL link.
-// ActorUserID is the authenticated registrant (stored as created_by). The
-// namespace/library/version ids are re-checked under a lock so a concurrent
-// visibility change cannot let a non-owner commit a link.
-type CreateLibrarySubmissionLinkParams struct {
-	ActorUserID      string
-	NamespaceID      string
-	LibraryID        string
-	LibraryVersionID string
-	SubmissionURL    string
-}
-
-type ListLibrarySubmissionLinksParams struct {
-	LibraryVersionID string
-	Limit            int
-	Offset           int
-	ActorUserID      string
-}
-
-// LibrarySubmissionLinkRepository persists self-declared submission URL links.
-// Create re-checks the library's current visibility under a row lock and the
-// version's membership, and NEVER creates a Submission, Outbox record, S3
-// object, or Judge run (no admission control). FindByID/ListByVersion enforce
-// current library visibility in their data-fetch SQL statements.
-type LibrarySubmissionLinkRepository interface {
-	Create(ctx context.Context, params CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error)
-	FindByID(ctx context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error)
-	ListByVersion(ctx context.Context, params ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error)
+// SetLibraryVersionSubmissionURLParams sets (non-nil) or clears (nil) the
+// self-declared submission URL of one version. Only the library owner may
+// write it; the ownership check runs in the same SQL statement as the update.
+type SetLibraryVersionSubmissionURLParams struct {
+	LibraryID     string
+	VersionNumber int
+	ActorUserID   string
+	SubmissionURL *string
 }
 
 type NamespaceRepository interface {

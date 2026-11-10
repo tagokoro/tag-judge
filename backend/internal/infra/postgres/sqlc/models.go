@@ -75,23 +75,17 @@ type Library struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-type LibrarySubmissionLink struct {
-	ID               int64              `json:"id"`
-	LibraryVersionID pgtype.UUID        `json:"library_version_id"`
-	CreatedBy        pgtype.UUID        `json:"created_by"`
-	SubmissionUrl    string             `json:"submission_url"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-}
-
 type LibraryVersion struct {
-	ID            pgtype.UUID        `json:"id"`
-	LibraryID     pgtype.UUID        `json:"library_id"`
-	VersionNumber int32              `json:"version_number"`
-	SourceCode    string             `json:"source_code"`
-	ContentSha256 string             `json:"content_sha256"`
-	ByteSize      int32              `json:"byte_size"`
-	CreatedBy     pgtype.UUID        `json:"created_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	LibraryID              pgtype.UUID        `json:"library_id"`
+	VersionNumber          int32              `json:"version_number"`
+	SourceCode             string             `json:"source_code"`
+	ContentSha256          string             `json:"content_sha256"`
+	ByteSize               int32              `json:"byte_size"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	SubmissionUrl          pgtype.Text        `json:"submission_url"`
+	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
 }
 
 type Namespace struct {

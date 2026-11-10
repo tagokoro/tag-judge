@@ -13,7 +13,8 @@ import (
 
 const getLibraryVersionByNumber = `-- name: GetLibraryVersionByNumber :one
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, lv.source_code,
-       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at,
+       lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
@@ -29,14 +30,16 @@ type GetLibraryVersionByNumberParams struct {
 }
 
 type GetLibraryVersionByNumberRow struct {
-	ID            string             `json:"id"`
-	LibraryID     string             `json:"library_id"`
-	VersionNumber int32              `json:"version_number"`
-	SourceCode    string             `json:"source_code"`
-	ContentSha256 string             `json:"content_sha256"`
-	ByteSize      int32              `json:"byte_size"`
-	CreatedBy     string             `json:"created_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID                     string             `json:"id"`
+	LibraryID              string             `json:"library_id"`
+	VersionNumber          int32              `json:"version_number"`
+	SourceCode             string             `json:"source_code"`
+	ContentSha256          string             `json:"content_sha256"`
+	ByteSize               int32              `json:"byte_size"`
+	CreatedBy              string             `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	SubmissionUrl          pgtype.Text        `json:"submission_url"`
+	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
 }
 
 func (q *Queries) GetLibraryVersionByNumber(ctx context.Context, arg GetLibraryVersionByNumberParams) (GetLibraryVersionByNumberRow, error) {
@@ -51,6 +54,8 @@ func (q *Queries) GetLibraryVersionByNumber(ctx context.Context, arg GetLibraryV
 		&i.ByteSize,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.SubmissionUrl,
+		&i.SubmissionUrlUpdatedAt,
 	)
 	return i, err
 }
@@ -83,7 +88,9 @@ RETURNING
     content_sha256,
     byte_size,
     created_by::text AS created_by,
-    created_at
+    created_at,
+    submission_url,
+    submission_url_updated_at
 `
 
 type InsertLibraryVersionParams struct {
@@ -95,14 +102,16 @@ type InsertLibraryVersionParams struct {
 }
 
 type InsertLibraryVersionRow struct {
-	ID            string             `json:"id"`
-	LibraryID     string             `json:"library_id"`
-	VersionNumber int32              `json:"version_number"`
-	SourceCode    string             `json:"source_code"`
-	ContentSha256 string             `json:"content_sha256"`
-	ByteSize      int32              `json:"byte_size"`
-	CreatedBy     string             `json:"created_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID                     string             `json:"id"`
+	LibraryID              string             `json:"library_id"`
+	VersionNumber          int32              `json:"version_number"`
+	SourceCode             string             `json:"source_code"`
+	ContentSha256          string             `json:"content_sha256"`
+	ByteSize               int32              `json:"byte_size"`
+	CreatedBy              string             `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	SubmissionUrl          pgtype.Text        `json:"submission_url"`
+	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
 }
 
 func (q *Queries) InsertLibraryVersion(ctx context.Context, arg InsertLibraryVersionParams) (InsertLibraryVersionRow, error) {
@@ -123,13 +132,16 @@ func (q *Queries) InsertLibraryVersion(ctx context.Context, arg InsertLibraryVer
 		&i.ByteSize,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.SubmissionUrl,
+		&i.SubmissionUrlUpdatedAt,
 	)
 	return i, err
 }
 
 const listLibraryVersionSummaries = `-- name: ListLibraryVersionSummaries :many
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
-       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at,
+       lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
@@ -147,13 +159,15 @@ type ListLibraryVersionSummariesParams struct {
 }
 
 type ListLibraryVersionSummariesRow struct {
-	ID            string             `json:"id"`
-	LibraryID     string             `json:"library_id"`
-	VersionNumber int32              `json:"version_number"`
-	ContentSha256 string             `json:"content_sha256"`
-	ByteSize      int32              `json:"byte_size"`
-	CreatedBy     string             `json:"created_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID                     string             `json:"id"`
+	LibraryID              string             `json:"library_id"`
+	VersionNumber          int32              `json:"version_number"`
+	ContentSha256          string             `json:"content_sha256"`
+	ByteSize               int32              `json:"byte_size"`
+	CreatedBy              string             `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	SubmissionUrl          pgtype.Text        `json:"submission_url"`
+	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
 }
 
 func (q *Queries) ListLibraryVersionSummaries(ctx context.Context, arg ListLibraryVersionSummariesParams) ([]ListLibraryVersionSummariesRow, error) {
@@ -178,6 +192,8 @@ func (q *Queries) ListLibraryVersionSummaries(ctx context.Context, arg ListLibra
 			&i.ByteSize,
 			&i.CreatedBy,
 			&i.CreatedAt,
+			&i.SubmissionUrl,
+			&i.SubmissionUrlUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -204,4 +220,74 @@ func (q *Queries) LockLibraryByVersion(ctx context.Context, libraryID string) (p
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const setLibraryVersionSubmissionURL = `-- name: SetLibraryVersionSubmissionURL :one
+UPDATE library_versions lv
+SET submission_url = $1,
+    submission_url_updated_at = CASE WHEN $1::text IS NULL THEN NULL ELSE now() END
+FROM libraries l
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE l.id = lv.library_id
+  AND lv.library_id = (($2::text)::uuid)
+  AND lv.version_number = $3
+  AND lower(n.owner_user_id::text) = lower($4::text)
+RETURNING
+    lv.id::text AS id,
+    lv.library_id::text AS library_id,
+    lv.version_number,
+    lv.source_code,
+    lv.content_sha256,
+    lv.byte_size,
+    lv.created_by::text AS created_by,
+    lv.created_at,
+    lv.submission_url,
+    lv.submission_url_updated_at
+`
+
+type SetLibraryVersionSubmissionURLParams struct {
+	SubmissionUrl pgtype.Text `json:"submission_url"`
+	LibraryID     string      `json:"library_id"`
+	VersionNumber int32       `json:"version_number"`
+	ActorUserID   string      `json:"actor_user_id"`
+}
+
+type SetLibraryVersionSubmissionURLRow struct {
+	ID                     string             `json:"id"`
+	LibraryID              string             `json:"library_id"`
+	VersionNumber          int32              `json:"version_number"`
+	SourceCode             string             `json:"source_code"`
+	ContentSha256          string             `json:"content_sha256"`
+	ByteSize               int32              `json:"byte_size"`
+	CreatedBy              string             `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	SubmissionUrl          pgtype.Text        `json:"submission_url"`
+	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
+}
+
+// Only the library owner may set or clear the self-declared submission URL.
+// Ownership is checked in the SAME statement as the write, so no prior read or
+// lock is needed. A NULL submission_url clears both URL columns. No row means
+// the version is missing or the actor is not the owner.
+func (q *Queries) SetLibraryVersionSubmissionURL(ctx context.Context, arg SetLibraryVersionSubmissionURLParams) (SetLibraryVersionSubmissionURLRow, error) {
+	row := q.db.QueryRow(ctx, setLibraryVersionSubmissionURL,
+		arg.SubmissionUrl,
+		arg.LibraryID,
+		arg.VersionNumber,
+		arg.ActorUserID,
+	)
+	var i SetLibraryVersionSubmissionURLRow
+	err := row.Scan(
+		&i.ID,
+		&i.LibraryID,
+		&i.VersionNumber,
+		&i.SourceCode,
+		&i.ContentSha256,
+		&i.ByteSize,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.SubmissionUrl,
+		&i.SubmissionUrlUpdatedAt,
+	)
+	return i, err
 }
