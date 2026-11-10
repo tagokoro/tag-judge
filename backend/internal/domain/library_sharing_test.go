@@ -47,6 +47,13 @@ func TestValidateSubmissionURL(t *testing.T) {
 		{"punycode idn host", "https://xn--r8jz45g.jp/sub/1"},
 		{"max length 2048", "https://e.com/" + repeat('a', 2048-len("https://e.com/"))},
 		{"padded", "  https://example.com/x  "},
+		{"uppercase scheme", "HTTPS://Example.com/X"},
+		{"mixed case scheme", "Http://example.com"},
+	}
+	normalized := map[string]string{
+		"padded":            "https://example.com/x",
+		"uppercase scheme":  "https://Example.com/X",
+		"mixed case scheme": "http://example.com",
 	}
 	for _, tc := range valid {
 		got, err := ValidateSubmissionURL(tc.url)
@@ -55,8 +62,8 @@ func TestValidateSubmissionURL(t *testing.T) {
 			continue
 		}
 		want := tc.url
-		if tc.name == "padded" {
-			want = "https://example.com/x"
+		if n, ok := normalized[tc.name]; ok {
+			want = n
 		}
 		if got != want {
 			t.Errorf("ValidateSubmissionURL(%q) = %q, want %q", tc.url, got, want)

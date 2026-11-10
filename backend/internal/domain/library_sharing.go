@@ -120,7 +120,8 @@ var ErrInvalidSubmissionURL = errors.New("invalid submission URL")
 // including internationalized/Unicode hosts (e.g. https://例え.jp/...) and
 // IPv6 literals; no ASCII-only host restriction is applied. It never fetches
 // the URL, parses its content, or invokes the judge; it only checks the
-// string's shape. The returned value is the trimmed URL to persist.
+// string's shape. The returned value is the trimmed URL, with its scheme
+// lowercased, to persist.
 //
 // This is the authoritative validator, not a comment or a DB CHECK: the
 // repository calls it before any write, so invalid URLs are rejected even when
@@ -156,5 +157,7 @@ func ValidateSubmissionURL(raw string) (string, error) {
 		parsed.Opaque != "" || parsed.Hostname() == "" {
 		return "", ErrInvalidSubmissionURL
 	}
-	return value, nil
+	// url.Parse lowercases Scheme but the DB CHECK matches a lowercase
+	// "https?://" prefix, so persist the scheme in its canonical lowercase form.
+	return parsed.Scheme + value[len(parsed.Scheme):], nil
 }

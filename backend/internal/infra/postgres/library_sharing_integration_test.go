@@ -535,6 +535,28 @@ func TestCreateLibrarySubmissionLinkStoresURLAndRegistrant(t *testing.T) {
 	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
 }
 
+// The Go validator accepts any scheme case (url.Parse lowercases it), so the
+// repository must persist a lowercase scheme that the DB CHECK also accepts.
+func TestCreateLibrarySubmissionLinkNormalizesSchemeCase(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	namespaceID, libraryID, versionID, ownerUserID := seedLinkFixture(t, ctx, db, "public")
+	repo := postgres.NewLibrarySubmissionLinkRepository(db)
+
+	link, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, "HTTPS://AtCoder.jp/contests/abc001/submissions/1"))
+	if err != nil {
+		t.Fatalf("create link with uppercase scheme: %v", err)
+	}
+	if want := "https://AtCoder.jp/contests/abc001/submissions/1"; link.SubmissionURL != want {
+		t.Fatalf("submission_url = %q, want %q", link.SubmissionURL, want)
+	}
+}
+
 // TestCreateLibrarySubmissionLinkAllowsMultipleURLsAndListsByVersion proves
 // several self-declared URLs may be attached to one version, that ListByVersion
 // returns them newest-first with pagination, and that none create executions.
