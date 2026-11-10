@@ -6,7 +6,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
@@ -29,7 +28,7 @@ func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, na
 	if err != nil {
 		return nil, err
 	}
-	if err := librarysource.ValidateSource(sourceCode); err != nil {
+	if err := domain.ValidateLibrarySource(sourceCode); err != nil {
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must be 1-100000 bytes, non-blank, and must not contain NUL")
 	}
 	return u.versions.Create(ctx, repository.CreateLibraryVersionParams{

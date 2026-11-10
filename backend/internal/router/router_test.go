@@ -13,7 +13,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -1737,7 +1736,7 @@ func (r *fakeLibraryVersionRouterRepository) Create(_ context.Context, params re
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: librarysource.ContentSHA256(params.SourceCode),
+		ContentSHA256: domain.LibrarySourceSHA256(params.SourceCode),
 		ByteSize:      len([]byte(params.SourceCode)),
 		CreatedBy:     params.CreatedBy,
 	}, nil

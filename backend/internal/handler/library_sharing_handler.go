@@ -12,19 +12,18 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 // maxLibraryRequestBytes bounds the raw JSON body for library-sharing endpoints
 // that accept a large library version source. The version usecase caps a
-// decoded source at librarysource.MaxSourceBytes bytes, but JSON escaping can
+// decoded source at domain.MaxLibrarySourceBytes bytes, but JSON escaping can
 // expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
 // fully escaped valid body is still admitted while memory stays bounded.
 // Submission URL requests carry only a short URL but share this decoder.
 // Submission and code-run endpoints keep decodeJSON's original unbounded
 // contract.
-const maxLibraryRequestBytes = 6*librarysource.MaxSourceBytes + 64*1024
+const maxLibraryRequestBytes = 6*domain.MaxLibrarySourceBytes + 64*1024
 
 // decodeLibraryJSON bounds a request body before the shared decoder runs so an
 // oversized body gets a stable 400 rather than being silently truncated.

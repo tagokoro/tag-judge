@@ -15,7 +15,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -93,7 +92,7 @@ func (r *fakeVersionRepo) Create(_ context.Context, params repository.CreateLibr
 		LibraryID:     params.LibraryID,
 		VersionNumber: 1,
 		SourceCode:    params.SourceCode,
-		ContentSHA256: librarysource.ContentSHA256(params.SourceCode),
+		ContentSHA256: domain.LibrarySourceSHA256(params.SourceCode),
 		ByteSize:      len([]byte(params.SourceCode)),
 		CreatedBy:     params.CreatedBy,
 	}
@@ -310,7 +309,7 @@ func TestLibraryVersionRequestBodyShape(t *testing.T) {
 // accept it while the submission endpoint keeps its original contract.
 func TestCreateLibraryVersionAcceptsEscapedMaxSizeSource(t *testing.T) {
 	router, versions := newVersionRouter()
-	source := strings.Repeat("<", librarysource.MaxSourceBytes) // 100000 decoded bytes
+	source := strings.Repeat("<", domain.MaxLibrarySourceBytes) // 100000 decoded bytes
 	body, err := json.Marshal(struct {
 		SourceCode string `json:"source_code"`
 	}{SourceCode: source})
@@ -343,7 +342,7 @@ func TestCreateLibraryVersionRejectsOversizedBody(t *testing.T) {
 	}
 	// Trailing whitespace is valid JSON but pushes the raw body past the bound.
 	body := append(valid, []byte(strings.Repeat(" ", 700000))...)
-	if int64(len(body)) <= 6*librarysource.MaxSourceBytes+64*1024 {
+	if int64(len(body)) <= 6*domain.MaxLibrarySourceBytes+64*1024 {
 		t.Fatalf("body is too small to exercise the cap: %d", len(body))
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
