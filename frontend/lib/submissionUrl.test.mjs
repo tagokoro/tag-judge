@@ -2,24 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as submissionUrl from "./submissionUrl.ts";
 
-const {
-  isValidSubmissionUrl,
-  MAX_SUBMISSION_URL_BYTES,
-  DEFAULT_SUBMISSION_URL,
-  DEFAULT_NAMESPACE_SLUG,
-  DEFAULT_LIBRARY_SLUG,
-  DEFAULT_LIBRARY_SOURCE,
-  SEED_USERS,
-} = submissionUrl;
-
-test("UI defaults include a valid submission URL", () => {
-  assert.equal(typeof DEFAULT_NAMESPACE_SLUG, "string");
-  assert.equal(typeof DEFAULT_LIBRARY_SLUG, "string");
-  assert.equal(typeof DEFAULT_LIBRARY_SOURCE, "string");
-  assert.equal(typeof isValidSubmissionUrl, "function");
-  assert.ok(isValidSubmissionUrl(DEFAULT_SUBMISSION_URL));
-  assert.equal(SEED_USERS.length, 2);
-});
+const { isValidSubmissionUrl, MAX_SUBMISSION_URL_BYTES } = submissionUrl;
 
 test("isValidSubmissionUrl accepts absolute http/https URLs with a host", () => {
   const valid = [

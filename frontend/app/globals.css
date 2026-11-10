@@ -65,30 +65,147 @@ body {
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: 2.5rem 1.5rem 4rem;
+  padding: 1.5rem 1rem 4rem;
 }
 
-.app-header h1 {
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.site-header-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0.6rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a.active {
+  color: var(--foreground);
+}
+
+.site-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.site-header-error {
+  max-width: 960px;
+  margin: 0 auto 0.6rem;
+}
+
+.dev-menu {
+  position: relative;
+}
+
+.dev-menu > summary {
+  list-style: none;
+}
+
+.dev-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dev-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.page h1 {
+  font-size: 1.6rem;
+  line-height: 1.3;
+}
+
+.page-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.hero {
+  padding: 1.5rem 0 0.5rem;
+}
+
+.hero h1 {
   font-size: 2rem;
   margin-bottom: 0.75rem;
 }
 
-.app-header {
-  margin-bottom: 1.5rem;
+.hero p {
+  margin-bottom: 1rem;
 }
 
-.app-header > p {
-  margin-bottom: 0.75rem;
+.breadcrumbs {
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
-.app-footer {
-  margin-top: 2.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
+.breadcrumbs a {
+  color: var(--muted);
 }
 
-.app-footer p {
-  margin-bottom: 0.35rem;
+.breadcrumbs-sep {
+  margin: 0 0.4rem;
+}
+
+.steps {
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.list-item {
+  text-decoration: none;
+}
+
+.list-item-desc {
+  flex-basis: 100%;
+}
+
+.hash {
+  word-break: break-all;
 }
 
 code,

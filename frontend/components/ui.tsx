@@ -1,8 +1,53 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
-import { describeError } from "@/lib/api";
+import { describeError, isApiRequestError } from "@/lib/api";
 import type { Visibility } from "@/lib/types";
+
+export interface Crumb {
+  label: string;
+  href?: string;
+}
+
+export function Breadcrumbs({ items }: { items: Crumb[] }) {
+  return (
+    <nav className="breadcrumbs" aria-label="パンくず">
+      {items.map((item, index) => (
+        <span key={`${index}-${item.label}`}>
+          {index > 0 ? <span className="breadcrumbs-sep">/</span> : null}
+          {item.href ? <Link href={item.href}>{item.label}</Link> : <span>{item.label}</span>}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/** Loading / error state for a page-level resource. */
+export function LoadState({
+  loading,
+  error,
+  notFound,
+}: {
+  loading: boolean;
+  error: unknown;
+  notFound: string;
+}) {
+  if (loading) {
+    return <p className="muted">読み込み中…</p>;
+  }
+  if (error === null) {
+    return null;
+  }
+  if (isApiRequestError(error) && error.status === 404) {
+    return <p className="note">{notFound}</p>;
+  }
+  return (
+    <p className="error" role="alert">
+      {describeError(error)}
+    </p>
+  );
+}
 
 export function Card({
   title,
@@ -60,16 +105,6 @@ export function Button({
     >
       {children}
     </button>
-  );
-}
-
-/** Renders data as escaped TEXT only (JSON in a <pre>). Never uses innerHTML. */
-export function ResultView({ data, label }: { data: unknown; label?: string }) {
-  return (
-    <div className="result-block">
-      {label ? <span className="result-label">{label}</span> : null}
-      <pre className="result">{JSON.stringify(data, null, 2)}</pre>
-    </div>
   );
 }
 

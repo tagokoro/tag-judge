@@ -1,82 +1,56 @@
 # Tag Judge フロントエンド（Library Sharing）
 
 Next.js（App Router）+ TypeScript で実装したライブラリ共有 MVP の画面です。
-PR3 で用意した環境・`/api/:path*` rewrite の上に、実際に操作できる UI を載せています。
+`/api/:path*` rewrite（`next.config.ts`）経由で Go API を呼びます。
 単一 HTML や Go による静的配信は使わず、Go API（`:8080`）と Next.js（`:3000`）は別プロセスです。
 
 API 契約は `backend/docs/openapi.yaml`、要件は
 `docs/library-sharing.md` に従います。
 
-## 実装したフロー
+## ページ構成
 
-| 画面 | 操作（すべて同一オリジンの `/api/v1/*`） |
-| --- | --- |
-| 認証 / セッション | `GET /me` で cookie セッションを自動判定、`/auth/google/login` へのログインリンク、`POST /auth/logout`、dev ヘッダー認証 |
-| Namespace | `POST /namespaces`、`GET /me/namespace`、`GET /namespaces/{slug}` |
-| Library | `POST /namespaces/{slug}/libraries`、`GET .../libraries`、`GET .../libraries/{lib}`、`PATCH .../libraries/{lib}`（public/private） |
-| Version | `POST .../versions`、`GET .../versions`、`GET .../versions/{n}`（ソース表示） |
-| 関連する提出URL | `PUT .../versions/{n}/submission-url`（`{ "submission_url": "https://..." }` で設定・置き換え）、`DELETE .../versions/{n}/submission-url`（削除）。現在の値は Version の取得・一覧に含まれます |
+すべてのページの上部に共通ヘッダー（ホームへのリンク、「自分の Namespace」、ログイン / ログアウト、
+開発時のみ dev 認証メニュー）があります。
 
-- 各 Version に付けられる「関連する提出 URL」は 1 件だけで、Library 所有者の**自己宣言**です。URL の取得・内容解析・
-  判定は行わず、判定結果・使用 Library Version の真正性も保証しません。
-  **検証済み（AC など）バッジやステータス・スコア・ケース結果は表示しません。**
-- 設定・変更・削除は Library の所有者だけが行えます（所有者以外は公開 Library なら 403、
-  private Library なら 404）。閲覧は Version と同じで、公開 Library なら匿名でも可能、
-  private Library は所有者以外 404 です（公開範囲の切り替えに追従）。未認証は 401、不正 URL は 400 です。
-- URL は絶対 HTTP(S)（ホストあり・前後空白除去・制御文字なし・2048 バイト以内）。
-  設定しても Submission / Outbox / S3 オブジェクト / Judge 実行は一切作られず、Version のコードも変わりません。
-  既存の Submission API と Judge のコード・挙動は変更していません。
+| パス | 内容 | 主な API（すべて同一オリジンの `/api/v1/*`） |
+| --- | --- | --- |
+| `/` | ホーム。使い方と、Namespace slug を入力して開くフォーム | — |
+| `/me` | 自分の Namespace。無ければ作成フォーム（作成後は Namespace ページへ） | `GET /me/namespace`、`POST /namespaces` |
+| `/n/[namespace]` | Namespace の Library 一覧。所有者には Library の作成フォーム | `GET /namespaces/{ns}`、`GET .../libraries`、`POST .../libraries` |
+| `/n/[namespace]/[library]` | Library の詳細と Version 一覧。所有者には Version の追加と Library の設定（名前・説明・公開範囲） | `GET .../libraries/{lib}`、`GET .../versions`、`POST .../versions`、`PATCH .../libraries/{lib}` |
+| `/n/[namespace]/[library]/v/[version]` | Version のソースと提出 URL。所有者には提出 URL の設定・削除 | `GET .../versions/{n}`、`PUT` / `DELETE .../versions/{n}/submission-url` |
+
+- Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
+- 所有者向けのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
+- 各 Version の「関連する提出 URL」は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
+  判定は行わず、検証済み（AC など）バッジやステータス・スコアも表示しません。設定しても
+  Submission / Outbox / S3 オブジェクト / Judge 実行は作られません。
 - Version は不変です。更新・削除の UI はありません（API も `405`）。
-- 「ユーザー切替」は dev ヘッダーの値を seed author / admin で入れ替え、現在の Library 詳細を
-  再取得します（private は他ユーザーに 404、public 化後は 200 になることを同じページで確認可能）。
 
 ## 認証とセキュリティ
 
 - **cookie セッションが最優先**。マウント時に dev ヘッダーを付けずに `GET /me` を呼び、成功すれば
   cookie セッションを使い dev 認証を無効化します。Google ログインは同一オリジンの
   `GET /api/v1/auth/google/login` への `<a>` リンク（302 をブラウザが追跡）です。
-- **dev ヘッダー認証は明示的なオプトイン**。チェックボックスを入れたとき、かつ cookie セッションが
-  無いときだけ `X-User-ID` / `X-User-Role` を送ります。有効時は「`DEV_HEADER_AUTH=true` のローカル
-  専用・本番では使用禁止」の警告を画面に表示します（サーバー側で `DEV_HEADER_AUTH=true` が必要）。
+- **dev ヘッダー認証は明示的なオプトイン**。ヘッダーの「dev 認証」メニュー（`next dev` のときだけ表示）で
+  有効にしたとき、かつ cookie セッションが無いときだけ `X-User-ID` / `X-User-Role` を送ります
+  （サーバー側で `DEV_HEADER_AUTH=true` が必要）。設定はページ遷移では保たれますが、再読み込みで解除されます。
 - すべてのリクエストは `credentials: "same-origin"` で `/api/v1/*` のみを呼びます。
   `API_SERVER_ORIGIN` はサーバー側 rewrite だけで使い、ブラウザには公開しません（`NEXT_PUBLIC_` 不使用）。
 - **private ソース / 提出 URL の規則を維持**。private Library の `source_code` と提出 URL は
   API の認可（所有者）に従って表示されます。公開 Library の Version は匿名で読めます。
 - **テキスト表示のみ**。Library / Version のソースと提出 URL は React のテキストノードと
   `<pre>{...}</pre>` で描画し、`innerHTML` / `dangerouslySetInnerHTML` は一切使いません。
-  URL を自動取得・自動遷移させず、JSON レスポンスも `JSON.stringify` を `<pre>` に表示するだけです。
+  提出 URL はリンクにせずテキストとして表示し、自動取得・自動遷移もしません。
 
-## 認証・選択変更時のデータ無効化
+## データの読み込みと actor の切り替え
 
-画面の状態は `lib/workspaceState.ts` の単一 reducer（React 非依存の純関数）に集約しています。
-遅れて届く非同期レスポンスを確実に破棄するため、世代カウンタを 2 つ持ちます。
-
-- `authGeneration` … **実効 actor が変わると**（cookie ログイン/ログアウト、dev 認証の ON/OFF、
-  dev ユーザー ID / ロールの変更、ユーザー切替）インクリメント。
-- `selectionGeneration` … **選択対象（Namespace / Library / Version）が変わる**、または Library
-  詳細の再取得が 404 になったときにインクリメント（単調増加なので A→B→A と戻っても、
-  最初の A 向け in-flight 応答が復活しません）。
-
-実効 actor が変わると次をまとめて行います。
-
-- Namespace / Library 詳細、Library / Version 一覧、Version の `source_code` と提出 URL、URL 入力など、actor に紐づくデータをすべてクリアし、選択 Version をリセット。
-- 選択 Version は Namespace / Library の slug に**バインド**され、slug が変わると
-  `effectiveVersion()` が `null` を返すため、別ライブラリの古い Version 番号を黙って使いません。
-- 各パネルを `authGeneration` で再マウントし、`useAsyncAction` の `AbortController` が実行中の
-  fetch を中止。遅れて届いたレスポンスは世代ガードで破棄され、前の actor の private データが復活しません。
-
-選択対象が変わったとき（slug の編集、一覧からの Library / Version 選択、Version の作成・選択）は、
-その対象に紐づくデータ（Library 詳細・Version 一覧・`source_code` と提出 URL を含む `versionSource`）を
-スコープ単位でクリアします。入力ウィジェットや、同じ Namespace
-内でまだ有効な一覧は保持します。一覧クリックなどの「対象の変更 ＋ 新しい対象のデータ表示」は
-1 つの reducer アクション（atomic select + apply）で行うため、クリアで新データが消えたり、
-古い選択の遅延応答が新しい選択を上書きしたりしません。
-
-`APPLY_DATA` / `CLEAR_LIBRARY_DETAIL` / atomic select はすべて `DataGuard`
-（`authGeneration` + `selectionGeneration`）を持ち、開始時と世代が異なる書き込みは reducer が破棄します。
-private Library 詳細の再取得が 404 になった場合は、古い詳細と Version ソース（提出 URL を含む）を
-明示的にクリアし、同時に `selectionGeneration` を進めてその対象向けの
-in-flight 取得（Version 取得など）も無効化します。
+- ログイン状態は `components/AuthProvider.tsx` がルートレイアウトで 1 つだけ持ちます。誰が actor かの判定
+  （cookie 優先、dev 認証、所有者判定）は React 非依存の `lib/session.ts` にあります。
+- ページは `ActorScope` の中で actor ごとに再マウントされます。ログイン・ログアウトや dev ユーザーの切り替えで
+  前の actor 向けに読み込んだデータ（private のソースを含む）は破棄され、実行中のリクエストも中止されます。
+- 各ページの読み込みは `components/useResource.ts` で行います。結果は「どの actor が、何を」要求したかの
+  キーと一緒に保持し、キーが変わった古い応答は表示しません。対象が変わると前のリクエストは中止されます。
 
 ## 必要なもの・起動
 
@@ -118,20 +92,17 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
   既存の Problems / Namespace / Library / Version 契約、slug の URL エンコード、
   `withSignal` による `AbortSignal` の伝播。
 - `lib/submissionUrl.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
-  制御文字・IDN/IPv6）、デフォルト値。
-- `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
-  消去・世代インクリメント・Version リセット、`authGeneration` / `selectionGeneration` による
-  遅延レスポンスの破棄（選択切替・A→B→A・404 後の in-flight 取得）、
-  `CLEAR_LIBRARY_DETAIL`（404）と `SET_*` 選択変更での `versionSource`（提出 URL を含む）などの
-  version/library データの消去、atomic select + apply、Version の Namespace / Library バインド、
-  同一セッション再確認では消去しないこと、デフォルト値の整合性。
+  制御文字・IDN/IPv6）。
+- `lib/session.test.mjs` — cookie セッションが dev 認証より優先されること、dev ヘッダーはオプトイン時だけ
+  送ること、actor ごとの識別子、所有者判定（大文字小文字を区別しない）。
+- `lib/routes.test.mjs` — ページパスの組み立て（`/n/` 配下・slug のエンコード）と Version 番号の解釈。
 
 ## 手動 E2E の目安
 
 `DEV_HEADER_AUTH=true` のローカルで、seed（author `...0001` / admin `...0002`）を使います。
-dev 認証をチェック → Namespace 作成 → private Library 作成 → 別ユーザーで 404 → public 化 →
-Version 作成 → 所有者で絶対 HTTP(S) URL を設定 → Version の取得・一覧で読めること、別ユーザーでは設定できない（403）ことを確認 →
-public/private を切り替えて匿名・非所有者から読める/読めないことを確認します。
+ヘッダーの dev 認証を有効化 → `/me` で Namespace 作成 → private Library 作成 → seed ユーザーを切り替えて
+404 になることを確認 → 戻して public 化 → Version 作成 → 提出 URL を設定 → 別ユーザーでは編集フォームが
+出ないこと、ログアウト状態でも public の Version と URL が読めることを確認します。
 
 ## 制限（設計どおりの MVP 範囲）
 
@@ -140,4 +111,4 @@ public/private を切り替えて匿名・非所有者から読める/読めな�
 - 提出 URL は検証・判定されず、Submission / Outbox / S3 / Judge は作られません。
   既存の Submission API / Judge は変更していません。
 - ブラウザ自動テスト（E2E）は含みません。UI の操作確認は上記の手動手順で行います。
-- 画面は 1 ページ構成で、ルーティングや SSR データ取得は使っていません（クライアントコンポーネント）。
+- データ取得はすべてブラウザ側（クライアントコンポーネント）で行い、サーバー側でのデータ取得は使っていません。

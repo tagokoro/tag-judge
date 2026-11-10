@@ -4,8 +4,8 @@
 //
 // All requests use `credentials: "same-origin"` so the HttpOnly session cookie
 // is sent automatically. Development-only X-User-ID / X-User-Role headers are
-// attached ONLY when the caller explicitly opts in (see getDevHeaders in the
-// workspace provider); a real cookie session always wins.
+// attached ONLY when the caller explicitly opts in (see devHeadersOf in
+// lib/session.ts); a real cookie session always wins.
 
 import type {
   CreateLibraryInput,

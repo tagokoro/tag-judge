@@ -1,9 +1,6 @@
-// Pure view-model helpers and shared defaults for the library-sharing UI. Kept
-// free of React and of runtime imports from other local modules so Node's
-// built-in test runner (node:test) can load it directly with TypeScript
-// stripping.
-
-import type { Role } from "./types";
+// Client-side check for the submission URL format. Kept free of React and of
+// runtime imports from other local modules so Node's built-in test runner
+// (node:test) can load it directly with TypeScript stripping.
 
 /** Mirrors the backend/DB cap (domain.MaxSubmissionURLLength). */
 export const MAX_SUBMISSION_URL_BYTES = 2048;
@@ -54,13 +51,3 @@ export function isValidSubmissionUrl(raw: string): boolean {
 function utf8Length(value: string): number {
   return new TextEncoder().encode(value).length;
 }
-
-export const SEED_USERS = [
-  { userId: "00000000-0000-4000-8000-000000000001", role: "author" as Role },
-  { userId: "00000000-0000-4000-8000-000000000002", role: "admin" as Role },
-] as const;
-
-export const DEFAULT_NAMESPACE_SLUG = "seed-author";
-export const DEFAULT_LIBRARY_SLUG = "union-find";
-export const DEFAULT_LIBRARY_SOURCE = "def add(a, b):\n    return a + b\n";
-export const DEFAULT_SUBMISSION_URL = "https://example.com/submissions/1";
