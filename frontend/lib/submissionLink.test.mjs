@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as verification from "./verification.ts";
+import * as submissionLink from "./submissionLink.ts";
 
 const {
   isValidSubmissionUrl,
@@ -10,9 +10,9 @@ const {
   DEFAULT_LIBRARY_SLUG,
   DEFAULT_LIBRARY_SOURCE,
   SEED_USERS,
-} = verification;
+} = submissionLink;
 
-// A verification is now ONLY a self-declared "related submission" URL link.
+// A submission link is ONLY a self-declared "related submission" URL.
 // The judge/polling/verdict helpers from the old contract must be gone.
 test("the submission-link module exposes no judge verdict/status/polling helpers", () => {
   for (const removed of [
@@ -29,7 +29,7 @@ test("the submission-link module exposes no judge verdict/status/polling helpers
     "PollOptions",
   ]) {
     assert.equal(
-      removed in verification,
+      removed in submissionLink,
       false,
       `${removed} (judge/polling helper) must be gone`,
     );
@@ -44,8 +44,8 @@ test("UI defaults describe a submission URL, not an adapter or a Problem", () =>
   assert.ok(isValidSubmissionUrl(DEFAULT_SUBMISSION_URL));
   assert.equal(SEED_USERS.length, 2);
   // Old adapter / Problem defaults must not exist.
-  assert.equal("DEFAULT_ADAPTER_SOURCE" in verification, false);
-  assert.equal("DEFAULT_PROBLEM_ID" in verification, false);
+  assert.equal("DEFAULT_ADAPTER_SOURCE" in submissionLink, false);
+  assert.equal("DEFAULT_PROBLEM_ID" in submissionLink, false);
 });
 
 test("isValidSubmissionUrl accepts absolute http/https URLs with a host", () => {

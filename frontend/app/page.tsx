@@ -15,7 +15,7 @@ import { SessionBar } from "@/components/SessionBar";
 import { NamespacePanel } from "@/components/NamespacePanel";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { VersionPanel } from "@/components/VersionPanel";
-import { VerificationPanel } from "@/components/VerificationPanel";
+import { SubmissionLinkPanel } from "@/components/SubmissionLinkPanel";
 
 export default function Home() {
   const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState);
@@ -212,7 +212,7 @@ export default function Home() {
           <NamespacePanel />
           <LibraryPanel />
           <VersionPanel />
-          <VerificationPanel />
+          <SubmissionLinkPanel />
         </div>
 
         <footer className="app-footer">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { GOOGLE_LOGIN_PATH } from "@/lib/api";
-import { SEED_USERS } from "@/lib/verification";
+import { SEED_USERS } from "@/lib/submissionLink";
 import type { Me, Role } from "@/lib/types";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";

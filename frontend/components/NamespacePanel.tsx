@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DEFAULT_NAMESPACE_SLUG } from "@/lib/verification";
+import { DEFAULT_NAMESPACE_SLUG } from "@/lib/submissionLink";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
 import { Button, Card, ErrorNote, Field, ResultView } from "./ui";

@@ -1,6 +1,6 @@
 "use client";
 
-import { isValidSubmissionUrl } from "@/lib/verification";
+import { isValidSubmissionUrl } from "@/lib/submissionLink";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
 import { Button, Card, ErrorNote, Field, ResultView } from "./ui";
@@ -13,7 +13,7 @@ import { Button, Card, ErrorNote, Field, ResultView } from "./ui";
  * the library's current visibility (public = anonymous readable, private =
  * 404 for everyone except the owner) and adding a link requires a session.
  */
-export function VerificationPanel() {
+export function SubmissionLinkPanel() {
   const { client, state, effectiveVersion, patchData } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
 
@@ -28,7 +28,7 @@ export function VerificationPanel() {
     }
     const api = client.withSignal(signal);
     patchData({
-      links: await api.listVerifications(
+      links: await api.listSubmissionLinks(
         namespaceSlug,
         librarySlug,
         effectiveVersion,
@@ -81,7 +81,7 @@ export function VerificationPanel() {
                 );
               }
               const api = client.withSignal(signal);
-              const created = await api.createVerification(
+              const created = await api.createSubmissionLink(
                 namespaceSlug,
                 librarySlug,
                 effectiveVersion,
@@ -89,7 +89,7 @@ export function VerificationPanel() {
               );
               patchData({
                 currentLink: created,
-                links: await api.listVerifications(
+                links: await api.listSubmissionLinks(
                   namespaceSlug,
                   librarySlug,
                   effectiveVersion,
@@ -128,7 +128,7 @@ export function VerificationPanel() {
                       run(async (signal) => {
                         const detail = await client
                           .withSignal(signal)
-                          .getVerification(link.id);
+                          .getSubmissionLink(link.id);
                         patchData({ currentLink: detail });
                       })
                     }

@@ -15,7 +15,7 @@ import {
   DEFAULT_NAMESPACE_SLUG,
   DEFAULT_SUBMISSION_URL,
   SEED_USERS,
-} from "./verification.ts";
+} from "./submissionLink.ts";
 
 // A DataGuard is captured at the START of an async call (a render / a fetch).
 // It carries BOTH generations: the actor generation AND the selection
@@ -34,7 +34,7 @@ function assertNullFields(state, fields, context) {
   }
 }
 
-test("inlined workspace defaults stay in sync with lib/verification.ts", () => {
+test("inlined workspace defaults stay in sync with lib/submissionLink.ts", () => {
   assert.equal(WORKSPACE_DEFAULTS.namespaceSlug, DEFAULT_NAMESPACE_SLUG);
   assert.equal(WORKSPACE_DEFAULTS.librarySlug, DEFAULT_LIBRARY_SLUG);
   assert.equal(WORKSPACE_DEFAULTS.librarySource, DEFAULT_LIBRARY_SOURCE);
@@ -427,7 +427,7 @@ test("a late link fetch from a previous selection cannot restore stale/foreign l
   let state = loadedState();
   const staleGuard = dataGuard(state); // captured before the switch
   state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
-  // The in-flight listVerifications / getVerification for the OLD selection now
+  // The in-flight listSubmissionLinks / getSubmissionLink for the OLD selection now
   // resolves with (possibly private / foreign) links.
   state = workspaceReducer(state, {
     type: "APPLY_DATA",
@@ -490,13 +490,13 @@ test("a stale 404 clear from an old selection cannot wipe the new selection's da
 
 test("a 404 clear invalidates in-flight fetches for the failed target", () => {
   let state = loadedState();
-  const inFlightGuard = dataGuard(state); // listVerifications started before the 404
+  const inFlightGuard = dataGuard(state); // listSubmissionLinks started before the 404
   state = workspaceReducer(state, {
     type: "CLEAR_LIBRARY_DETAIL",
     guard: dataGuard(state),
   });
   assert.equal(state.data.links, null);
-  // The in-flight listVerifications resolves with the (now private) links.
+  // The in-flight listSubmissionLinks resolves with the (now private) links.
   const after = workspaceReducer(state, {
     type: "APPLY_DATA",
     patch: { links: [{ id: 5, submission_url: "https://private.example/p" }] },

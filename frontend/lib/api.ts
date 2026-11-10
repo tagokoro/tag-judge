@@ -10,7 +10,7 @@
 import type {
   CreateLibraryInput,
   CreateNamespaceInput,
-  CreateVerificationInput,
+  CreateSubmissionLinkInput,
   DevHeaders,
   Library,
   LibraryVersion,
@@ -19,7 +19,7 @@ import type {
   Namespace,
   Problem,
   UpdateLibraryInput,
-  VerificationLink,
+  SubmissionLink,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -155,22 +155,22 @@ export interface JudgeClient {
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
   // The existing, untouched judge Problems API. PR #47 changes only the
-  // library verification flow.
+  // library submission-link flow.
   listProblems(): Promise<Problem[]>;
-  // "Verification" endpoints now only handle self-declared related-submission
-  // URL links (no Problem, adapter, Submission, or judge result).
-  createVerification(
+  // Submission-link endpoints only handle self-declared related-submission
+  // URLs (no Problem, adapter, Submission, or judge result).
+  createSubmissionLink(
     namespaceSlug: string,
     librarySlug: string,
     version: number,
-    input: CreateVerificationInput,
-  ): Promise<VerificationLink>;
-  getVerification(id: number): Promise<VerificationLink>;
-  listVerifications(
+    input: CreateSubmissionLinkInput,
+  ): Promise<SubmissionLink>;
+  getSubmissionLink(id: number): Promise<SubmissionLink>;
+  listSubmissionLinks(
     namespaceSlug: string,
     librarySlug: string,
     version: number,
-  ): Promise<VerificationLink[]>;
+  ): Promise<SubmissionLink[]>;
   /** Return a client whose requests carry `signal` so they can be aborted. */
   withSignal(signal: AbortSignal | undefined): JudgeClient;
 }
@@ -224,15 +224,15 @@ export function createJudgeClient(
         json: { source_code: sourceCode },
       }),
     listProblems: () => call<Problem[]>(list("/problems")),
-    createVerification: (namespaceSlug, librarySlug, version, input) =>
-      call<VerificationLink>(
-        `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/verifications`,
+    createSubmissionLink: (namespaceSlug, librarySlug, version, input) =>
+      call<SubmissionLink>(
+        `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-links`,
         { method: "POST", json: input },
       ),
-    getVerification: (id) => call<VerificationLink>(`/library-verifications/${id}`),
-    listVerifications: (namespaceSlug, librarySlug, version) =>
-      call<VerificationLink[]>(
-        list(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/verifications`),
+    getSubmissionLink: (id) => call<SubmissionLink>(`/library-submission-links/${id}`),
+    listSubmissionLinks: (namespaceSlug, librarySlug, version) =>
+      call<SubmissionLink[]>(
+        list(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-links`),
       ),
     withSignal: (nextSignal) => createJudgeClient(getDevHeaders, fetchImpl, nextSignal),
   };

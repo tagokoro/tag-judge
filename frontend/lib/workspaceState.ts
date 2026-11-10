@@ -12,7 +12,7 @@
 // No React here, and NO runtime imports from other local modules: node:test
 // loads this file directly with Node's built-in TypeScript stripping (which
 // requires extensionless relative imports to be type-only). The default values
-// mirror lib/verification.ts; workspaceState.test.mjs asserts they stay in sync.
+// mirror lib/submissionLink.ts; workspaceState.test.mjs asserts they stay in sync.
 
 import type {
   Library,
@@ -21,7 +21,7 @@ import type {
   Me,
   Namespace,
   Role,
-  VerificationLink,
+  SubmissionLink,
   Visibility,
 } from "./types";
 
@@ -57,8 +57,8 @@ export interface ScopedData {
   versionSource: LibraryVersion | null; // displayed source_code (private)
   versionCreated: LibraryVersion | null;
   // Self-declared related-submission URL links for the selected version.
-  links: VerificationLink[] | null;
-  currentLink: VerificationLink | null; // selected link detail
+  links: SubmissionLink[] | null;
+  currentLink: SubmissionLink | null; // selected link detail
   // Inputs / transient view state that could still carry a previous actor's text.
   submissionUrlInput: string;
   librarySourceInput: string;

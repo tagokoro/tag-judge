@@ -1,7 +1,7 @@
 // Types mirroring backend/docs/openapi.yaml (PR #45 URL-link contract) and the
 // agreed design (docs/superpowers/specs/2026-11-10-verification-url-design.md).
-// A "verification" on a library version is now ONLY a self-declared related-
-// submission URL link — not a verification/judge result. There is no adapter,
+// A submission link on a library version is ONLY a self-declared related-
+// submission URL — not a verification/judge result. There is no adapter,
 // Problem selection, Submission, Judge run, verdict, score, status, or case
 // result in this flow. This module is type-only: it is imported with
 // `import type` everywhere and never loaded at runtime, which also keeps the
@@ -91,13 +91,13 @@ export interface Problem {
 }
 
 /**
- * A self-declared "related submission" URL link (OpenAPI `VerificationLink`).
+ * A self-declared "related submission" URL link (OpenAPI `SubmissionLink`).
  * The URL is never fetched, parsed for content, or judged: authenticity of the
  * submitter, verdict, or library version used is NOT guaranteed. Verdict,
  * score, status, adapter_source, case_results, judged_at, submission_id, and
  * problem_id are intentionally absent.
  */
-export interface VerificationLink {
+export interface SubmissionLink {
   id: number;
   library_version_id: string;
   namespace_slug: string;
@@ -109,6 +109,6 @@ export interface VerificationLink {
 }
 
 /** POST body for registering one link: a single absolute HTTP(S) URL. */
-export interface CreateVerificationInput {
+export interface CreateSubmissionLinkInput {
   submission_url: string;
 }

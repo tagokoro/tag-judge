@@ -15,7 +15,7 @@ API 契約は `backend/docs/openapi.yaml`、提出 URL リンクの設計は
 | Namespace | `POST /namespaces`、`GET /me/namespace`、`GET /namespaces/{slug}` |
 | Library | `POST /namespaces/{slug}/libraries`、`GET .../libraries`、`GET .../libraries/{lib}`、`PATCH .../libraries/{lib}`（public/private） |
 | Version | `POST .../versions`、`GET .../versions`、`GET .../versions/{n}`（ソース表示） |
-| 関連する提出URL | `POST .../versions/{n}/verifications`（`{ "submission_url": "https://..." }` で登録）、`GET .../versions/{n}/verifications`（一覧）、`GET /library-verifications/{id}`（詳細） |
+| 関連する提出URL | `POST .../versions/{n}/submission-links`（`{ "submission_url": "https://..." }` で登録）、`GET .../versions/{n}/submission-links`（一覧）、`GET /library-submission-links/{id}`（詳細） |
 
 - 各 Version に貼られた「関連する提出 URL」は提出者の**自己宣言**です。URL の取得・内容解析・
   判定は行わず、提出者・判定結果・使用 Library Version の真正性も保証しません。
@@ -118,7 +118,7 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
   パス・メソッド・ボディ（旧 `problem_id` / `adapter_source` を含まないこと）、
   既存の Problems / Namespace / Library / Version 契約、slug の URL エンコード、
   `withSignal` による `AbortSignal` の伝播。
-- `lib/verification.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
+- `lib/submissionLink.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
   制御文字・IDN/IPv6）、旧 judge/polling ヘルパーが**存在しない**こと、デフォルト値。
 - `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
   消去・世代インクリメント・Version リセット、`authGeneration` / `selectionGeneration` による

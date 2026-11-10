@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_LIBRARY_SLUG } from "@/lib/verification";
+import { DEFAULT_LIBRARY_SLUG } from "@/lib/submissionLink";
 import type { Visibility } from "@/lib/types";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
