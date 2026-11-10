@@ -306,14 +306,13 @@ func parseVersionNumber(r *http.Request) (int, error) {
 	return int(value), nil
 }
 
-// setSubmissionURLRequest is the only accepted PUT body: a single absolute
-// HTTP(S) submission URL. No problem_id or adapter_source is accepted.
+// setSubmissionURLRequest is the PUT body; decodeJSON rejects unknown fields.
 type setSubmissionURLRequest struct {
 	SubmissionURL string `json:"submission_url"`
 }
 
 // SetSubmissionURL sets or replaces the owner's self-declared submission URL on
-// one version and returns the version. The URL is never fetched or judged.
+// one version and returns the version.
 func (h *LibraryVersionHandler) SetSubmissionURL(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request setSubmissionURLRequest
@@ -349,9 +348,7 @@ func (h *LibraryVersionHandler) ClearSubmissionURL(w http.ResponseWriter, r *htt
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// submission_url is a self-declared "related submission" URL, never a judge
-// result: no verdict, score, status, or case result accompanies it. Both
-// fields are null when the owner has not set a URL.
+// Both submission URL fields are null when the owner has not set a URL.
 type libraryVersionResponse struct {
 	ID                     string     `json:"id"`
 	VersionNumber          int        `json:"version_number"`

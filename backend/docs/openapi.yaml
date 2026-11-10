@@ -921,10 +921,6 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  # submission_url is a self-declared "related submission" URL that only the
-  # library owner may set, NOT a verification/judge result. There is no adapter,
-  # Problem selection, Submission, Outbox, Judge run, verdict, score, status, or
-  # case result. The URL is never fetched, parsed for content, or judged.
   /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url:
     put:
       summary: Set or replace a version's related submission URL
@@ -1654,7 +1650,7 @@ components:
           type: [string, "null"]
           format: uri
           maxLength: 2048
-          description: Self-declared related submission URL set by the library owner; null when unset. Never fetched or judged.
+          description: Related submission URL self-declared by the library owner (not verified); null when unset.
         submission_url_updated_at:
           type: [string, "null"]
           format: date-time
@@ -1677,7 +1673,7 @@ components:
           type: [string, "null"]
           format: uri
           maxLength: 2048
-          description: Self-declared related submission URL set by the library owner; null when unset. Never fetched or judged.
+          description: Related submission URL self-declared by the library owner (not verified); null when unset.
         submission_url_updated_at:
           type: [string, "null"]
           format: date-time

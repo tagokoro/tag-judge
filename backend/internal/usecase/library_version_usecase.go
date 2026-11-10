@@ -73,8 +73,7 @@ const submissionURLInvalidMessage = "submission_url must be an absolute HTTP(S) 
 // SetSubmissionURL sets or replaces the self-declared "related submission" URL
 // of one version. Only the library owner may write it (403 on a public library,
 // 404 on a private one, as for other owner-only writes); the repository
-// re-checks ownership in the UPDATE itself. The URL is never fetched or judged,
-// and no Submission, Outbox, S3 object, or Judge run is created.
+// re-checks ownership in the UPDATE itself.
 func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, rawURL string) (*domain.LibraryVersion, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err

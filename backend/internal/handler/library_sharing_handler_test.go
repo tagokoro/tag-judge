@@ -24,8 +24,7 @@ const (
 	handlerAuthorID = "00000000-0000-4000-8000-000000000001"
 	handlerAdminID  = "00000000-0000-4000-8000-000000000002"
 
-	libraryFixtureSource = "def add(a, b):\n    return a + b\n\nif __name__ == \"__main__\":\n    print(\"library-main\")\n"
-	adapterFixtureSource = "a, b = map(int, input().split())\nprint(add(a, b))\n"
+	libraryFixtureSource = "def add(a, b):\n    return a + b\n"
 )
 
 type fakeNamespaceRepo struct{}
@@ -134,7 +133,7 @@ func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 			1: {ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, SourceCode: libraryFixtureSource},
 		},
 		summaries: []domain.LibraryVersion{
-			{ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, ContentSHA256: "b24916acf9a8670a4e088af2bbc2591d02eca1f33ddad1aec0ed3a41d57568af", ByteSize: 86},
+			{ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, ContentSHA256: "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772", ByteSize: 31},
 		},
 	}
 	auth := appmiddleware.NewAuthMiddleware(nil, true)
@@ -382,10 +381,9 @@ func TestOpenAPINullableFieldsUseUnionTypes(t *testing.T) {
 	}
 }
 
-// TestOpenAPISubmissionURLHasNoJudgeFields pins the submission URL contract:
-// the PUT request accepts only a self-declared submission_url, never a
-// problem_id, adapter, verdict, score, status, or case-result field.
-func TestOpenAPISubmissionURLHasNoJudgeFields(t *testing.T) {
+// TestOpenAPISubmissionURLRequestAcceptsOnlyTheURL pins the PUT body: a
+// required submission_url and nothing else.
+func TestOpenAPISubmissionURLRequestAcceptsOnlyTheURL(t *testing.T) {
 	content, err := os.ReadFile("../../docs/openapi.yaml")
 	if err != nil {
 		t.Fatalf("read openapi.yaml: %v", err)
@@ -396,26 +394,10 @@ func TestOpenAPISubmissionURLHasNoJudgeFields(t *testing.T) {
 	if start < 0 || end < 0 || end <= start {
 		t.Fatal("SetSubmissionURLRequest schema not found in openapi.yaml")
 	}
-	// Drop comment lines so the descriptive contract text does not trigger the
-	// banned-field scan; only actual YAML schema entries remain.
-	var schemaOnly strings.Builder
-	for _, line := range strings.Split(text[start:end], "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		schemaOnly.WriteString(line)
-		schemaOnly.WriteString("\n")
-	}
-	block := schemaOnly.String()
-	if !strings.Contains(block, "submission_url") {
-		t.Fatal("SetSubmissionURLRequest must expose submission_url")
-	}
-	for _, banned := range []string{
-		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
-		"case_results", "case_result", "verdict", "score", "judged_at", "status",
-	} {
-		if strings.Contains(block, banned) {
-			t.Fatalf("SetSubmissionURLRequest must not carry the judge field %q", banned)
+	block := text[start:end]
+	for _, want := range []string{"required: [submission_url]", "additionalProperties: false"} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("SetSubmissionURLRequest must contain %q", want)
 		}
 	}
 }

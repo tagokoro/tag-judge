@@ -9,8 +9,8 @@ import (
 )
 
 func TestLibrarySourceSHA256(t *testing.T) {
-	library := "def add(a, b):\n    return a + b\n\nif __name__ == \"__main__\":\n    print(\"library-main\")\n"
-	if domain.LibrarySourceSHA256(library) != "b24916acf9a8670a4e088af2bbc2591d02eca1f33ddad1aec0ed3a41d57568af" {
+	library := "def add(a, b):\n    return a + b\n"
+	if domain.LibrarySourceSHA256(library) != "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772" {
 		t.Fatalf("library hash = %s", domain.LibrarySourceSHA256(library))
 	}
 }
