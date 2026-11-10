@@ -176,6 +176,101 @@ code {
   box-shadow: 0 12px 32px rgb(15 94 140 / 0.12);
 }
 
+/* ---------- User menu ---------- */
+
+.user-menu {
+  position: relative;
+}
+
+.user-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem 0.25rem 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.user-button:hover,
+.user-button[aria-expanded="true"] {
+  border-color: var(--mizu);
+  background: var(--mist);
+}
+
+.user-avatar {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: var(--sky);
+  color: var(--deep);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.user-role {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.user-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  min-width: 13rem;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: 0 12px 32px rgb(15 94 140 / 0.12);
+  display: flex;
+  flex-direction: column;
+}
+
+.user-menu-panel a,
+.user-menu-panel button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.user-menu-panel a:hover,
+.user-menu-panel button:hover:not(:disabled) {
+  background: var(--mist);
+  color: var(--deep);
+}
+
+.user-menu-panel hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.3rem 0.25rem;
+}
+
+.user-menu-note {
+  padding: 0.5rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.user-menu-panel .error {
+  margin: 0.3rem;
+}
+
 /* ---------- Page frame ---------- */
 
 .container {
@@ -196,11 +291,6 @@ code {
   min-width: 0;
 }
 
-/* The home page uses the full frame; detail pages keep a reading width. */
-.page.home {
-  max-width: none;
-  gap: 3rem;
-}
 
 .page h1 {
   font-size: 1.9rem;
@@ -218,6 +308,17 @@ code {
 
 .page-sub {
   color: var(--muted);
+}
+
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.col-shrink {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .lede {
@@ -618,108 +719,64 @@ textarea.code-input {
   font-size: 0.85rem;
 }
 
-/* ---------- Hero ---------- */
+/* ---------- Tables ---------- */
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 2.5rem;
-  align-items: center;
-  padding: 2.5rem 0 1rem;
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
 }
 
-.hero h1 {
-  font-size: clamp(2rem, 4.6vw, 3.1rem);
-  line-height: 1.3;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  margin-bottom: 1rem;
-}
-
-.hero p {
+.table th {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 2px solid var(--line);
   color: var(--muted);
-  max-width: 30em;
-  margin-bottom: 1.5rem;
-}
-
-.sheet {
-  padding: 1.5rem;
-  border-radius: 18px;
-  background: linear-gradient(180deg, var(--mist), var(--paper) 70%);
-  border: 1px solid var(--line);
-}
-
-.sheet-title {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-}
-
-.sheet-title strong {
-  font-size: 1.05rem;
-}
-
-.sheet pre {
-  margin-top: 1rem;
-  padding: 0.8rem 1rem;
-  border-radius: var(--radius-control);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  font-size: 0.8rem;
-  line-height: 1.6;
-  overflow-x: auto;
-}
-
-.sheet-url {
-  margin-top: 0.9rem;
+  font-weight: 500;
   font-size: 0.82rem;
-  color: var(--muted);
-  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.steps {
-  list-style: none;
-  counter-reset: step;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1.25rem 2rem;
+.table td {
+  padding: 0.65rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
 }
 
-.steps > li {
-  counter-increment: step;
-  position: relative;
-  padding-top: 2.4rem;
-  font-size: 0.92rem;
+.table tbody tr:hover {
+  background: var(--mist);
 }
 
-.steps > li::before {
-  content: counter(step);
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: grid;
-  place-items: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: 50%;
-  border: 2px solid var(--mizu);
-  color: var(--deep);
-  font-size: 0.8rem;
+.status {
+  display: inline-block;
+  min-width: 3rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
   font-weight: 700;
+  text-align: center;
 }
 
-.steps strong {
-  display: block;
-  margin-bottom: 0.2rem;
+.status-accepted {
+  background: var(--deep);
+  color: #fff;
 }
 
-.jump {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: flex-end;
-  max-width: 30rem;
+.status-rejected {
+  background: var(--rose-bg);
+  color: var(--rose);
+}
+
+.status-waiting {
+  background: var(--sky);
+  color: var(--deep);
+}
+
+@media (max-width: 760px) {
+  .table {
+    display: block;
+    overflow-x: auto;
+  }
 }
 
 /* ---------- Detail views ---------- */
@@ -768,23 +825,7 @@ textarea.code-input {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 960px) {
-  .steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 760px) {
-  .steps {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.75rem;
-    padding-top: 1.25rem;
-  }
-
   .section-owner {
     padding: 1.1rem 1rem 1.2rem;
   }

@@ -1,59 +1,44 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { LoginRequired } from "@/components/LoginRequired";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
 import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
-import { GOOGLE_LOGIN_PATH, isApiRequestError } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { isApiRequestError } from "@/lib/api";
 import { namespacePath } from "@/lib/routes";
 
-export default function MyPage() {
+/**
+ * 自分のライブラリ: the user's libraries live on their namespace page, so this
+ * page forwards there, or asks them to create the namespace first.
+ */
+export default function MyLibrariesPage() {
   const { actor } = useAuth();
+  const router = useRouter();
   const mine = useResource(actor ? "me/namespace" : null, (api) => api.getMyNamespace());
 
+  const slug = mine.data?.slug;
+  useEffect(() => {
+    if (slug) {
+      router.replace(namespacePath(slug));
+    }
+  }, [slug, router]);
+
   if (!actor) {
-    return (
-      <div className="page">
-        <h1>自分の Namespace</h1>
-        <Card title="ログインが必要です">
-          <p>自分の Namespace を作成・表示するにはログインしてください。</p>
-          <div className="row">
-            <a className="btn btn-primary" href={GOOGLE_LOGIN_PATH}>
-              Google でログイン
-            </a>
-          </div>
-        </Card>
-      </div>
-    );
+    return <LoginRequired title="自分のライブラリ" />;
   }
 
   const missing = isApiRequestError(mine.error) && mine.error.status === 404;
 
   return (
     <div className="page">
-      <h1>自分の Namespace</h1>
-      {mine.data ? (
-        <Card title={mine.data.display_name}>
-          <dl className="kv">
-            <dt>slug</dt>
-            <dd>@{mine.data.slug}</dd>
-            <dt>作成日時</dt>
-            <dd className="num">{formatDateTime(mine.data.created_at)}</dd>
-          </dl>
-          <div className="row">
-            <Link className="btn btn-primary" href={namespacePath(mine.data.slug)}>
-              Library 一覧を開く
-            </Link>
-          </div>
-        </Card>
-      ) : missing ? (
+      <h1>自分のライブラリ</h1>
+      {missing ? (
         <CreateNamespaceForm />
       ) : (
-        <LoadState loading={mine.loading} error={mine.error} notFound="" />
+        <LoadState loading={mine.loading || mine.data !== null} error={mine.error} notFound="" />
       )}
     </div>
   );
@@ -69,7 +54,7 @@ function CreateNamespaceForm() {
   return (
     <Card
       title="Namespace を作成"
-      note="まだ自分の Namespace がありません。1 人 1 つ作れます。slug は URL に使われ、あとから変更できません。"
+      note="Library を置くには、まず自分の Namespace を作ります。1 人 1 つ作れます。slug は URL に使われ、あとから変更できません。"
     >
       <div className="row">
         <Field label="slug" hint="2〜32 文字の英小文字・数字・ハイフン">

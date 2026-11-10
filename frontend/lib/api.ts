@@ -17,7 +17,9 @@ import type {
   Me,
   Namespace,
   Problem,
+  PublicSubmission,
   SetSubmissionUrlInput,
+  Submission,
   UpdateLibraryInput,
 } from "./types";
 
@@ -153,8 +155,12 @@ export interface JudgeClient {
   listVersions(namespaceSlug: string, librarySlug: string): Promise<LibraryVersionSummary[]>;
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
-  // The existing judge Problems API.
+  // Site-wide lists.
+  listPublicLibraries(): Promise<Library[]>;
   listProblems(): Promise<Problem[]>;
+  listMyProblems(): Promise<Problem[]>;
+  listRecentSubmissions(): Promise<PublicSubmission[]>;
+  listMySubmissions(): Promise<Submission[]>;
   // The owner sets or clears a version's submission URL. Reads come with the
   // version.
   setSubmissionUrl(
@@ -216,7 +222,11 @@ export function createJudgeClient(
         method: "POST",
         json: { source_code: sourceCode },
       }),
+    listPublicLibraries: () => call<Library[]>(list("/libraries")),
     listProblems: () => call<Problem[]>(list("/problems")),
+    listMyProblems: () => call<Problem[]>(list("/me/problems")),
+    listRecentSubmissions: () => call<PublicSubmission[]>(list("/submissions/recent")),
+    listMySubmissions: () => call<Submission[]>(list("/submissions")),
     setSubmissionUrl: (namespaceSlug, librarySlug, version, input) =>
       call<LibraryVersion>(
         `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-url`,

@@ -92,6 +92,33 @@ export interface Problem {
   updated_at: string;
 }
 
+export type SubmissionStatus = "pending" | "running" | "ac" | "wa" | "tle" | "mle" | "re" | "ce" | "ie";
+
+/** The signed-in user's own submission (GET /submissions). */
+export interface Submission {
+  id: number;
+  user_id: string;
+  problem_id: number;
+  language: string;
+  status: SubmissionStatus;
+  score: number;
+  created_at: string;
+  judged_at: string | null;
+}
+
+/** A submission to a public problem, as anyone may see it (no source, no user id). */
+export interface PublicSubmission {
+  id: number;
+  problem_id: number;
+  problem_title: string;
+  language: string;
+  status: SubmissionStatus;
+  score: number;
+  created_at: string;
+  judged_at: string | null;
+  submitter_namespace_slug: string | null;
+}
+
 /** PUT body for setting a version's submission URL: one absolute HTTP(S) URL. */
 export interface SetSubmissionUrlInput {
   submission_url: string;

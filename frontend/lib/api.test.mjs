@@ -99,12 +99,24 @@ test("probeCookieSession calls /me with no dev headers", async () => {
   assert.equal(calls[0].init.credentials, "same-origin");
 });
 
-// The untouched, existing judge Problems API (PR #47 must not change it).
-test("createJudgeClient keeps the existing GET /problems behavior", async () => {
-  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+test("createJudgeClient builds the site-wide list endpoints", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: [] }));
   const client = createJudgeClient(() => null, fake);
+  await client.listPublicLibraries();
   await client.listProblems();
-  assert.equal(calls[0].url, "/api/v1/problems?limit=100");
+  await client.listMyProblems();
+  await client.listRecentSubmissions();
+  await client.listMySubmissions();
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      "/api/v1/libraries?limit=100",
+      "/api/v1/problems?limit=100",
+      "/api/v1/me/problems?limit=100",
+      "/api/v1/submissions/recent?limit=100",
+      "/api/v1/submissions?limit=100",
+    ],
+  );
 });
 
 // A version's submission URL is a self-declared related-submission URL set by

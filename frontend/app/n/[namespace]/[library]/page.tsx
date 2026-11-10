@@ -43,7 +43,7 @@ export default function LibraryPage({
     <div className="page">
       <Breadcrumbs
         items={[
-          { label: "ホーム", href: HOME_PATH },
+          { label: "ライブラリ一覧", href: HOME_PATH },
           { label: namespaceSlug, href: namespacePath(namespaceSlug) },
           { label: librarySlug },
         ]}

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { LibraryList } from "@/components/lists";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
 import {
@@ -13,7 +13,6 @@ import {
   ErrorNote,
   Field,
   LoadState,
-  VisibilityBadge,
 } from "@/components/ui";
 import { HOME_PATH, libraryPath } from "@/lib/routes";
 import { isOwner } from "@/lib/session";
@@ -31,7 +30,7 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
 
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "ホーム", href: HOME_PATH }, { label: namespaceSlug }]} />
+      <Breadcrumbs items={[{ label: "ライブラリ一覧", href: HOME_PATH }, { label: namespaceSlug }]} />
       {namespace.data ? (
         <div className="page-title">
           <h1>{namespace.data.display_name}</h1>
@@ -55,22 +54,7 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
                   : "公開されている Library はまだありません。"}
               </p>
             ) : (
-              <ul className="lib-list">
-                {libraries.data.map((library) => (
-                  <li key={library.id}>
-                    <Link className="lib-row" href={libraryPath(namespaceSlug, library.slug)}>
-                      <span>
-                        <span className="lib-name">{library.name}</span>
-                        <span className="lib-slug">{library.slug}</span>
-                      </span>
-                      <VisibilityBadge visibility={library.visibility} />
-                      {library.description ? (
-                        <span className="lib-desc">{library.description}</span>
-                      ) : null}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <LibraryList libraries={libraries.data} />
             )
           ) : (
             <LoadState loading={libraries.loading} error={libraries.error} notFound="" />

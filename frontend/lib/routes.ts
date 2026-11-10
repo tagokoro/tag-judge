@@ -4,6 +4,10 @@
 
 export const HOME_PATH = "/";
 export const ME_PATH = "/me";
+export const PROBLEMS_PATH = "/problems";
+export const SUBMISSIONS_PATH = "/submissions";
+export const MY_PROBLEMS_PATH = "/me/problems";
+export const MY_SUBMISSIONS_PATH = "/me/submissions";
 
 /** Mirrors the backend's int32 cap on version_number. */
 const MAX_VERSION_NUMBER = 2147483647;

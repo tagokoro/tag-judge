@@ -9,15 +9,20 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 
 ## ページ構成
 
-すべてのページの上部に共通ヘッダー（ホームへのリンク、「自分の Namespace」、ログイン / ログアウト、
-開発時のみ dev 認証メニュー）があります。
+すべてのページの上部に共通ヘッダーがあります。左にライブラリ一覧・問題一覧・提出一覧へのリンク、右にログイン
+ボタン（ログイン中はユーザー名）を置きます。ユーザー名をクリックすると、自分のライブラリ・自分の提出・
+自分の問題とログアウトのメニューが開きます。dev 認証のメニューは `next dev` のときだけ表示されます。
 
 | パス | 内容 | 主な API（すべて同一オリジンの `/api/v1/*`） |
 | --- | --- | --- |
-| `/` | ホーム。使い方と、Namespace slug を入力して開くフォーム | — |
-| `/me` | 自分の Namespace。無ければ作成フォーム（作成後は Namespace ページへ） | `GET /me/namespace`、`POST /namespaces` |
+| `/` | ライブラリ一覧（全 Namespace の公開 Library） | `GET /libraries` |
+| `/problems` | 問題一覧（公開の問題） | `GET /problems` |
+| `/submissions` | 提出一覧（公開の問題への最近の提出。ソースは出さない） | `GET /submissions/recent` |
+| `/me` | 自分のライブラリ。Namespace があればそのページへ移動し、無ければ作成フォーム | `GET /me/namespace`、`POST /namespaces` |
+| `/me/submissions` | 自分の提出 | `GET /submissions` |
+| `/me/problems` | 自分が作った問題（非公開を含む） | `GET /me/problems` |
 | `/n/[namespace]` | Namespace の Library 一覧。所有者には Library の作成フォーム | `GET /namespaces/{ns}`、`GET .../libraries`、`POST .../libraries` |
-| `/n/[namespace]/[library]` | Library の詳細と Version 一覧。所有者には Version の追加と Library の設定（名前・説明・公開範囲） | `GET .../libraries/{lib}`、`GET .../versions`、`POST .../versions`、`PATCH .../libraries/{lib}` |
+| `/n/[namespace]/[library]` | Library の詳細と Version 一覧。所有者には Version の追加と Library の設定 | `GET .../libraries/{lib}`、`GET .../versions`、`POST .../versions`、`PATCH .../libraries/{lib}` |
 | `/n/[namespace]/[library]/v/[version]` | Version のソースと提出 URL。所有者には提出 URL の設定・削除 | `GET .../versions/{n}`、`PUT` / `DELETE .../versions/{n}/submission-url` |
 
 - Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
@@ -100,7 +105,7 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 ## 手動 E2E の目安
 
 `DEV_HEADER_AUTH=true` のローカルで、seed（author `...0001` / admin `...0002`）を使います。
-ヘッダーの dev 認証を有効化 → `/me` で Namespace 作成 → private Library 作成 → seed ユーザーを切り替えて
+ヘッダーの dev 認証を有効化 → ユーザーメニューの「自分のライブラリ」で Namespace 作成 → private Library 作成 → seed ユーザーを切り替えて
 404 になることを確認 → 戻して public 化 → Version 作成 → 提出 URL を設定 → 別ユーザーでは編集フォームが
 出ないこと、ログアウト状態でも public の Version と URL が読めることを確認します。
 
