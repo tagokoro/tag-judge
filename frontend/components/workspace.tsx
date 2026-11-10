@@ -5,7 +5,6 @@ import type { Dispatch } from "react";
 import type { JudgeClient } from "@/lib/api";
 import type {
   ScopedData,
-  VerificationView,
   WorkspaceAction,
   WorkspaceState,
 } from "@/lib/workspaceState";
@@ -35,9 +34,9 @@ export interface WorkspaceValue {
   setVersion: (value: number | null) => void;
 
   // Data helpers. patchData is guarded by authGeneration: a result from a fetch
-  // started under a previous actor is dropped by the reducer.
+  // started under a previous actor is dropped by the reducer. It also applies
+  // to the selected submission link (currentLink).
   patchData: (patch: Partial<ScopedData>) => void;
-  selectVerification: (value: VerificationView) => void;
   clearLibraryDetail: () => void;
 }
 

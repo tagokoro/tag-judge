@@ -1,20 +1,14 @@
-// Types mirroring backend/docs/openapi.yaml (reviewed PR2 contract) and the
-// agreed MVP design (docs/superpowers/specs/2026-11-08-library-sharing-mvp-design.md).
-// This module is type-only: it is imported with `import type` everywhere and
-// never loaded at runtime, which also keeps the Node test runner happy.
+// Types mirroring backend/docs/openapi.yaml (PR #45 URL-link contract) and the
+// agreed design (docs/superpowers/specs/2026-11-10-verification-url-design.md).
+// A "verification" on a library version is now ONLY a self-declared related-
+// submission URL link — not a verification/judge result. There is no adapter,
+// Problem selection, Submission, Judge run, verdict, score, status, or case
+// result in this flow. This module is type-only: it is imported with
+// `import type` everywhere and never loaded at runtime, which also keeps the
+// Node test runner happy.
 
 export type Visibility = "public" | "private";
 export type Role = "user" | "author" | "admin";
-export type JudgeStatus =
-  | "pending"
-  | "running"
-  | "ac"
-  | "wa"
-  | "tle"
-  | "mle"
-  | "re"
-  | "ce"
-  | "ie";
 
 export interface Me {
   user_id: string;
@@ -81,6 +75,9 @@ export interface LibraryVersionSummary {
   created_at: string;
 }
 
+// The existing, untouched judge Problems API (GET /problems). PR #47 does not
+// change any judge/Submission behavior; it only replaces the library
+// verification flow with self-declared URL links.
 export interface Problem {
   id: number;
   title: string;
@@ -93,34 +90,25 @@ export interface Problem {
   updated_at: string;
 }
 
-export interface CaseResult {
-  test_case_id: number;
-  status: JudgeStatus;
-  execution_time_ms: number | null;
-  memory_kb: number | null;
-}
-
-export interface VerificationSummary {
+/**
+ * A self-declared "related submission" URL link (OpenAPI `VerificationLink`).
+ * The URL is never fetched, parsed for content, or judged: authenticity of the
+ * submitter, verdict, or library version used is NOT guaranteed. Verdict,
+ * score, status, adapter_source, case_results, judged_at, submission_id, and
+ * problem_id are intentionally absent.
+ */
+export interface VerificationLink {
   id: number;
   library_version_id: string;
   namespace_slug: string;
   library_slug: string;
   version_number: number;
-  problem_id: number;
-  submission_id: number;
-  status: JudgeStatus;
-  score: number;
-  adapter_sha256: string;
+  submission_url: string;
+  created_by: string;
   created_at: string;
-  judged_at: string | null;
 }
 
-export interface VerificationDetail extends VerificationSummary {
-  adapter_source: string;
-  case_results: CaseResult[];
-}
-
+/** POST body for registering one link: a single absolute HTTP(S) URL. */
 export interface CreateVerificationInput {
-  problem_id: number;
-  adapter_source: string;
+  submission_url: string;
 }

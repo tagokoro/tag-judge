@@ -7,7 +7,6 @@ import {
   initialWorkspaceState,
   workspaceReducer,
   type ScopedData,
-  type VerificationView,
 } from "@/lib/workspaceState";
 import type { DevHeaders, Me, Role } from "@/lib/types";
 import { WorkspaceContext, type WorkspaceValue } from "@/components/workspace";
@@ -108,15 +107,6 @@ export default function Home() {
     [dispatch, state.authGeneration],
   );
 
-  const selectVerification = useCallback(
-    (value: VerificationView) =>
-      dispatch({
-        type: "SELECT_VERIFICATION",
-        value,
-        guard: { authGeneration: state.authGeneration },
-      }),
-    [dispatch, state.authGeneration],
-  );
   const clearLibraryDetail = useCallback(
     () =>
       dispatch({
@@ -144,7 +134,6 @@ export default function Home() {
       setLibrarySlug,
       setVersion,
       patchData,
-      selectVerification,
       clearLibraryDetail,
     }),
     [
@@ -162,7 +151,6 @@ export default function Home() {
       setLibrarySlug,
       setVersion,
       patchData,
-      selectVerification,
       clearLibraryDetail,
     ],
   );
@@ -173,19 +161,19 @@ export default function Home() {
         <header className="app-header">
           <h1>Library Sharing Judge</h1>
           <p>
-            競技プログラミング用ライブラリを Namespace に置き、不変な Version を作り、既存 Problem を選んで adapter で検証する MVP です。
+            競技プログラミング用ライブラリを Namespace に置き、不変な Version を作り、関連する提出 URL を自己宣言で添付できる MVP です。
           </p>
           <p className="note">
             すべての API 呼び出しは同一オリジンの <code>/api/v1/*</code> に対して <code>credentials: &quot;same-origin&quot;</code> で行います。Google ログインも同一オリジンのリンクです。dev ヘッダー認証はチェックを入れたときだけ有効になるローカル開発専用の機能です。
           </p>
           <p className="note">
-            認証・利用者の切替があったときは、表示中の Namespace / Library 詳細・Version ソース・adapter・検証結果をすべてクリアし、選択 Version をリセットし、実行中の取得とポーリングを無効化します。
+            認証・利用者の切替があったときは、表示中の Namespace / Library 詳細・Version ソース・提出リンクをすべてクリアし、選択 Version をリセットし、実行中の取得を無効化します。
           </p>
         </header>
 
         {/* Keying by authGeneration remounts every panel on an actor change:
-            local UI state, in-flight fetches (AbortController cleanup) and
-            polling are reset, and the reducer has already cleared state.data. */}
+            local UI state and in-flight fetches (AbortController cleanup) are
+            reset, and the reducer has already cleared state.data. */}
         <SessionBar key={state.authGeneration} />
 
         <div className="grid" key={state.authGeneration}>
@@ -197,10 +185,10 @@ export default function Home() {
 
         <footer className="app-footer">
           <p className="muted">
-            API 契約: <code>backend/docs/openapi.yaml</code> ／ 設計: <code>docs/superpowers/specs/2026-11-08-library-sharing-mvp-design.md</code>
+            API 契約: <code>backend/docs/openapi.yaml</code> ／ 設計: <code>docs/superpowers/specs/2026-11-10-verification-url-design.md</code>
           </p>
           <p className="muted">
-            Library / Version のソース、adapter、問題文はすべてテキストとして表示し、HTML として解釈しません。private のソースと他人の adapter は API の認可により表示されません。
+            Library / Version のソースと提出 URL はすべてテキストとして表示し、HTML として解釈しません。private Library のリンクは所有者以外には API の認可により表示されません。
           </p>
         </footer>
       </main>

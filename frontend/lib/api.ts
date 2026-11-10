@@ -19,8 +19,7 @@ import type {
   Namespace,
   Problem,
   UpdateLibraryInput,
-  VerificationDetail,
-  VerificationSummary,
+  VerificationLink,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -155,15 +154,23 @@ export interface JudgeClient {
   listVersions(namespaceSlug: string, librarySlug: string): Promise<LibraryVersionSummary[]>;
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
+  // The existing, untouched judge Problems API. PR #47 changes only the
+  // library verification flow.
   listProblems(): Promise<Problem[]>;
+  // "Verification" endpoints now only handle self-declared related-submission
+  // URL links (no Problem, adapter, Submission, or judge result).
   createVerification(
     namespaceSlug: string,
     librarySlug: string,
     version: number,
     input: CreateVerificationInput,
-  ): Promise<VerificationSummary>;
-  getVerification(id: number): Promise<VerificationDetail>;
-  listVerifications(): Promise<VerificationSummary[]>;
+  ): Promise<VerificationLink>;
+  getVerification(id: number): Promise<VerificationLink>;
+  listVerifications(
+    namespaceSlug: string,
+    librarySlug: string,
+    version: number,
+  ): Promise<VerificationLink[]>;
   /** Return a client whose requests carry `signal` so they can be aborted. */
   withSignal(signal: AbortSignal | undefined): JudgeClient;
 }
@@ -218,12 +225,15 @@ export function createJudgeClient(
       }),
     listProblems: () => call<Problem[]>(list("/problems")),
     createVerification: (namespaceSlug, librarySlug, version, input) =>
-      call<VerificationSummary>(
+      call<VerificationLink>(
         `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/verifications`,
         { method: "POST", json: input },
       ),
-    getVerification: (id) => call<VerificationDetail>(`/library-verifications/${id}`),
-    listVerifications: () => call<VerificationSummary[]>(list("/library-verifications")),
+    getVerification: (id) => call<VerificationLink>(`/library-verifications/${id}`),
+    listVerifications: (namespaceSlug, librarySlug, version) =>
+      call<VerificationLink[]>(
+        list(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/verifications`),
+      ),
     withSignal: (nextSignal) => createJudgeClient(getDevHeaders, fetchImpl, nextSignal),
   };
 }

@@ -9,11 +9,10 @@ import {
   workspaceReducer,
 } from "./workspaceState.ts";
 import {
-  DEFAULT_ADAPTER_SOURCE,
   DEFAULT_LIBRARY_SLUG,
   DEFAULT_LIBRARY_SOURCE,
   DEFAULT_NAMESPACE_SLUG,
-  DEFAULT_PROBLEM_ID,
+  DEFAULT_SUBMISSION_URL,
   SEED_USERS,
 } from "./verification.ts";
 
@@ -21,8 +20,7 @@ test("inlined workspace defaults stay in sync with lib/verification.ts", () => {
   assert.equal(WORKSPACE_DEFAULTS.namespaceSlug, DEFAULT_NAMESPACE_SLUG);
   assert.equal(WORKSPACE_DEFAULTS.librarySlug, DEFAULT_LIBRARY_SLUG);
   assert.equal(WORKSPACE_DEFAULTS.librarySource, DEFAULT_LIBRARY_SOURCE);
-  assert.equal(WORKSPACE_DEFAULTS.adapterSource, DEFAULT_ADAPTER_SOURCE);
-  assert.equal(WORKSPACE_DEFAULTS.problemId, DEFAULT_PROBLEM_ID);
+  assert.equal(WORKSPACE_DEFAULTS.submissionUrl, DEFAULT_SUBMISSION_URL);
   assert.deepEqual(
     WORKSPACE_DEFAULTS.seedUsers.map((user) => ({ userId: user.userId, role: user.role })),
     SEED_USERS.map((user) => ({ userId: user.userId, role: user.role })),
@@ -39,17 +37,12 @@ const SAMPLE = {
   versionSummaries: [{ version_number: 1 }],
   versionSource: { version_number: 1, source_code: "SECRET-SOURCE" },
   versionCreated: { version_number: 1, source_code: "SECRET-SOURCE" },
-  problems: [{ id: 1, title: "A+B", statement: "secret statement" }],
-  verifications: [{ id: 9, status: "ac" }],
-  currentVerification: {
-    id: 9,
-    status: "ac",
-    adapter_source: "SECRET-ADAPTER",
-    case_results: [],
-  },
-  adapterSource: "SECRET-ADAPTER-INPUT",
+  links: [
+    { id: 9, submission_url: "https://example.com/submissions/9" },
+  ],
+  currentLink: { id: 9, submission_url: "https://example.com/submissions/9" },
+  submissionUrlInput: "https://example.com/submissions/secret",
   librarySourceInput: "SECRET-SOURCE-INPUT",
-  problemId: 7,
   patchVisibility: "public",
 };
 
@@ -266,18 +259,23 @@ test("failed private Library detail refetch clears old detail and version source
   assert.equal(state.data.versionCreated, null);
   // Surgical: unrelated identity-scoped values stay (clearing those is the
   // job of an actor change, not a failed detail refetch).
-  assert.equal(state.data.adapterSource, "SECRET-ADAPTER-INPUT");
+  assert.equal(state.data.submissionUrlInput, "https://example.com/submissions/secret");
 });
 
-test("selecting a terminal verification replaces the current result", () => {
+test("applying a current submission link replaces the previous selection", () => {
   let state = loadedState();
   state = workspaceReducer(state, {
-    type: "SELECT_VERIFICATION",
-    value: { id: 42, status: "ac", score: 100 },
+    type: "APPLY_DATA",
+    patch: {
+      currentLink: { id: 42, submission_url: "https://example.com/submissions/42" },
+    },
     guard: { authGeneration: state.authGeneration },
   });
-  assert.equal(state.data.currentVerification.id, 42);
-  assert.equal(state.data.currentVerification.status, "ac");
+  assert.equal(state.data.currentLink.id, 42);
+  assert.equal(
+    state.data.currentLink.submission_url,
+    "https://example.com/submissions/42",
+  );
 });
 
 test("ALL stale data writes from a previous actor are discarded (no private re-leak)", () => {
@@ -289,7 +287,13 @@ test("ALL stale data writes from a previous actor are discarded (no private re-l
 
   for (const action of [
     { type: "APPLY_DATA", patch: { libraryDetail: { id: "LEAK" } }, guard: stale },
-    { type: "SELECT_VERIFICATION", value: { id: 1, status: "ac" }, guard: stale },
+    {
+      type: "APPLY_DATA",
+      patch: {
+        currentLink: { id: 1, submission_url: "https://example.com/submissions/1" },
+      },
+      guard: stale,
+    },
     { type: "CLEAR_LIBRARY_DETAIL", guard: stale },
   ]) {
     const after = workspaceReducer(state, action);

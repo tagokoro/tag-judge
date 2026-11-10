@@ -99,12 +99,49 @@ test("probeCookieSession calls /me with no dev headers", async () => {
   assert.equal(calls[0].init.credentials, "same-origin");
 });
 
-test("createJudgeClient builds exact MVP endpoint paths and bodies", async () => {
+// The untouched, existing judge Problems API (PR #47 must not change it).
+test("createJudgeClient keeps the existing GET /problems behavior", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+  const client = createJudgeClient(() => null, fake);
+  await client.listProblems();
+  assert.equal(calls[0].url, "/api/v1/problems?limit=100");
+});
+
+// A "verification" is now a self-declared related-submission URL link. The
+// create body carries ONLY submission_url; list is scoped to a version.
+test("createJudgeClient builds the submission-URL link endpoints", async () => {
   const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
   const client = createJudgeClient(() => null, fake);
 
-  await client.listProblems();
-  assert.equal(calls[0].url, "/api/v1/problems?limit=100");
+  await client.createVerification("my-ns", "uf", 3, {
+    submission_url: "https://judge.example/submissions/42",
+  });
+  assert.equal(
+    calls[0].url,
+    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/verifications",
+  );
+  assert.equal(calls[0].init.method, "POST");
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body, {
+    submission_url: "https://judge.example/submissions/42",
+  });
+  // The old judge-based contract (Problem + adapter) is gone.
+  assert.equal("problem_id" in body, false);
+  assert.equal("adapter_source" in body, false);
+
+  await client.listVerifications("my-ns", "uf", 3);
+  assert.equal(
+    calls[1].url,
+    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/verifications?limit=100",
+  );
+
+  await client.getVerification(7);
+  assert.equal(calls[2].url, "/api/v1/library-verifications/7");
+});
+
+test("createJudgeClient keeps the namespace/library/version contract", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+  const client = createJudgeClient(() => null, fake);
 
   await client.createLibrary("my-ns", {
     slug: "uf",
@@ -112,9 +149,9 @@ test("createJudgeClient builds exact MVP endpoint paths and bodies", async () =>
     description: "",
     visibility: "private",
   });
-  assert.equal(calls[1].url, "/api/v1/namespaces/my-ns/libraries");
-  assert.equal(calls[1].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[1].init.body), {
+  assert.equal(calls[0].url, "/api/v1/namespaces/my-ns/libraries");
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
     slug: "uf",
     name: "UnionFind",
     description: "",
@@ -122,25 +159,13 @@ test("createJudgeClient builds exact MVP endpoint paths and bodies", async () =>
   });
 
   await client.createVersion("my-ns", "uf", "def add(): pass\n");
-  assert.equal(calls[2].url, "/api/v1/namespaces/my-ns/libraries/uf/versions");
-  assert.deepEqual(JSON.parse(calls[2].init.body), {
+  assert.equal(calls[1].url, "/api/v1/namespaces/my-ns/libraries/uf/versions");
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
     source_code: "def add(): pass\n",
   });
 
-  await client.createVerification("my-ns", "uf", 3, {
-    problem_id: 1,
-    adapter_source: "print(add(1, 2))",
-  });
-  assert.equal(
-    calls[3].url,
-    "/api/v1/namespaces/my-ns/libraries/uf/versions/3/verifications",
-  );
-
-  await client.getVerification(7);
-  assert.equal(calls[4].url, "/api/v1/library-verifications/7");
-
   await client.getNamespace("a b");
-  assert.equal(calls[5].url, "/api/v1/namespaces/a%20b");
+  assert.equal(calls[2].url, "/api/v1/namespaces/a%20b");
 });
 
 test("createJudgeClient uses the dev-header provider on every request", async () => {

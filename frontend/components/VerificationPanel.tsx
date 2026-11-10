@@ -1,140 +1,68 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
-import {
-  caseResultsOf,
-  formatCaseResult,
-  isPollTokenCurrent,
-  isTerminalStatus,
-  isVerificationDetail,
-  nextPollToken,
-  pollVerification,
-} from "@/lib/verification";
-import type { VerificationView } from "@/lib/workspaceState";
+import { isValidSubmissionUrl } from "@/lib/verification";
 import { useWorkspace } from "./workspace";
 import { useAsyncAction } from "./useAsyncAction";
-import { Button, Card, ErrorNote, Field, ResultView, StatusPill } from "./ui";
+import { Button, Card, ErrorNote, Field, ResultView } from "./ui";
 
+/**
+ * Shows the self-declared "related submission" URL links for the selected
+ * Library Version. A link is NOT a verification/judge result: there is no
+ * adapter, Problem selection, Submission, Judge run, verdict, score, status,
+ * case result, or polling. The URL is never fetched or judged. Reading follows
+ * the library's current visibility (public = anonymous readable, private =
+ * 404 for everyone except the owner) and adding a link requires a session.
+ */
 export function VerificationPanel() {
-  const {
-    client,
-    state,
-    effectiveVersion,
-    patchData,
-    selectVerification,
-  } = useWorkspace();
+  const { client, state, effectiveVersion, patchData } = useWorkspace();
   const { busy, error, run } = useAsyncAction();
 
   const { namespaceSlug, librarySlug } = state;
-  const {
-    problemId,
-    problems,
-    adapterSource,
-    currentVerification,
-    verifications,
-  } = state.data;
+  const { submissionUrlInput, links, currentLink } = state.data;
 
-  const mountedRef = useRef(true);
-  const pollTokenRef = useRef(0);
-
-  // Invalidate polling on EVERY selection (including a terminal one) and on
-  // unmount (which also happens on an actor/auth change via the remount key).
-  const invalidatePolling = useCallback(() => {
-    pollTokenRef.current = nextPollToken(pollTokenRef.current);
-  }, []);
-
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-      invalidatePolling();
-    },
-    [invalidatePolling],
-  );
-
-  // Poll GET /api/v1/library-verifications/{id} every 1s, at most 30 times,
-  // until a terminal status (MVP §11.5). The token guards both the updates and
-  // shouldContinue, so a superseded poll can never overwrite a newer result.
-  const pollFrom = useCallback(
-    async (initial: VerificationView, signal?: AbortSignal): Promise<void> => {
-      invalidatePolling();
-      const token = pollTokenRef.current;
-      selectVerification(initial);
-      const api = signal ? client.withSignal(signal) : client;
-      await pollVerification<VerificationView>(
-        () => api.getVerification(initial.id),
-        initial,
-        {
-          onUpdate: (value) => {
-            if (mountedRef.current && isPollTokenCurrent(token, pollTokenRef.current)) {
-              patchData({ currentVerification: value });
-            }
-          },
-          shouldContinue: () =>
-            mountedRef.current && isPollTokenCurrent(token, pollTokenRef.current),
-        },
-      );
-    },
-    [client, patchData, selectVerification, invalidatePolling],
-  );
-
-  const selectedProblem = problems?.find((problem) => problem.id === problemId) ?? null;
-  const caseResults = currentVerification ? caseResultsOf(currentVerification) : [];
+  const refreshLinks = async (
+    signal: AbortSignal,
+  ): Promise<void> => {
+    if (effectiveVersion === null) {
+      throw new Error("先に Version を作成または一覧から選択してください。");
+    }
+    const api = client.withSignal(signal);
+    patchData({
+      links: await api.listVerifications(
+        namespaceSlug,
+        librarySlug,
+        effectiveVersion,
+      ),
+    });
+  };
 
   return (
     <Card
-      title="検証 (Verification)"
-      note="既存 Problem を選び、Library Version のコードと問題別 adapter を結合して既存の Submission / Judge で検証します。adapter は Version の一部ではなく verify ごとに渡します。検証結果と adapter は開始者（と admin）だけが読め、hidden ケースの内容は返されません（§5.7 / §10.4）。"
+      title="関連する提出URL（提出リンク）"
+      note={
+        <>
+          表示されるのは、提出者が自己宣言した「関連する提出」の URL です。
+          URL の取得・内容確認・判定は行わず、提出者・判定結果・使用 Library Version の
+          真正性も保証しません（<strong>検証済みではありません</strong>）。AC などの
+          検証済みバッジは出しません。公開 Library のリンクは匿名で読め、private
+          Library のリンクは所有者以外には 404 です。URL の追加にはログインが必要で、
+          公開 Library は認証済みなら誰でも、private Library は所有者だけが追加できます。
+        </>
+      }
     >
-      <div className="row">
-        <Field label="problem_id">
-          <input
-            type="number"
-            min={1}
-            value={problemId}
-            onChange={(event) => patchData({ problemId: Number(event.target.value) })}
-          />
-        </Field>
-        <Button
-          onClick={() =>
-            run(async (signal) => {
-              patchData({ problems: await client.withSignal(signal).listProblems() });
-            })
+      <Field
+        label="関連する提出 URL（絶対 HTTP(S) URL）"
+        hint="前後の空白は除去されます。ホストあり・制御文字なし・2048 バイト以内。URL は取得・判定されません。"
+      >
+        <input
+          type="url"
+          inputMode="url"
+          value={submissionUrlInput}
+          onChange={(event) =>
+            patchData({ submissionUrlInput: event.target.value })
           }
-          disabled={busy}
-        >
-          公開 Problem 一覧を取得
-        </Button>
-      </div>
-      {problems ? (
-        <Field label="既存 Problem を選択">
-          <select
-            value={String(problemId)}
-            onChange={(event) => patchData({ problemId: Number(event.target.value) })}
-          >
-            {problems.map((problem) => (
-              <option key={problem.id} value={problem.id}>
-                #{problem.id} {problem.title}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
-      {selectedProblem ? (
-        <div className="detail-block">
-          <span className="result-label">
-            選択中: #{selectedProblem.id} {selectedProblem.title}（{selectedProblem.time_limit_ms} ms）
-          </span>
-          {/* Problem statement is untrusted text: rendered as text, never as HTML. */}
-          <pre className="result statement-view">{selectedProblem.statement}</pre>
-        </div>
-      ) : null}
-
-      <Field label="adapter_source（問題別・検証ごとに送信）">
-        <textarea
-          className="code-input"
-          value={adapterSource}
-          onChange={(event) => patchData({ adapterSource: event.target.value })}
           spellCheck={false}
+          placeholder="https://example.com/submissions/1"
         />
       </Field>
       <div className="row">
@@ -142,69 +70,75 @@ export function VerificationPanel() {
           variant="primary"
           onClick={() =>
             run(async (signal) => {
-              // Invalidate any in-flight poll BEFORE starting a new verification.
-              invalidatePolling();
+              if (!isValidSubmissionUrl(submissionUrlInput)) {
+                throw new Error(
+                  "絶対 HTTP(S) URL（ホストあり）を入力してください。",
+                );
+              }
               if (effectiveVersion === null) {
-                throw new Error("先に Version を作成または一覧から選択してください。");
+                throw new Error(
+                  "先に Version を作成または一覧から選択してください。",
+                );
               }
               const api = client.withSignal(signal);
               const created = await api.createVerification(
                 namespaceSlug,
                 librarySlug,
                 effectiveVersion,
-                { problem_id: problemId, adapter_source: adapterSource },
+                { submission_url: submissionUrlInput.trim() },
               );
-              await pollFrom(created, signal);
+              patchData({
+                currentLink: created,
+                links: await api.listVerifications(
+                  namespaceSlug,
+                  librarySlug,
+                  effectiveVersion,
+                ),
+              });
             })
           }
           disabled={busy}
         >
-          検証を開始（{effectiveVersion ?? "Version 未選択"}）
+          関連する提出URLを添付（{effectiveVersion ?? "Version 未選択"}）
         </Button>
         <Button
-          onClick={() =>
-            run(async (signal) => {
-              patchData({ verifications: await client.withSignal(signal).listVerifications() });
-            })
-          }
+          onClick={() => run(async (signal) => refreshLinks(signal))}
           disabled={busy}
         >
-          自分の検証一覧
+          リンク一覧を取得
         </Button>
       </div>
 
-      {verifications ? (
+      {links ? (
         <div className="list-block">
-          <span className="result-label">自分の検証一覧（クリックで詳細）</span>
-          {verifications.length === 0 ? (
-            <p className="muted">検証はまだありません。</p>
+          <span className="result-label">
+            関連する提出URL 一覧（自己宣言・未検証／クリックで詳細）
+          </span>
+          {links.length === 0 ? (
+            <p className="muted">この Version に登録された提出 URL はまだありません。</p>
           ) : (
             <ul className="list">
-              {verifications.map((item) => (
-                <li key={item.id}>
+              {links.map((link) => (
+                <li key={link.id}>
                   <button
                     type="button"
                     className="list-item"
                     disabled={busy}
                     onClick={() =>
                       run(async (signal) => {
-                        // ALWAYS invalidate, even when selecting a terminal
-                        // result: an older poll must not overwrite this detail.
-                        invalidatePolling();
-                        const api = client.withSignal(signal);
-                        const detail = await api.getVerification(item.id);
-                        selectVerification(detail);
-                        if (!isTerminalStatus(detail.status)) {
-                          await pollFrom(detail, signal);
-                        }
+                        const detail = await client
+                          .withSignal(signal)
+                          .getVerification(link.id);
+                        patchData({ currentLink: detail });
                       })
                     }
                   >
-                    <StatusPill status={item.status} />
-                    <span className="mono">#{item.id}</span>
-                    <span>score {item.score}</span>
+                    <span className="mono">#{link.id}</span>
+                    {/* The URL is untrusted, self-declared text: render as text,
+                        never as HTML, and never auto-fetch / navigate to it. */}
+                    <span className="mono">{link.submission_url}</span>
                     <span className="mono muted">
-                      {item.library_slug} v{item.version_number}
+                      {link.library_slug} v{link.version_number}
                     </span>
                   </button>
                 </li>
@@ -214,47 +148,28 @@ export function VerificationPanel() {
         </div>
       ) : null}
 
-      {currentVerification ? (
+      {currentLink ? (
         <div className="detail-block">
-          <span className="result-label">検証 #{currentVerification.id}</span>
+          <span className="result-label">
+            提出リンク #{currentLink.id}（自己宣言・未検証／検証結果ではありません）
+          </span>
           <div className="kv">
-            <span>ステータス</span>
-            <StatusPill status={currentVerification.status} />
-            <span>スコア</span>
-            <strong>{currentVerification.score} / 100</strong>
-            <span>Problem / Version</span>
+            <span>提出 URL</span>
+            <span className="mono">{currentLink.submission_url}</span>
+            <span>Version</span>
             <span className="mono">
-              #{currentVerification.problem_id} / v{currentVerification.version_number}
+              {currentLink.library_slug} v{currentLink.version_number}
             </span>
-            <span>Submission ID</span>
-            <span className="mono">{currentVerification.submission_id}</span>
-            <span>判定日時</span>
-            <span>{currentVerification.judged_at ?? "—"}</span>
+            <span>登録者</span>
+            <span className="mono">{currentLink.created_by}</span>
+            <span>登録日時</span>
+            <span className="mono">{currentLink.created_at}</span>
+            <span>Namespace</span>
+            <span className="mono">{currentLink.namespace_slug}</span>
+            <span>Version ID</span>
+            <span className="mono">{currentLink.library_version_id}</span>
           </div>
-          {busy && !isTerminalStatus(currentVerification.status) ? (
-            <p className="muted">判定完了までポーリング中…（1 秒間隔 / 最大 30 回）</p>
-          ) : null}
-          {isVerificationDetail(currentVerification) ? (
-            <>
-              <span className="result-label">adapter_source（自分の検証のみ・テキスト表示）</span>
-              <pre className="result source-view">{currentVerification.adapter_source}</pre>
-            </>
-          ) : null}
-          <span className="result-label">ケース別結果（{caseResults.length} 件）</span>
-          {caseResults.length === 0 ? (
-            <p className="muted">
-              pending / running の間は空配列です。hidden ケースの入力・期待出力・stdout・stderr は返されません。
-            </p>
-          ) : (
-            <ul className="list">
-              {caseResults.map((result) => (
-                <li key={result.test_case_id} className="mono">
-                  {formatCaseResult(result)}
-                </li>
-              ))}
-            </ul>
-          )}
-          <ResultView data={currentVerification} label="検証詳細 (data)" />
+          <ResultView data={currentLink} label="提出リンク詳細 (data)" />
         </div>
       ) : null}
       <ErrorNote error={error} />

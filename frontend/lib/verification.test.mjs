@@ -1,182 +1,101 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  caseResultsOf,
-  formatCaseResult,
-  isPollTokenCurrent,
-  isTerminalStatus,
-  isVerificationDetail,
-  nextPollToken,
-  pollVerification,
-  statusLabel,
-} from "./verification.ts";
+import * as verification from "./verification.ts";
 
-const noSleep = async () => {};
+const {
+  isValidSubmissionUrl,
+  MAX_SUBMISSION_URL_BYTES,
+  DEFAULT_SUBMISSION_URL,
+  DEFAULT_NAMESPACE_SLUG,
+  DEFAULT_LIBRARY_SLUG,
+  DEFAULT_LIBRARY_SOURCE,
+  SEED_USERS,
+} = verification;
 
-test("isTerminalStatus recognises all terminal verdicts", () => {
-  for (const status of ["ac", "wa", "tle", "mle", "re", "ce", "ie"]) {
-    assert.equal(isTerminalStatus(status), true, status);
+// A verification is now ONLY a self-declared "related submission" URL link.
+// The judge/polling/verdict helpers from the old contract must be gone.
+test("the submission-link module exposes no judge verdict/status/polling helpers", () => {
+  for (const removed of [
+    "TERMINAL_STATUSES",
+    "STATUS_LABELS",
+    "isTerminalStatus",
+    "statusLabel",
+    "formatCaseResult",
+    "isVerificationDetail",
+    "caseResultsOf",
+    "nextPollToken",
+    "isPollTokenCurrent",
+    "pollVerification",
+    "PollOptions",
+  ]) {
+    assert.equal(
+      removed in verification,
+      false,
+      `${removed} (judge/polling helper) must be gone`,
+    );
   }
-  for (const status of ["pending", "running", "unknown"]) {
-    assert.equal(isTerminalStatus(status), false, status);
-  }
 });
 
-test("statusLabel and formatCaseResult format null metrics safely", () => {
-  assert.equal(statusLabel("ac"), "AC (正解)");
-  assert.equal(statusLabel("weird"), "weird");
-  assert.equal(
-    formatCaseResult({
-      test_case_id: 2,
-      status: "ac",
-      execution_time_ms: 12,
-      memory_kb: null,
-    }),
-    "#2 AC (正解) · 12 ms · -",
-  );
+test("UI defaults describe a submission URL, not an adapter or a Problem", () => {
+  assert.equal(typeof DEFAULT_NAMESPACE_SLUG, "string");
+  assert.equal(typeof DEFAULT_LIBRARY_SLUG, "string");
+  assert.equal(typeof DEFAULT_LIBRARY_SOURCE, "string");
+  assert.equal(typeof isValidSubmissionUrl, "function");
+  assert.ok(isValidSubmissionUrl(DEFAULT_SUBMISSION_URL));
+  assert.equal(SEED_USERS.length, 2);
+  // Old adapter / Problem defaults must not exist.
+  assert.equal("DEFAULT_ADAPTER_SOURCE" in verification, false);
+  assert.equal("DEFAULT_PROBLEM_ID" in verification, false);
 });
 
-test("caseResultsOf only exposes case_results from a detail response", () => {
-  const summary = { id: 1, status: "pending" };
-  assert.equal(isVerificationDetail(summary), false);
-  assert.deepEqual(caseResultsOf(summary), []);
-  const detail = {
-    id: 1,
-    status: "ac",
-    adapter_source: "print(1)",
-    case_results: [{ test_case_id: 1, status: "ac", execution_time_ms: 3, memory_kb: null }],
-  };
-  assert.equal(isVerificationDetail(detail), true);
-  assert.equal(caseResultsOf(detail).length, 1);
-});
-
-test("pollVerification does not fetch when the initial status is terminal", async () => {
-  let fetches = 0;
-  const updates = [];
-  const initial = { status: "ac", score: 100 };
-  const result = await pollVerification(
-    async () => {
-      fetches += 1;
-      return { status: "ac" };
-    },
-    initial,
-    { sleep: noSleep, onUpdate: (value) => updates.push(value.status) },
-  );
-  assert.equal(fetches, 0);
-  assert.equal(result, initial);
-  assert.deepEqual(updates, ["ac"]);
-});
-
-test("pollVerification follows pending -> running -> ac and reports updates", async () => {
-  const sequence = [
-    { status: "running", score: 0 },
-    { status: "ac", score: 100, case_results: [] },
+test("isValidSubmissionUrl accepts absolute http/https URLs with a host", () => {
+  const valid = [
+    "https://example.com/submissions/1",
+    "http://judge.example.org/a?b=c#frag",
+    "https://例え.jp/submissions/1", // internationalized (Unicode) host
+    "https://[::1]:8080/submissions/1", // IPv6 literal
+    "https://user:pass@host.example/x", // userinfo with a real host
+    "  https://example.com/submissions/2  ", // surrounding whitespace is trimmed
   ];
-  let fetches = 0;
-  const updates = [];
-  const result = await pollVerification(
-    async () => {
-      const value = sequence[fetches];
-      fetches += 1;
-      return value;
-    },
-    { status: "pending", score: 0 },
-    {
-      sleep: noSleep,
-      onUpdate: (value) => updates.push(value.status),
-    },
-  );
-  assert.equal(fetches, 2);
-  assert.equal(result.status, "ac");
-  assert.deepEqual(updates, ["pending", "running", "ac"]);
+  for (const url of valid) {
+    assert.equal(isValidSubmissionUrl(url), true, url);
+  }
 });
 
-test("pollVerification stops after maxAttempts GETs", async () => {
-  let fetches = 0;
-  const result = await pollVerification(
-    async () => {
-      fetches += 1;
-      return { status: "running" };
-    },
-    { status: "pending" },
-    { sleep: noSleep, maxAttempts: 30 },
-  );
-  assert.equal(fetches, 30);
-  assert.equal(result.status, "running");
+test("isValidSubmissionUrl rejects non-absolute / non-HTTP(S) / hostless URLs", () => {
+  const invalid = [
+    "",
+    "   ",
+    "example.com/submissions/1",
+    "/submissions/1",
+    "ftp://example.com/x",
+    "javascript:alert(1)",
+    "https:foo", // opaque scheme:foo form (no "//" authority)
+    "https://?x",
+    "https://@",
+    "https://:443",
+    "https://user@", // userinfo but no host
+  ];
+  for (const url of invalid) {
+    assert.equal(isValidSubmissionUrl(url), false, url);
+  }
 });
 
-test("pollVerification honours shouldContinue cancellation", async () => {
-  let fetches = 0;
-  let allow = true;
-  await pollVerification(
-    async () => {
-      fetches += 1;
-      return { status: "running" };
-    },
-    { status: "pending" },
-    {
-      sleep: async () => {
-        allow = false;
-      },
-      shouldContinue: () => allow,
-      maxAttempts: 10,
-    },
+test("isValidSubmissionUrl rejects control chars, internal whitespace and >2048 bytes", () => {
+  assert.equal(MAX_SUBMISSION_URL_BYTES, 2048);
+  assert.equal(isValidSubmissionUrl("https://example.com/a b"), false); // internal space
+  assert.equal(isValidSubmissionUrl("https://example.com/\u0000"), false); // NUL control
+  assert.equal(isValidSubmissionUrl("https://example.com/\u0007"), false); // BEL control
+  assert.equal(isValidSubmissionUrl("https://example.com/\u0085"), false); // C1 control
+  assert.equal(
+    isValidSubmissionUrl(`https://example.com/${"a".repeat(2048)}`),
+    false,
   );
-  assert.equal(fetches, 0);
-});
-
-test("nextPollToken / isPollTokenCurrent detect a superseded selection", () => {
-  const token = 5;
-  const current = nextPollToken(token);
-  assert.equal(isPollTokenCurrent(token, current), false);
-  assert.equal(isPollTokenCurrent(current, current), true);
-});
-
-test("bumping the token mid-poll stops it and prevents a stale overwrite", async () => {
-  const holder = { token: 3 };
-  let fetches = 0;
-  const updates = [];
-  const result = await pollVerification(
-    async () => {
-      fetches += 1;
-      return { status: "running", id: 1 };
-    },
-    { status: "pending", id: 1 },
-    {
-      sleep: async () => {
-        // Simulate the user selecting ANOTHER verification (terminal or not)
-        // while the poll is waiting between GETs.
-        holder.token = nextPollToken(holder.token);
-      },
-      shouldContinue: () => isPollTokenCurrent(3, holder.token),
-      onUpdate: (value) => updates.push(value.status),
-      maxAttempts: 5,
-    },
+  // "https://example.com/" is 20 bytes, so this stays within the 2048-byte cap.
+  assert.equal(
+    isValidSubmissionUrl(
+      `https://example.com/${"a".repeat(MAX_SUBMISSION_URL_BYTES - 25)}`,
+    ),
+    true,
   );
-  assert.equal(fetches, 0, "no detail GET should run after invalidation");
-  assert.equal(result.status, "pending");
-  assert.deepEqual(updates, ["pending"], "only the initial update; no late poll overwrite");
-});
-
-test("selecting a TERMINAL result still invalidates an in-flight poll", async () => {
-  const holder = { token: 1 };
-  let onUpdateCalls = 0;
-  const result = await pollVerification(
-    async () => ({ status: "ac", id: 2 }),
-    { status: "pending", id: 2 },
-    {
-      sleep: async () => {
-        // A terminal selection also bumps the token, so the running poll must
-        // not deliver its late `ac` value over the user's chosen result.
-        holder.token = nextPollToken(holder.token);
-      },
-      shouldContinue: () => isPollTokenCurrent(1, holder.token),
-      onUpdate: () => {
-        onUpdateCalls += 1;
-      },
-      maxAttempts: 3,
-    },
-  );
-  assert.equal(result.status, "pending");
-  assert.equal(onUpdateCalls, 1, "only the initial update; stale poll cannot overwrite");
 });

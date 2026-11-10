@@ -1,66 +1,61 @@
-// Pure view-model helpers for the verification flow. Kept free of React and of
-// runtime imports from other local modules so it can be unit-tested directly
-// with Node's built-in test runner (node --test *.test.mjs).
+// Pure view-model helpers and shared defaults for the library-sharing UI. A
+// "verification" is now ONLY a self-declared related-submission URL link: there
+// is NO adapter, Problem selection, Submission, Outbox, S3 object, Judge run,
+// verdict, score, status, case result, or polling. The URL is never fetched,
+// parsed for content, or judged. Kept free of React and of runtime imports from
+// other local modules so Node's built-in test runner (node:test) can load it
+// directly with TypeScript stripping.
 
-import type { CaseResult, Role, VerificationDetail, VerificationSummary } from "./types";
+import type { Role } from "./types";
 
-export const TERMINAL_STATUSES = [
-  "ac",
-  "wa",
-  "tle",
-  "mle",
-  "re",
-  "ce",
-  "ie",
-] as const;
+/** Mirrors the backend/DB cap (domain.MaxSubmissionURLLength). */
+export const MAX_SUBMISSION_URL_BYTES = 2048;
 
-export function isTerminalStatus(status: string): boolean {
-  return (TERMINAL_STATUSES as readonly string[]).includes(status);
+/**
+ * Client-side mirror of the backend's AUTHORITATIVE submission-URL format gate
+ * (backend/internal/domain ValidateSubmissionURL). The backend always has the
+ * final say (invalid URLs get 400); this helper only gives immediate feedback.
+ *
+ * It trims surrounding whitespace and requires an absolute http/https URL with
+ * a non-empty host, no control characters or internal whitespace, and at most
+ * MAX_SUBMISSION_URL_BYTES bytes. It never fetches or judges the URL.
+ */
+export function isValidSubmissionUrl(raw: string): boolean {
+  const value = raw.trim();
+  // Require an explicit "//" authority so opaque "scheme:foo" forms are
+  // rejected (the backend rejects non-empty Opaque). Case-insensitive scheme.
+  if (!/^https?:\/\//i.test(value)) {
+    return false;
+  }
+  if (utf8Length(value) > MAX_SUBMISSION_URL_BYTES) {
+    return false;
+  }
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    // C0/DEL and C1 control characters, plus any Unicode whitespace.
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return false;
+    }
+    if (/\s/u.test(char)) {
+      return false;
+    }
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+  // Hostname() is non-empty for every real authority; hostless forms such as
+  // "https://?x", "https://@", "https://:443" and "https://user@" throw above.
+  return parsed.hostname !== "";
 }
 
-export const STATUS_LABELS: Record<string, string> = {
-  pending: "pending (待機)",
-  running: "running (実行中)",
-  ac: "AC (正解)",
-  wa: "WA (不正解)",
-  tle: "TLE (時間超過)",
-  mle: "MLE (メモリ超過)",
-  re: "RE (実行時エラー)",
-  ce: "CE (コンパイルエラー)",
-  ie: "IE (内部エラー)",
-};
-
-export function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status;
-}
-
-export function formatCaseResult(result: CaseResult): string {
-  const time = result.execution_time_ms === null ? "-" : `${result.execution_time_ms} ms`;
-  const memory = result.memory_kb === null ? "-" : `${result.memory_kb} KiB`;
-  return `#${result.test_case_id} ${statusLabel(result.status)} · ${time} · ${memory}`;
-}
-
-export function isVerificationDetail(
-  value: VerificationSummary | VerificationDetail,
-): value is VerificationDetail {
-  return Array.isArray((value as VerificationDetail).case_results);
-}
-
-export function caseResultsOf(
-  value: VerificationSummary | VerificationDetail,
-): CaseResult[] {
-  return isVerificationDetail(value) ? value.case_results : [];
-}
-
-// Polling tokens. Every verification selection bumps the token (including a
-// terminal one) so an in-flight poll for a different verification can never
-// overwrite the newly selected result. Kept pure for regression tests.
-export function nextPollToken(token: number): number {
-  return token + 1;
-}
-
-export function isPollTokenCurrent(token: number, current: number): boolean {
-  return token === current;
+function utf8Length(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
 export const SEED_USERS = [
@@ -71,58 +66,4 @@ export const SEED_USERS = [
 export const DEFAULT_NAMESPACE_SLUG = "seed-author";
 export const DEFAULT_LIBRARY_SLUG = "union-find";
 export const DEFAULT_LIBRARY_SOURCE = "def add(a, b):\n    return a + b\n";
-export const DEFAULT_ADAPTER_SOURCE =
-  "a, b = map(int, input().split())\nprint(add(a, b))\n";
-export const DEFAULT_PROBLEM_ID = 1;
-
-export interface PollOptions<T> {
-  intervalMs?: number;
-  maxAttempts?: number;
-  sleep?: (ms: number) => Promise<void>;
-  onUpdate?: (value: T) => void;
-  shouldContinue?: () => boolean;
-}
-
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/**
- * Poll a verification detail until a terminal status is reached. The agreed MVP
- * contract: 1 second interval, at most 30 GETs. `shouldContinue` lets callers
- * cancel (e.g. on component unmount). `onUpdate` receives every fetched value.
- */
-export async function pollVerification<T extends { status: string }>(
-  fetchDetail: () => Promise<T>,
-  initial: T,
-  options: PollOptions<T> = {},
-): Promise<T> {
-  const {
-    intervalMs = 1000,
-    maxAttempts = 30,
-    sleep = defaultSleep,
-    onUpdate,
-    shouldContinue,
-  } = options;
-
-  let current = initial;
-  onUpdate?.(current);
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (isTerminalStatus(current.status)) {
-      return current;
-    }
-    if (shouldContinue && !shouldContinue()) {
-      return current;
-    }
-    await sleep(intervalMs);
-    if (shouldContinue && !shouldContinue()) {
-      return current;
-    }
-    current = await fetchDetail();
-    onUpdate?.(current);
-  }
-
-  return current;
-}
+export const DEFAULT_SUBMISSION_URL = "https://example.com/submissions/1";

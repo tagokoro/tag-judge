@@ -63,7 +63,7 @@ export function VersionPanel() {
         </Button>
       </div>
       <p className="muted">
-        検証対象の Version: <strong>{effectiveVersion ?? "未選択"}</strong>
+        提出リンクの対象 Version: <strong>{effectiveVersion ?? "未選択"}</strong>
         （Namespace / Library を変えると選択は無効になります）
       </p>
 

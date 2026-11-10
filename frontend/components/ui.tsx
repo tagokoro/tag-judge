@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { describeError } from "@/lib/api";
-import { statusLabel } from "@/lib/verification";
 import type { Visibility } from "@/lib/types";
 
 export function Card({
@@ -91,10 +90,6 @@ export function VisibilityBadge({ visibility }: { visibility: Visibility }) {
       {visibility === "public" ? "public" : "private"}
     </span>
   );
-}
-
-export function StatusPill({ status }: { status: string }) {
-  return <span className="status-pill">{statusLabel(status)}</span>;
 }
 
 export function formatError(error: unknown): string {

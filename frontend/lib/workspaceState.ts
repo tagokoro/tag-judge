@@ -14,10 +14,8 @@ import type {
   LibraryVersionSummary,
   Me,
   Namespace,
-  Problem,
   Role,
-  VerificationDetail,
-  VerificationSummary,
+  VerificationLink,
   Visibility,
 } from "./types";
 
@@ -25,15 +23,12 @@ export const WORKSPACE_DEFAULTS = {
   namespaceSlug: "seed-author",
   librarySlug: "union-find",
   librarySource: "def add(a, b):\n    return a + b\n",
-  adapterSource: "a, b = map(int, input().split())\nprint(add(a, b))\n",
-  problemId: 1,
+  submissionUrl: "https://example.com/submissions/1",
   seedUsers: [
     { userId: "00000000-0000-4000-8000-000000000001", role: "author" as Role },
     { userId: "00000000-0000-4000-8000-000000000002", role: "admin" as Role },
   ],
 } as const;
-
-export type VerificationView = VerificationSummary | VerificationDetail;
 
 export interface DevUser {
   userId: string;
@@ -55,13 +50,12 @@ export interface ScopedData {
   versionSummaries: LibraryVersionSummary[] | null;
   versionSource: LibraryVersion | null; // displayed source_code (private)
   versionCreated: LibraryVersion | null;
-  problems: Problem[] | null;
-  verifications: VerificationSummary[] | null;
-  currentVerification: VerificationView | null;
+  // Self-declared related-submission URL links for the selected version.
+  links: VerificationLink[] | null;
+  currentLink: VerificationLink | null; // selected link detail
   // Inputs / transient view state that could still carry a previous actor's text.
-  adapterSource: string;
+  submissionUrlInput: string;
   librarySourceInput: string;
-  problemId: number;
   patchVisibility: Visibility;
 }
 
@@ -108,12 +102,10 @@ export function emptyScopedData(): ScopedData {
     versionSummaries: null,
     versionSource: null,
     versionCreated: null,
-    problems: null,
-    verifications: null,
-    currentVerification: null,
-    adapterSource: WORKSPACE_DEFAULTS.adapterSource,
+    links: null,
+    currentLink: null,
+    submissionUrlInput: WORKSPACE_DEFAULTS.submissionUrl,
     librarySourceInput: WORKSPACE_DEFAULTS.librarySource,
-    problemId: WORKSPACE_DEFAULTS.problemId,
     patchVisibility: "private",
   };
 }
@@ -145,7 +137,6 @@ export type WorkspaceAction =
   | { type: "SET_LIBRARY_SLUG"; slug: string }
   | { type: "SET_VERSION"; version: number | null }
   | { type: "CLEAR_LIBRARY_DETAIL"; guard: DataGuard }
-  | { type: "SELECT_VERIFICATION"; value: VerificationView; guard: DataGuard }
   | { type: "APPLY_DATA"; patch: Partial<ScopedData>; guard: DataGuard };
 
 /**
@@ -247,11 +238,6 @@ export function workspaceReducer(
           versionSource: null,
           versionCreated: null,
         },
-      };
-    case "SELECT_VERIFICATION":
-      return {
-        ...state,
-        data: { ...state.data, currentVerification: action.value },
       };
     case "APPLY_DATA":
       return { ...state, data: { ...state.data, ...action.patch } };
