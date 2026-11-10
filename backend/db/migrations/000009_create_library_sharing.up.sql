@@ -81,17 +81,22 @@ CREATE TRIGGER library_versions_no_update_delete
 -- These CHECK constraints are a defensive DB backstop, NOT the authoritative
 -- validator. The authoritative gate is domain.ValidateSubmissionURL, called by
 -- the repository before persistence (so invalid URLs are rejected even outside
--- the future API layer); it trims whitespace, requires a non-empty host via
--- net/url, and caps the value at 2048 bytes.
+-- the future API layer); it trims whitespace, requires a NON-EMPTY host via
+-- net/url Hostname(), and caps the value at 2048 bytes. net/url accepts ANY
+-- absolute HTTP(S) URL with a host, including internationalized/Unicode hosts,
+-- so the DB backstop must NOT impose an ASCII-only first-host-character rule.
 --
--- absolute_check must require a REAL host, not just "something after //". The
--- earlier '^https?://[^/[:space:][:cntrl:]]+' pattern wrongly accepted hostless
--- authorities such as 'https://?x', 'https://@' and 'https://:443' because '?',
--- '@' and ':' were allowed as the first authority character. This pattern
--- requires the authority (after any optional userinfo ending in @) to begin
--- with a host character: an ASCII letter/digit, or '[' for an IPv6 literal.
--- It is anchored to the end (with an optional /, ? or # path/query/fragment
--- tail) so a bare userinfo or empty-port authority cannot masquerade as a host.
+-- absolute_check requires the first HOST character (after any optional
+-- userinfo ending in @) to be NOT a structural delimiter (/, ?, #, :, @) and
+-- not whitespace/control. This rejects the hostless authorities the old
+-- '^https?://[^/[:space:][:cntrl:]]+' pattern wrongly accepted - 'https://?x',
+-- 'https://@', 'https://:443', 'https://#frag', 'https:///path' - because '?',
+-- '@', ':' and '#' were allowed as the first authority character. It accepts
+-- ASCII hosts, IPv6 literals ('['), and Unicode/IDN hosts ('例え.jp', etc.).
+-- It is a prefix/backstop check only: the authoritative net/url Hostname()
+-- check in the repository is what rejects ALL no-host forms (including a bare
+-- userinfo like 'https://user@'). no_space_check/no_control_check and the
+-- length check back up the same rules.
 CREATE TABLE library_verifications (
     id bigserial PRIMARY KEY,
     library_version_id uuid NOT NULL REFERENCES library_versions (id),
@@ -100,8 +105,9 @@ CREATE TABLE library_verifications (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT library_verifications_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
     CONSTRAINT library_verifications_submission_url_absolute_check CHECK (
-        submission_url ~ '^https?://([^@/?#[:space:][:cntrl:]]*@)?[A-Za-z0-9\[][^/@?#[:space:][:cntrl:]]*([/?#].*)?$'
+        submission_url ~ '^https?://([^@/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]]'
     ),
+    CONSTRAINT library_verifications_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
     CONSTRAINT library_verifications_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
 );
 

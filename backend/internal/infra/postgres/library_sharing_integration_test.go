@@ -132,31 +132,44 @@ func assertCheckViolation(t *testing.T, err error) {
 	}
 }
 
-// invalidSubmissionURLs are URLs the URL-only design must reject, both at the
-// DB CHECK backstop and at the authoritative domain/repository validator. The
-// first three are the hostless authorities that the original
-// "^https?://[^/[:space:][:cntrl:]]+" CHECK wrongly accepted (Codex finding):
-// their authority is only "?x", "@" or ":443" with no host, yet every one of
-// those characters was permitted by the old negated class.
+// invalidSubmissionURLs must be rejected by BOTH the DB CHECK backstop (raw
+// SQL) and the authoritative domain/repository validator. The first three are
+// the hostless authorities the original "^https?://[^/[:space:][:cntrl:]]+"
+// CHECK wrongly accepted (Codex finding): "?x", "@" and ":443" have no host.
+// Whitespace/control/no-host cases are included as regressions.
 var invalidSubmissionURLs = []struct{ name, url string }{
 	{"hostless query", "https://?x"},
 	{"hostless at", "https://@"},
 	{"hostless port", "https://:443"},
+	{"hostless fragment", "https://#frag"},
+	{"hostless path", "https:///path"},
 	{"scheme only https", "https://"},
 	{"scheme only http", "http://"},
 	{"no scheme", "not-a-url"},
 	{"wrong scheme", "ftp://example.com/x"},
 	{"opaque", "https:example.com"},
-	{"userinfo no host", "https://user@"},
-	{"leading dot host", "https://.example.com"},
 	{"control char", "https://example.com/\x07"},
 	{"internal space", "https://exa mple.com"},
 	{"too long", "https://e.com/" + strings.Repeat("a", 2049-len("https://e.com/"))},
 }
 
+// domainOnlyInvalidURLs are no-host URLs that the authoritative net/url
+// Hostname() check in the repository rejects, but that the WEAKER DB CHECK
+// backstop (a subset) accepts via raw SQL. They are regression-tested through
+// repo.Create only; the DB backstop deliberately stays a subset so that no URL
+// accepted by the domain validator can ever be rejected at INSERT time.
+var domainOnlyInvalidURLs = []struct{ name, url string }{
+	{"userinfo no host", "https://user@"},
+	{"userinfo password no host", "https://user:pass@"},
+	{"userinfo no host trailing slash", "https://user@/"},
+	{"userinfo no host query", "https://user@?x"},
+}
+
 // validSubmissionURLs are representative absolute HTTP(S) URLs with a real
-// host, all of which must be accepted. They deliberately cover localhost with a
-// port, query strings, fragments, IPv4, IPv6 literals, and the 2048-byte limit.
+// host, all of which must be accepted by BOTH layers. They cover localhost with
+// a port, query, fragment, IPv4, IPv6 literals, the 2048-byte limit, userinfo
+// with a real host, and INTERNATIONALIZED (Unicode/IDN) hosts - the spec says
+// any absolute HTTP(S) URL with a host, so no ASCII-only host rule is allowed.
 var validSubmissionURLs = []struct{ name, url string }{
 	{"simple host", "https://example.com"},
 	{"submission path", "https://example.com/submissions/12345"},
@@ -167,6 +180,11 @@ var validSubmissionURLs = []struct{ name, url string }{
 	{"fragment", "https://example.com#frag"},
 	{"localhost", "http://localhost"},
 	{"port path query fragment", "https://example.com:8443/x?y=2#z"},
+	{"userinfo with host", "https://user@example.com/sub"},
+	{"unicode host", "https://例え.jp/submissions/1"},
+	{"unicode host with query", "https://例え.jp?q=1"},
+	{"unicode host with port", "http://日本.jp:8080/x"},
+	{"punycode idn host", "https://xn--r8jz45g.jp/sub/1"},
 	{"max length 2048", "https://e.com/" + strings.Repeat("a", 2048-len("https://e.com/"))},
 }
 
@@ -719,9 +737,10 @@ LIMIT 1`, workerApplicationName).Scan(&waitEventType, &query)
 // TestLibraryVerificationSubmissionURLConstraints proves the DB CHECK
 // constraints are a real backstop: hostless/invalid URLs (including the three
 // reported by Codex review) are rejected with a check_violation, while
-// representative valid URLs (localhost:port, query, IPv6, 2048 bytes) are
-// accepted. This exercises the constraints directly via raw SQL, i.e. it does
-// not depend on the repository/domain validator.
+// representative valid URLs - localhost:port, query, IPv6, 2048 bytes, and
+// INTERNATIONALIZED/Unicode hosts via raw SQL - are accepted. This exercises
+// the constraints directly via raw SQL, i.e. it does not depend on the
+// repository/domain validator.
 func TestLibraryVerificationSubmissionURLConstraints(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -753,10 +772,12 @@ VALUES ($1::uuid, $2::uuid, $3)`, versionID, ownerUserID, url)
 }
 
 // TestCreateLibraryVerificationValidatesURL proves the domain/repository is
-// the authoritative gate: invalid URLs (including the three hostless ones) are
-// rejected by Create even when it is called directly, outside any future API
-// layer, and valid URLs are stored trimmed, with no execution rows written.
-// This is the RED-GREEN fix for the hostless URL gap found in Codex review.
+// the authoritative gate: invalid URLs (including the three hostless ones and
+// userinfo-only no-host forms that the weaker DB backstop accepts) are rejected
+// by Create even when it is called directly, outside any future API layer; and
+// valid URLs - including internationalized/Unicode hosts - are stored trimmed,
+// with no execution rows written. This is the RED-GREEN fix for the Codex
+// hostless/Unicode host review findings.
 func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -771,6 +792,13 @@ func TestCreateLibraryVerificationValidatesURL(t *testing.T) {
 	for _, tc := range invalidSubmissionURLs {
 		if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, tc.url)); err == nil {
 			t.Fatalf("Create accepted invalid URL %q (%s)", tc.url, tc.name)
+		}
+	}
+	// No-host forms the weaker DB backstop accepts but net/url Hostname()
+	// authoritatively rejects: regression for "no-host" even outside the API.
+	for _, tc := range domainOnlyInvalidURLs {
+		if _, err := repo.Create(ctx, linkParams(namespaceID, libraryID, versionID, ownerUserID, tc.url)); err == nil {
+			t.Fatalf("Create accepted no-host URL %q (%s)", tc.url, tc.name)
 		}
 	}
 	if got := linkCount(t, ctx, db); got != 0 {

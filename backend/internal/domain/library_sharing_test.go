@@ -3,20 +3,23 @@ package domain
 import "testing"
 
 // TestValidateSubmissionURL is the authoritative gate for self-declared
-// submission link URLs. It must accept only absolute HTTP(S) URLs with a real
-// host (no control/whitespace, at most 2048 bytes), trim surrounding spaces,
-// and reject the hostless authorities the DB CHECK previously let through.
+// submission link URLs. It must accept ANY absolute HTTP(S) URL with a real
+// host (including internationalized/Unicode hosts, no control/whitespace, at
+// most 2048 bytes), trim surrounding spaces, and reject all no-host forms.
 func TestValidateSubmissionURL(t *testing.T) {
 	invalid := []struct{ name, url string }{
 		{"hostless query", "https://?x"},
 		{"hostless at", "https://@"},
 		{"hostless port", "https://:443"},
+		{"hostless fragment", "https://#frag"},
+		{"hostless path", "https:///path"},
 		{"scheme only", "https://"},
 		{"no scheme", "not-a-url"},
 		{"wrong scheme", "ftp://example.com/x"},
 		{"opaque", "https:example.com"},
 		{"userinfo no host", "https://user@"},
-		{"leading dot host", "https://.example.com"},
+		{"userinfo password no host", "https://user:pass@"},
+		{"userinfo no host trailing slash", "https://user@/"},
 		{"control char", "https://example.com/\x07"},
 		{"internal space", "https://exa mple.com"},
 		{"empty", ""},
@@ -37,6 +40,11 @@ func TestValidateSubmissionURL(t *testing.T) {
 		{"query no path", "https://example.com?q=1"},
 		{"fragment", "https://example.com#frag"},
 		{"port path query fragment", "https://example.com:8443/x?y=2#z"},
+		{"userinfo with host", "https://user@example.com/sub"},
+		{"unicode host", "https://例え.jp/submissions/1"},
+		{"unicode host with query", "https://例え.jp?q=1"},
+		{"unicode host with port", "http://日本.jp:8080/x"},
+		{"punycode idn host", "https://xn--r8jz45g.jp/sub/1"},
 		{"max length 2048", "https://e.com/" + repeat('a', 2048-len("https://e.com/"))},
 		{"padded", "  https://example.com/x  "},
 	}
