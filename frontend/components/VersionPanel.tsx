@@ -35,13 +35,14 @@ export function VersionPanel() {
                 librarySlug,
                 librarySourceInput,
               );
-              patchData({
+              const versionSummaries = await api.listVersions(namespaceSlug, librarySlug);
+              // Atomically select the new version AND show its source/list:
+              // stale links/source from the previous version are cleared first.
+              setVersion(version.version_number, {
                 versionCreated: version,
                 versionSource: version,
-                versionSummaries: await api.listVersions(namespaceSlug, librarySlug),
+                versionSummaries,
               });
-              // Bind the selection to the CURRENT namespace/library slugs.
-              setVersion(version.version_number);
             })
           }
           disabled={busy}
@@ -92,8 +93,11 @@ export function VersionPanel() {
                           librarySlug,
                           summary.version_number,
                         );
-                        patchData({ versionSource: version });
-                        setVersion(version.version_number);
+                        // Atomic: switch version + show its source, clearing
+                        // the previous version's links / source first.
+                        setVersion(version.version_number, {
+                          versionSource: version,
+                        });
                       })
                     }
                   >

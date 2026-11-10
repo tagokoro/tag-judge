@@ -42,8 +42,9 @@ export function NamespacePanel() {
                 slug: namespaceSlug,
                 display_name: displayName,
               });
-              setNamespaceSlug(created.slug);
-              patchData({ namespaceResult: created });
+              // Atomic: select the created namespace AND show its profile,
+              // clearing data fetched for the previous namespace first.
+              setNamespaceSlug(created.slug, { namespaceResult: created });
             })
           }
           disabled={busy}

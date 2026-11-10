@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  clearedSelectionData,
   deriveIdentity,
   effectiveVersion,
   emptyScopedData,
@@ -15,6 +16,23 @@ import {
   DEFAULT_SUBMISSION_URL,
   SEED_USERS,
 } from "./verification.ts";
+
+// A DataGuard is captured at the START of an async call (a render / a fetch).
+// It carries BOTH generations: the actor generation AND the selection
+// generation. Keeping this in one helper means every test models the real
+// guard the provider attaches.
+function dataGuard(state) {
+  return {
+    authGeneration: state.authGeneration,
+    selectionGeneration: state.selectionGeneration,
+  };
+}
+
+function assertNullFields(state, fields, context) {
+  for (const key of fields) {
+    assert.equal(state.data[key], null, `${context}: ${key} was not cleared`);
+  }
+}
 
 test("inlined workspace defaults stay in sync with lib/verification.ts", () => {
   assert.equal(WORKSPACE_DEFAULTS.namespaceSlug, DEFAULT_NAMESPACE_SLUG);
@@ -46,13 +64,16 @@ const SAMPLE = {
   patchVisibility: "public",
 };
 
+// Model the real UI: pick a version first (a target change), THEN load the
+// data for that selection. SET_VERSION now clears version-scoped data, so the
+// APPLY_DATA must come after it or the loaded links/source would be wiped.
 function loadInto(state) {
-  let next = workspaceReducer(state, {
+  let next = workspaceReducer(state, { type: "SET_VERSION", version: 3 });
+  next = workspaceReducer(next, {
     type: "APPLY_DATA",
     patch: SAMPLE,
-    guard: { authGeneration: state.authGeneration },
+    guard: dataGuard(next),
   });
-  next = workspaceReducer(next, { type: "SET_VERSION", version: 3 });
   return next;
 }
 
@@ -82,6 +103,18 @@ function assertScopedCleared(state) {
   }
   assert.equal(state.boundVersion, null, "selected version was not reset");
 }
+
+// The full set of version/library data that must never survive a target change
+// or a failed (404) Library detail refetch.
+const VERSION_LIBRARY_FIELDS = [
+  "libraryDetail",
+  "versionSummaries",
+  "versionSource",
+  "versionCreated",
+  "links",
+  "currentLink",
+];
+const VERSION_ONLY_FIELDS = ["versionSource", "links", "currentLink"];
 
 test("deriveIdentity changes on every actor/auth transition and cookie wins", () => {
   const base = initialWorkspaceState;
@@ -171,7 +204,7 @@ test("re-probing the SAME session does not clear data or bump the generation", (
   state = workspaceReducer(state, {
     type: "APPLY_DATA",
     patch: { namespaceResult: { id: "fresh" } },
-    guard: { authGeneration: generation },
+    guard: dataGuard(state),
   });
   state = workspaceReducer(state, {
     type: "SESSION_COMMITTED",
@@ -183,7 +216,7 @@ test("re-probing the SAME session does not clear data or bump the generation", (
 
 test("late async results from a previous actor are discarded", () => {
   let state = loadedState();
-  const staleGuard = { authGeneration: state.authGeneration };
+  const staleGuard = dataGuard(state);
   // Actor changes while the fetch is in flight.
   state = workspaceReducer(state, { type: "SET_DEV_ENABLED", value: true });
   const cleared = state.data.libraryDetail;
@@ -197,7 +230,7 @@ test("late async results from a previous actor are discarded", () => {
   state = workspaceReducer(state, {
     type: "APPLY_DATA",
     patch: { namespaceResult: { id: "fresh" } },
-    guard: { authGeneration: state.authGeneration },
+    guard: dataGuard(state),
   });
   assert.equal(state.data.namespaceResult.id, "fresh");
 });
@@ -251,7 +284,7 @@ test("failed private Library detail refetch clears old detail and version source
   assert.ok(state.data.versionSource);
   state = workspaceReducer(state, {
     type: "CLEAR_LIBRARY_DETAIL",
-    guard: { authGeneration: state.authGeneration },
+    guard: dataGuard(state),
   });
   assert.equal(state.data.libraryDetail, null);
   assert.equal(state.data.versionSource, null);
@@ -269,7 +302,7 @@ test("applying a current submission link replaces the previous selection", () =>
     patch: {
       currentLink: { id: 42, submission_url: "https://example.com/submissions/42" },
     },
-    guard: { authGeneration: state.authGeneration },
+    guard: dataGuard(state),
   });
   assert.equal(state.data.currentLink.id, 42);
   assert.equal(
@@ -280,7 +313,7 @@ test("applying a current submission link replaces the previous selection", () =>
 
 test("ALL stale data writes from a previous actor are discarded (no private re-leak)", () => {
   let state = loadedState();
-  const stale = { authGeneration: state.authGeneration };
+  const stale = dataGuard(state);
   // Actor changes while fetches / selections are in flight.
   state = workspaceReducer(state, { type: "SET_DEV_ENABLED", value: true });
   const clearedData = state.data;
@@ -295,8 +328,271 @@ test("ALL stale data writes from a previous actor are discarded (no private re-l
       guard: stale,
     },
     { type: "CLEAR_LIBRARY_DETAIL", guard: stale },
+    {
+      type: "SET_LIBRARY_SLUG",
+      slug: "late-lib",
+      patch: { libraryDetail: { id: "LEAK" } },
+      guard: stale,
+    },
   ]) {
     const after = workspaceReducer(state, action);
     assert.equal(after.data, clearedData, `${action.type} from a stale actor must be ignored`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PR #47 review regression suite (RED before the fix, GREEN after).
+//
+// Finding: CLEAR_LIBRARY_DETAIL and the SET_* selection actions never cleared
+// links/currentLink (nor the other version/library data), and the async guard
+// only tracked authGeneration, so an in-flight fetch for an OLD selection could
+// write private/foreign links into a NEW selection.
+// ---------------------------------------------------------------------------
+
+test("CLEAR_LIBRARY_DETAIL (404 after a private flip) also clears links/currentLink", () => {
+  let state = loadedState();
+  assert.ok(state.data.links, "precondition: links loaded");
+  assert.ok(state.data.currentLink, "precondition: currentLink loaded");
+  state = workspaceReducer(state, {
+    type: "CLEAR_LIBRARY_DETAIL",
+    guard: dataGuard(state),
+  });
+  assertNullFields(state, VERSION_LIBRARY_FIELDS, "failed 404 detail refetch");
+  // Surgical: unrelated identity-scoped values stay.
+  assert.equal(state.data.submissionUrlInput, SAMPLE.submissionUrlInput);
+  assert.deepEqual(state.data.libraries, SAMPLE.libraries);
+  assert.deepEqual(state.data.namespaceResult, SAMPLE.namespaceResult);
+});
+
+test("SET_NAMESPACE_SLUG clears links/currentLink and all version/library data", () => {
+  let state = loadedState();
+  state = workspaceReducer(state, { type: "SET_NAMESPACE_SLUG", slug: "other-ns" });
+  assertNullFields(
+    state,
+    ["namespaceResult", "libraries", ...VERSION_LIBRARY_FIELDS],
+    "namespace target change",
+  );
+  // Pure input widgets are not selection-scoped fetched data; they survive.
+  assert.equal(state.data.submissionUrlInput, SAMPLE.submissionUrlInput);
+  assert.equal(state.data.librarySourceInput, SAMPLE.librarySourceInput);
+  assert.equal(state.data.patchVisibility, SAMPLE.patchVisibility);
+});
+
+test("SET_LIBRARY_SLUG clears links/currentLink and version/library data but keeps the namespace list", () => {
+  let state = loadedState();
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
+  assertNullFields(state, VERSION_LIBRARY_FIELDS, "library target change");
+  assert.deepEqual(state.data.libraries, SAMPLE.libraries, "namespace-level list stays");
+  assert.deepEqual(state.data.namespaceResult, SAMPLE.namespaceResult);
+  assert.equal(state.data.submissionUrlInput, SAMPLE.submissionUrlInput);
+});
+
+test("SET_VERSION clears version-scoped links/currentLink/source but keeps library-level data", () => {
+  let state = loadedState();
+  state = workspaceReducer(state, { type: "SET_VERSION", version: 4 });
+  assertNullFields(state, VERSION_ONLY_FIELDS, "version target change");
+  assert.deepEqual(state.data.libraryDetail, SAMPLE.libraryDetail);
+  assert.deepEqual(state.data.versionSummaries, SAMPLE.versionSummaries);
+  assert.deepEqual(state.data.versionCreated, SAMPLE.versionCreated);
+  assert.equal(effectiveVersion(state), 4);
+});
+
+test("every target change bumps selectionGeneration; an actor change only bumps authGeneration", () => {
+  let state = loadedState();
+  let gen = state.selectionGeneration;
+  for (const action of [
+    { type: "SET_NAMESPACE_SLUG", slug: "x" },
+    { type: "SET_LIBRARY_SLUG", slug: "y" },
+    { type: "SET_VERSION", version: 9 },
+    { type: "SET_VERSION", version: null },
+    { type: "CLEAR_LIBRARY_DETAIL", guard: dataGuard(state) },
+  ]) {
+    // Refresh the guard for the actions that carry one (the CLEAR below).
+    const guarded = action.guard ? { ...action, guard: dataGuard(state) } : action;
+    state = workspaceReducer(state, guarded);
+    assert.equal(
+      state.selectionGeneration,
+      gen + 1,
+      `${action.type} must bump selectionGeneration`,
+    );
+    gen = state.selectionGeneration;
+  }
+  const auth = state.authGeneration;
+  state = workspaceReducer(state, { type: "SET_DEV_ENABLED", value: true });
+  assert.equal(state.selectionGeneration, gen, "actor change leaves selection gen alone");
+  assert.equal(state.authGeneration, auth + 1, "actor change still bumps auth gen");
+});
+
+test("a late link fetch from a previous selection cannot restore stale/foreign links", () => {
+  let state = loadedState();
+  const staleGuard = dataGuard(state); // captured before the switch
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
+  // The in-flight listVerifications / getVerification for the OLD selection now
+  // resolves with (possibly private / foreign) links.
+  state = workspaceReducer(state, {
+    type: "APPLY_DATA",
+    patch: {
+      links: [{ id: 123, submission_url: "https://old-private.example/p" }],
+      currentLink: { id: 123, submission_url: "https://old-private.example/p" },
+    },
+    guard: staleGuard,
+  });
+  assert.equal(state.data.links, null, "stale links must not land");
+  assert.equal(state.data.currentLink, null, "stale currentLink must not land");
+  // A fetch for the CURRENT selection still applies.
+  state = workspaceReducer(state, {
+    type: "APPLY_DATA",
+    patch: { links: [{ id: 7, submission_url: "https://current.example/p" }] },
+    guard: dataGuard(state),
+  });
+  assert.equal(state.data.links[0].id, 7);
+});
+
+test("selection generation (not a reused target identity) drops A->B->A late fetches", () => {
+  const original = initialWorkspaceState.librarySlug;
+  let state = loadedState();
+  const staleGuard = dataGuard(state);
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: original }); // back to A
+  state = workspaceReducer(state, {
+    type: "APPLY_DATA",
+    patch: { links: [{ id: 1, submission_url: "https://stale.example/p" }] },
+    guard: staleGuard,
+  });
+  assert.equal(
+    state.data.links,
+    null,
+    "returning to the old target must not re-validate a stale in-flight fetch",
+  );
+});
+
+test("a stale 404 clear from an old selection cannot wipe the new selection's data", () => {
+  let state = loadedState();
+  const staleGuard = dataGuard(state);
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
+  const fresh = {
+    libraryDetail: { id: "fresh" },
+    links: [{ id: 2, submission_url: "https://fresh.example/p" }],
+  };
+  state = workspaceReducer(state, {
+    type: "APPLY_DATA",
+    patch: fresh,
+    guard: dataGuard(state),
+  });
+  // The OLD selection's detail fetch now 404s.
+  const after = workspaceReducer(state, {
+    type: "CLEAR_LIBRARY_DETAIL",
+    guard: staleGuard,
+  });
+  assert.equal(after.data, state.data, "stale clear must be ignored");
+  assert.deepEqual(after.data.links, fresh.links);
+});
+
+test("a 404 clear invalidates in-flight fetches for the failed target", () => {
+  let state = loadedState();
+  const inFlightGuard = dataGuard(state); // listVerifications started before the 404
+  state = workspaceReducer(state, {
+    type: "CLEAR_LIBRARY_DETAIL",
+    guard: dataGuard(state),
+  });
+  assert.equal(state.data.links, null);
+  // The in-flight listVerifications resolves with the (now private) links.
+  const after = workspaceReducer(state, {
+    type: "APPLY_DATA",
+    patch: { links: [{ id: 5, submission_url: "https://private.example/p" }] },
+    guard: inFlightGuard,
+  });
+  assert.equal(after.data.links, null, "late link fetch must not restore leaked private links");
+});
+
+test("atomic select+apply sets the new target's data and clears the old links", () => {
+  let state = loadedState();
+  const patch = {
+    libraryDetail: { id: "new-lib", slug: "new", visibility: "public" },
+    patchVisibility: "public",
+    libraries: [{ id: "new-lib", visibility: "public" }],
+  };
+  state = workspaceReducer(state, {
+    type: "SET_LIBRARY_SLUG",
+    slug: "new",
+    patch,
+    guard: dataGuard(state),
+  });
+  assert.equal(state.librarySlug, "new");
+  assert.deepEqual(state.data.libraryDetail, patch.libraryDetail);
+  assert.deepEqual(state.data.libraries, patch.libraries);
+  assert.equal(state.data.links, null, "old links cleared for the new target");
+  assert.equal(state.data.currentLink, null);
+});
+
+test("atomic version select+apply sets the new version source and clears old links", () => {
+  let state = loadedState();
+  const patch = {
+    versionSource: { version_number: 7, source_code: "NEW-SOURCE" },
+    versionCreated: { version_number: 7 },
+    versionSummaries: [{ version_number: 7 }],
+  };
+  state = workspaceReducer(state, {
+    type: "SET_VERSION",
+    version: 7,
+    patch,
+    guard: dataGuard(state),
+  });
+  assert.equal(effectiveVersion(state), 7);
+  assert.deepEqual(state.data.versionSource, patch.versionSource);
+  assert.deepEqual(state.data.versionCreated, patch.versionCreated);
+  assert.equal(state.data.links, null);
+  assert.equal(state.data.currentLink, null);
+});
+
+test("a stale atomic select+apply (late fetch after a switch) is dropped", () => {
+  let state = loadedState();
+  const staleGuard = dataGuard(state);
+  state = workspaceReducer(state, { type: "SET_LIBRARY_SLUG", slug: "other-lib" });
+  const after = workspaceReducer(state, {
+    type: "SET_LIBRARY_SLUG",
+    slug: "late-lib",
+    patch: { libraryDetail: { id: "LATE" } },
+    guard: staleGuard,
+  });
+  assert.equal(after.librarySlug, "other-lib", "stale selection must not override current");
+  assert.equal(after.data, state.data, "stale patch must not land");
+});
+
+test("an actor change still discards a late atomic selection write (auth guard wins)", () => {
+  let state = loadedState();
+  const staleGuard = dataGuard(state);
+  state = workspaceReducer(state, { type: "SET_DEV_ENABLED", value: true });
+  const after = workspaceReducer(state, {
+    type: "SET_VERSION",
+    version: 9,
+    patch: { versionSource: { id: "LEAK" } },
+    guard: staleGuard,
+  });
+  assert.equal(after.data, state.data, "auth generation still wins over any patch");
+});
+
+test("clearedSelectionData encodes the exact per-scope field sets (inputs never cleared)", () => {
+  const version = ["currentLink", "links", "versionSource"];
+  const library = [
+    "currentLink",
+    "libraryDetail",
+    "links",
+    "versionCreated",
+    "versionSource",
+    "versionSummaries",
+  ];
+  const namespace = ["libraries", "namespaceResult", ...library];
+  const expected = { version, library, namespace };
+  const inputs = ["submissionUrlInput", "librarySourceInput", "patchVisibility"];
+  for (const [scope, keys] of Object.entries(expected)) {
+    const cleared = clearedSelectionData(scope);
+    assert.deepEqual(Object.keys(cleared).sort(), [...keys].sort(), `${scope} scope keys`);
+    for (const value of Object.values(cleared)) {
+      assert.equal(value, null, `${scope}: every cleared field is null`);
+    }
+    for (const input of inputs) {
+      assert.equal(input in cleared, false, `${scope} must not clear the ${input} input`);
+    }
   }
 });

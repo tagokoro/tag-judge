@@ -117,11 +117,14 @@ export function LibraryPanel() {
                 description,
                 visibility,
               });
-              setLibrarySlug(created.slug);
-              patchData({
+              const libraries = await api.listLibraries(namespaceSlug);
+              // Atomically select the created library AND apply its data: the
+              // reducer clears any stale links/detail/versions, then applies
+              // this patch in one guarded dispatch.
+              setLibrarySlug(created.slug, {
                 libraryDetail: created,
                 patchVisibility: created.visibility,
-                libraries: await api.listLibraries(namespaceSlug),
+                libraries,
               });
             })
           }
@@ -200,9 +203,10 @@ export function LibraryPanel() {
                     onClick={() =>
                       run(async (signal) => {
                         const api = client.withSignal(signal);
-                        setLibrarySlug(library.slug);
                         const detail = await api.getLibrary(namespaceSlug, library.slug);
-                        patchData({
+                        // Atomic: switch target + show its detail, so the old
+                        // library's links / version source are cleared first.
+                        setLibrarySlug(library.slug, {
                           libraryDetail: detail,
                           patchVisibility: detail.visibility,
                         });

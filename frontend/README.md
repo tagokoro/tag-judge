@@ -46,20 +46,38 @@ API 契約は `backend/docs/openapi.yaml`、提出 URL リンクの設計は
   `<pre>{...}</pre>` で描画し、`innerHTML` / `dangerouslySetInnerHTML` は一切使いません。
   URL を自動取得・自動遷移させず、JSON レスポンスも `JSON.stringify` を `<pre>` に表示するだけです。
 
-## 認証・利用者変更時のデータ無効化
+## 認証・選択変更時のデータ無効化
 
 画面の状態は `lib/workspaceState.ts` の単一 reducer（React 非依存の純関数）に集約しています。
-cookie ログイン/ログアウト、dev 認証の ON/OFF、dev ユーザー ID / ロールの変更、ユーザー切替などで
-**実効 actor が変わると**、`authGeneration` を進めて次をまとめて行います。
+遅れて届く非同期レスポンスを確実に破棄するため、世代カウンタを 2 つ持ちます。
+
+- `authGeneration` … **実効 actor が変わると**（cookie ログイン/ログアウト、dev 認証の ON/OFF、
+  dev ユーザー ID / ロールの変更、ユーザー切替）インクリメント。
+- `selectionGeneration` … **選択対象（Namespace / Library / Version）が変わる**、または Library
+  詳細の再取得が 404 になったときにインクリメント（単調増加なので A→B→A と戻っても、
+  最初の A 向け in-flight 応答が復活しません）。
+
+実効 actor が変わると次をまとめて行います。
 
 - Namespace / Library 詳細、Library / Version 一覧、Version の `source_code`、提出リンク一覧・
   選択中のリンク詳細、URL 入力など、actor に紐づくデータをすべてクリアし、選択 Version をリセット。
 - 選択 Version は Namespace / Library の slug に**バインド**され、slug が変わると
   `effectiveVersion()` が `null` を返すため、別ライブラリの古い Version 番号を黙って使いません。
 - 各パネルを `authGeneration` で再マウントし、`useAsyncAction` の `AbortController` が実行中の
-  fetch を中止。遅れて届いたレスポンスは `APPLY_DATA` の世代ガードで破棄され、前の actor の
-  private データが復活しません。
-- private Library 詳細の再取得が 404 になった場合は、古い詳細と Version ソースを明示的にクリア。
+  fetch を中止。遅れて届いたレスポンスは世代ガードで破棄され、前の actor の private データが復活しません。
+
+選択対象が変わったとき（slug の編集、一覧からの Library / Version 選択、Version の作成・選択）は、
+その対象に紐づくデータ（Library 詳細・Version 一覧・`source_code` に加え、**提出リンク一覧 `links`
+と選択中リンク `currentLink`**）をスコープ単位でクリアします。入力ウィジェットや、同じ Namespace
+内でまだ有効な一覧は保持します。一覧クリックなどの「対象の変更 ＋ 新しい対象のデータ表示」は
+1 つの reducer アクション（atomic select + apply）で行うため、クリアで新データが消えたり、
+古い選択の遅延応答が新しい選択を上書きしたりしません。
+
+`APPLY_DATA` / `CLEAR_LIBRARY_DETAIL` / atomic select はすべて `DataGuard`
+（`authGeneration` + `selectionGeneration`）を持ち、開始時と世代が異なる書き込みは reducer が破棄します。
+private Library 詳細の再取得が 404 になった場合は、古い詳細・Version ソースに加えて提出リンク
+`links` / `currentLink` も明示的にクリアし、同時に `selectionGeneration` を進めてその対象向けの
+in-flight 取得（リンク一覧など）も無効化します。
 
 ## 必要なもの・起動
 
@@ -103,8 +121,10 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 - `lib/verification.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
   制御文字・IDN/IPv6）、旧 judge/polling ヘルパーが**存在しない**こと、デフォルト値。
 - `lib/workspaceState.test.mjs` — 状態無効化とレースの回帰テスト。actor 変更時の全 private データ
-  消去・世代インクリメント・Version リセット、`authGeneration` による遅延レスポンスの破棄、
-  `CLEAR_LIBRARY_DETAIL`（404）の消去、Version の Namespace / Library バインド、
+  消去・世代インクリメント・Version リセット、`authGeneration` / `selectionGeneration` による
+  遅延レスポンスの破棄（選択切替・A→B→A・404 後の in-flight 取得）、
+  `CLEAR_LIBRARY_DETAIL`（404）と `SET_*` 選択変更での `links` / `currentLink` を含む
+  version/library データの消去、atomic select + apply、Version の Namespace / Library バインド、
   同一セッション再確認では消去しないこと、デフォルト値の整合性。
 
 ## 手動 E2E の目安

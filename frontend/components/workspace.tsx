@@ -28,14 +28,19 @@ export interface WorkspaceValue {
   refreshSession: () => Promise<void>;
   logout: () => Promise<void>;
 
-  // Selection shared across panels
-  setNamespaceSlug: (value: string) => void;
-  setLibrarySlug: (value: string) => void;
-  setVersion: (value: number | null) => void;
+  // Selection shared across panels. The optional `patch` makes a selection
+  // change + the data loaded for the NEW target ATOMIC (see workspaceState):
+  // the reducer clears stale version/library/link data, bumps the selection
+  // generation, then applies the patch in one dispatch. Pure navigation (typing
+  // a slug) omits the patch and always applies.
+  setNamespaceSlug: (value: string, patch?: Partial<ScopedData>) => void;
+  setLibrarySlug: (value: string, patch?: Partial<ScopedData>) => void;
+  setVersion: (value: number | null, patch?: Partial<ScopedData>) => void;
 
-  // Data helpers. patchData is guarded by authGeneration: a result from a fetch
-  // started under a previous actor is dropped by the reducer. It also applies
-  // to the selected submission link (currentLink).
+  // Data helpers. patchData is guarded by authGeneration AND
+  // selectionGeneration: a result from a fetch started under a previous actor
+  // OR a previous target is dropped by the reducer. This also applies to the
+  // selected submission link (currentLink) and the link list (links).
   patchData: (patch: Partial<ScopedData>) => void;
   clearLibraryDetail: () => void;
 }

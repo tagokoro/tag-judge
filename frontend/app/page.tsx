@@ -6,6 +6,7 @@ import {
   effectiveVersion,
   initialWorkspaceState,
   workspaceReducer,
+  type DataGuard,
   type ScopedData,
 } from "@/lib/workspaceState";
 import type { DevHeaders, Me, Role } from "@/lib/types";
@@ -86,34 +87,65 @@ export default function Home() {
   );
   const switchDevUser = useCallback(() => dispatch({ type: "SWITCH_DEV_USER" }), [dispatch]);
 
-  const setNamespaceSlug = useCallback(
-    (slug: string) => dispatch({ type: "SET_NAMESPACE_SLUG", slug }),
-    [dispatch],
-  );
-  const setLibrarySlug = useCallback(
-    (slug: string) => dispatch({ type: "SET_LIBRARY_SLUG", slug }),
-    [dispatch],
-  );
-  const setVersion = useCallback(
-    (version: number | null) => dispatch({ type: "SET_VERSION", version }),
-    [dispatch],
+  // The DataGuard is captured from the CURRENT state on each render. An async
+  // action (run(async ...)) closes over the helpers/guard that were current when
+  // it STARTED, so a result that arrives after an actor OR a selection change is
+  // dropped by the reducer. It carries both generations: authGeneration (actor)
+  // and selectionGeneration (target / failed 404).
+  const guard = useMemo<DataGuard>(
+    () => ({
+      authGeneration: state.authGeneration,
+      selectionGeneration: state.selectionGeneration,
+    }),
+    [state.authGeneration, state.selectionGeneration],
   );
 
-  // Guarded by the CURRENT authGeneration: a fetch started under a previous
-  // actor is dropped by the reducer instead of restoring private data.
+  // The selection setters optionally accept a `patch`. A flow that both CHANGES
+  // the target (clicking a library/version) and loads data for the NEW target
+  // must do so ATOMICALLY: the reducer clears the stale data, bumps the
+  // selection generation, and applies the patch in one dispatch, so the fresh
+  // data is never wiped by the clear and a stale (guarded) fetch can never
+  // override a newer selection. Pure navigation (typing a slug) passes no patch
+  // and no guard: it is a synchronous user intent and is always applied.
+  const setNamespaceSlug = useCallback(
+    (slug: string, patch?: Partial<ScopedData>) =>
+      dispatch(
+        patch === undefined
+          ? { type: "SET_NAMESPACE_SLUG", slug }
+          : { type: "SET_NAMESPACE_SLUG", slug, patch, guard },
+      ),
+    [dispatch, guard],
+  );
+  const setLibrarySlug = useCallback(
+    (slug: string, patch?: Partial<ScopedData>) =>
+      dispatch(
+        patch === undefined
+          ? { type: "SET_LIBRARY_SLUG", slug }
+          : { type: "SET_LIBRARY_SLUG", slug, patch, guard },
+      ),
+    [dispatch, guard],
+  );
+  const setVersion = useCallback(
+    (version: number | null, patch?: Partial<ScopedData>) =>
+      dispatch(
+        patch === undefined
+          ? { type: "SET_VERSION", version }
+          : { type: "SET_VERSION", version, patch, guard },
+      ),
+    [dispatch, guard],
+  );
+
+  // Guarded by the CURRENT authGeneration AND selectionGeneration: a fetch
+  // started under a previous actor OR a previous target is dropped by the
+  // reducer instead of restoring private/foreign data.
   const patchData = useCallback(
-    (patch: Partial<ScopedData>) =>
-      dispatch({ type: "APPLY_DATA", patch, guard: { authGeneration: state.authGeneration } }),
-    [dispatch, state.authGeneration],
+    (patch: Partial<ScopedData>) => dispatch({ type: "APPLY_DATA", patch, guard }),
+    [dispatch, guard],
   );
 
   const clearLibraryDetail = useCallback(
-    () =>
-      dispatch({
-        type: "CLEAR_LIBRARY_DETAIL",
-        guard: { authGeneration: state.authGeneration },
-      }),
-    [dispatch, state.authGeneration],
+    () => dispatch({ type: "CLEAR_LIBRARY_DETAIL", guard }),
+    [dispatch, guard],
   );
 
   const version = effectiveVersion(state);
