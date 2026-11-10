@@ -921,20 +921,20 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  # A submission link on a library version is a self-declared related-submission
-  # URL link, NOT a verification/judge result. There is no adapter, Problem
-  # selection, Submission, Outbox, Judge run, verdict, score, status, or case
-  # result. The URL is never fetched, parsed for content, or judged.
-  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-links:
-    post:
-      summary: Register a related submission URL link
+  # submission_url is a self-declared "related submission" URL that only the
+  # library owner may set, NOT a verification/judge result. There is no adapter,
+  # Problem selection, Submission, Outbox, Judge run, verdict, score, status, or
+  # case result. The URL is never fetched, parsed for content, or judged.
+  /namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url:
+    put:
+      summary: Set or replace a version's related submission URL
       description: >-
-        Add a self-declared "related submission" URL to a library version. Any
-        authenticated user may add a link to a public library; private libraries
-        are hidden from everyone except the owner. The URL must be an absolute
-        HTTP(S) URL with a host, at most 2048 bytes, and without control
-        characters. This is not a verification result: no verdict, score, or
-        status is produced.
+        Set the self-declared "related submission" URL of one library version,
+        replacing any previous value. Only the library owner may call this;
+        other users get 403 on a public library and 404 on a private one. The
+        URL must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and
+        without control characters. Surrounding whitespace is trimmed and the
+        scheme is lowercased. The version's source code is unchanged.
       security: [{CookieAuth: []}]
       parameters:
         - {name: namespace_slug, in: path, required: true, schema: {type: string}}
@@ -943,43 +943,28 @@ paths:
       requestBody:
         required: true
         content:
-          application/json: {schema: {$ref: '#/components/schemas/CreateSubmissionLinkRequest'}}
+          application/json: {schema: {$ref: '#/components/schemas/SetSubmissionURLRequest'}}
       responses:
-        '201': {description: Link created, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkCreateResponse'}}}}
+        '200': {description: Updated library version, content: {application/json: {schema: {$ref: '#/components/schemas/LibraryVersionResponse'}}}}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-    get:
-      summary: List related submission URL links for a version
+    delete:
+      summary: Remove a version's related submission URL
       description: >-
-        List the self-declared submission URL links for one library version.
-        Public links are readable anonymously; private links return 404 for
-        everyone except the owner. Authorization follows the library's current
-        visibility, so a link readable while public becomes hidden after the
-        library is privatized.
+        Clear the submission URL of one library version. Owner-only, with the
+        same 403/404 rules as PUT. Clearing a version without a URL succeeds.
+      security: [{CookieAuth: []}]
       parameters:
         - {name: namespace_slug, in: path, required: true, schema: {type: string}}
         - {name: library_slug, in: path, required: true, schema: {type: string}}
         - {name: version_number, in: path, required: true, schema: {type: integer, minimum: 1}}
-        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Links, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkListResponse'}}}}
+        '204': {description: Submission URL removed}
         '400': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-
-  /library-submission-links/{submission_link_id}:
-    get:
-      summary: Get a related submission URL link
-      description: >-
-        Get one self-declared submission URL link. Public links are readable
-        anonymously; private links return 404 for everyone except the owner,
-        following the library's current visibility.
-      parameters:
-        - {name: submission_link_id, in: path, required: true, schema: {type: integer, minimum: 1}}
-      responses:
-        '200': {description: Link detail, content: {application/json: {schema: {$ref: '#/components/schemas/SubmissionLinkDetailResponse'}}}}
-        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 
 components:
@@ -1650,7 +1635,7 @@ components:
           maxLength: 100000
     LibraryVersion:
       type: object
-      required: [id, version_number, source_code, content_sha256, byte_size, created_at]
+      required: [id, version_number, source_code, content_sha256, byte_size, created_at, submission_url, submission_url_updated_at]
       properties:
         id:
           type: string
@@ -1665,9 +1650,17 @@ components:
         created_at:
           type: string
           format: date-time
+        submission_url:
+          type: [string, "null"]
+          format: uri
+          maxLength: 2048
+          description: Self-declared related submission URL set by the library owner; null when unset. Never fetched or judged.
+        submission_url_updated_at:
+          type: [string, "null"]
+          format: date-time
     LibraryVersionSummary:
       type: object
-      required: [id, version_number, content_sha256, byte_size, created_at]
+      required: [id, version_number, content_sha256, byte_size, created_at, submission_url, submission_url_updated_at]
       properties:
         id:
           type: string
@@ -1679,6 +1672,14 @@ components:
           type: integer
         created_at:
           type: string
+          format: date-time
+        submission_url:
+          type: [string, "null"]
+          format: uri
+          maxLength: 2048
+          description: Self-declared related submission URL set by the library owner; null when unset. Never fetched or judged.
+        submission_url_updated_at:
+          type: [string, "null"]
           format: date-time
     LibraryVersionResponse:
       type: object
@@ -1694,7 +1695,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/LibraryVersionSummary"
-    CreateSubmissionLinkRequest:
+    SetSubmissionURLRequest:
       type: object
       required: [submission_url]
       additionalProperties: false
@@ -1704,40 +1705,7 @@ components:
           format: uri
           minLength: 1
           maxLength: 2048
-          description: Absolute HTTP(S) URL of a submission the registrant declares is related to this library version.
-    # SubmissionLink is a self-declared "related submission" link. It is NOT a
-    # verification/judge result: verdict, score, status, adapter_source,
-    # case_results, judged_at, submission_id, and problem_id are intentionally
-    # absent. The URL is never fetched or validated for content beyond its shape.
-    SubmissionLink:
-      type: object
-      required: [id, library_version_id, namespace_slug, library_slug, version_number, submission_url, created_by, created_at]
-      properties:
-        id: {type: integer}
-        library_version_id: {type: string}
-        namespace_slug: {type: string}
-        library_slug: {type: string}
-        version_number: {type: integer, minimum: 1}
-        submission_url: {type: string, format: uri, maxLength: 2048}
-        created_by: {type: string}
-        created_at: {type: string, format: date-time}
-    SubmissionLinkCreateResponse:
-      type: object
-      required: [data]
-      properties:
-        data: {$ref: '#/components/schemas/SubmissionLink'}
-    SubmissionLinkDetailResponse:
-      type: object
-      required: [data]
-      properties:
-        data: {$ref: '#/components/schemas/SubmissionLink'}
-    SubmissionLinkListResponse:
-      type: object
-      required: [data]
-      properties:
-        data:
-          type: array
-          items: {$ref: '#/components/schemas/SubmissionLink'}
+          description: Absolute HTTP(S) URL of a submission the owner declares is related to this library version.
 
     ErrorResponse:
       type: object

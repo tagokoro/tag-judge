@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -247,16 +248,7 @@ func (r *LibraryVersionRepository) Create(ctx context.Context, params repository
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit library version transaction: %w", err)
 	}
-	return &domain.LibraryVersion{
-		ID:            row.ID,
-		LibraryID:     row.LibraryID,
-		VersionNumber: int(row.VersionNumber),
-		SourceCode:    row.SourceCode,
-		ContentSHA256: row.ContentSha256,
-		ByteSize:      int(row.ByteSize),
-		CreatedBy:     row.CreatedBy,
-		CreatedAt:     row.CreatedAt.Time,
-	}, nil
+	return libraryVersionFromRow(sqlc.GetLibraryVersionByNumberRow(row)), nil
 }
 
 func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID string, versionNumber int, actorUserID string) (*domain.LibraryVersion, error) {
@@ -271,16 +263,7 @@ func (r *LibraryVersionRepository) FindByNumber(ctx context.Context, libraryID s
 	if err != nil {
 		return nil, err
 	}
-	return &domain.LibraryVersion{
-		ID:            row.ID,
-		LibraryID:     row.LibraryID,
-		VersionNumber: int(row.VersionNumber),
-		SourceCode:    row.SourceCode,
-		ContentSHA256: row.ContentSha256,
-		ByteSize:      int(row.ByteSize),
-		CreatedBy:     row.CreatedBy,
-		CreatedAt:     row.CreatedAt.Time,
-	}, nil
+	return libraryVersionFromRow(row), nil
 }
 
 func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params repository.ListLibraryVersionsParams) ([]domain.LibraryVersion, error) {
@@ -296,146 +279,72 @@ func (r *LibraryVersionRepository) ListSummaries(ctx context.Context, params rep
 	versions := make([]domain.LibraryVersion, 0, len(rows))
 	for _, row := range rows {
 		versions = append(versions, domain.LibraryVersion{
-			ID:            row.ID,
-			LibraryID:     row.LibraryID,
-			VersionNumber: int(row.VersionNumber),
-			ContentSHA256: row.ContentSha256,
-			ByteSize:      int(row.ByteSize),
-			CreatedBy:     row.CreatedBy,
-			CreatedAt:     row.CreatedAt.Time,
+			ID:                     row.ID,
+			LibraryID:              row.LibraryID,
+			VersionNumber:          int(row.VersionNumber),
+			ContentSHA256:          row.ContentSha256,
+			ByteSize:               int(row.ByteSize),
+			CreatedBy:              row.CreatedBy,
+			CreatedAt:              row.CreatedAt.Time,
+			SubmissionURL:          row.SubmissionUrl.String,
+			SubmissionURLUpdatedAt: optionalTime(row.SubmissionUrlUpdatedAt),
 		})
 	}
 	return versions, nil
 }
 
-// LibrarySubmissionLinkRepository persists self-declared submission URL links.
-// Create opens a plain transaction (no admission lock): a link is not an
-// execution and must not create a Submission, Outbox record, S3 object, or
-// Judge run. The only write is the library_submission_links row.
-type LibrarySubmissionLinkRepository struct {
-	db      *pgxpool.Pool
-	queries *sqlc.Queries
-}
-
-func NewLibrarySubmissionLinkRepository(db *pgxpool.Pool) *LibrarySubmissionLinkRepository {
-	return &LibrarySubmissionLinkRepository{db: db, queries: sqlc.New(db)}
-}
-
-// Create stores one self-declared submission URL link. It first runs the
-// authoritative domain URL validator (so invalid/hostless URLs are rejected
-// even when Create is called directly, outside the future API layer) and
-// persists the trimmed URL. The transaction holds a FOR SHARE lock on the
-// library row while re-checking visibility and version membership, so a
-// concurrent PATCH that privatizes the library cannot let a non-owner commit a
-// link. Only the library_submission_links row is written: no Submission, Outbox
-// record, S3 object, Judge run, or admission check. A rejected create commits
-// nothing and returns INVALID_SUBMISSION_URL or LIBRARY_NOT_FOUND.
-func (r *LibrarySubmissionLinkRepository) Create(ctx context.Context, params repository.CreateLibrarySubmissionLinkParams) (*domain.LibrarySubmissionLink, error) {
-	submissionURL, err := domain.ValidateSubmissionURL(params.SubmissionURL)
-	if err != nil {
-		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
+// SetSubmissionURL sets or clears the self-declared submission URL. A non-nil
+// URL first passes the authoritative domain validator (so invalid URLs are
+// rejected even when called outside the API layer) and is stored normalized.
+// The UPDATE itself checks that the actor owns the library, so a non-owner or
+// a missing version returns LIBRARY_VERSION_NOT_FOUND without writing.
+func (r *LibraryVersionRepository) SetSubmissionURL(ctx context.Context, params repository.SetLibraryVersionSubmissionURLParams) (*domain.LibraryVersion, error) {
+	submissionURL := pgtype.Text{}
+	if params.SubmissionURL != nil {
+		normalized, err := domain.ValidateSubmissionURL(*params.SubmissionURL)
+		if err != nil {
+			return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
+		}
+		submissionURL = pgtype.Text{String: normalized, Valid: true}
 	}
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin library submission link transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	queries := r.queries.WithTx(tx)
-
-	// FOR SHARE locks the library row; a concurrent visibility PATCH cannot
-	// commit between this read and our commit.
-	locked, err := queries.LockLibraryForSubmissionLink(ctx, sqlc.LockLibraryForSubmissionLinkParams{
-		NamespaceID: params.NamespaceID,
-		LibraryID:   params.LibraryID,
+	row, err := r.queries.SetLibraryVersionSubmissionURL(ctx, sqlc.SetLibraryVersionSubmissionURLParams{
+		SubmissionUrl: submissionURL,
+		LibraryID:     params.LibraryID,
+		VersionNumber: int32(params.VersionNumber),
+		ActorUserID:   params.ActorUserID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("lock library for submission link: %w", err)
-	}
-	if locked.Visibility != string(domain.LibraryVisibilityPublic) && formatUUID(locked.OwnerUserID) != params.ActorUserID {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
-	}
-
-	ownsVersion, err := queries.CountLibraryVersionInLibrary(ctx, sqlc.CountLibraryVersionInLibraryParams{
-		LibraryVersionID: params.LibraryVersionID,
-		LibraryID:        params.LibraryID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("re-check version membership: %w", err)
-	}
-	if ownsVersion != 1 {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
-	}
-
-	id, err := queries.InsertLibrarySubmissionLink(ctx, sqlc.InsertLibrarySubmissionLinkParams{
-		LibraryVersionID: params.LibraryVersionID,
-		CreatedBy:        params.ActorUserID,
-		SubmissionUrl:    submissionURL,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create library submission link: %w", err)
-	}
-
-	// Re-read the joined row inside the same transaction so the returned link
-	// carries the same current library/version context as FindByID.
-	detail, err := queries.GetLibrarySubmissionLink(ctx, sqlc.GetLibrarySubmissionLinkParams{SubmissionLinkID: id, ActorUserID: params.ActorUserID})
-	if err != nil {
-		return nil, fmt.Errorf("read created library submission link: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit library submission link transaction: %w", err)
-	}
-	return librarySubmissionLinkFromRow(detail), nil
-}
-
-func (r *LibrarySubmissionLinkRepository) FindByID(ctx context.Context, id int64, actorUserID string) (*domain.LibrarySubmissionLink, error) {
-	row, err := r.queries.GetLibrarySubmissionLink(ctx, sqlc.GetLibrarySubmissionLinkParams{SubmissionLinkID: id, ActorUserID: actorUserID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_SUBMISSION_LINK_NOT_FOUND", "library submission link not found")
+		return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
 	}
 	if err != nil {
 		return nil, err
 	}
-	return librarySubmissionLinkFromRow(row), nil
+	return libraryVersionFromRow(sqlc.GetLibraryVersionByNumberRow(row)), nil
 }
 
-func (r *LibrarySubmissionLinkRepository) ListByVersion(ctx context.Context, params repository.ListLibrarySubmissionLinksParams) ([]domain.LibrarySubmissionLink, error) {
-	rows, err := r.queries.ListLibrarySubmissionLinksByVersion(ctx, sqlc.ListLibrarySubmissionLinksByVersionParams{
-		LibraryVersionID: params.LibraryVersionID,
-		ResultLimit:      int32(params.Limit),
-		ResultOffset:     int32(params.Offset),
-		ActorUserID:      params.ActorUserID,
-	})
-	if err != nil {
-		return nil, err
+// libraryVersionFromRow maps a full version row. Insert, Get, and Set select
+// identical columns, so their generated row structs convert to this one.
+func libraryVersionFromRow(row sqlc.GetLibraryVersionByNumberRow) *domain.LibraryVersion {
+	return &domain.LibraryVersion{
+		ID:                     row.ID,
+		LibraryID:              row.LibraryID,
+		VersionNumber:          int(row.VersionNumber),
+		SourceCode:             row.SourceCode,
+		ContentSHA256:          row.ContentSha256,
+		ByteSize:               int(row.ByteSize),
+		CreatedBy:              row.CreatedBy,
+		CreatedAt:              row.CreatedAt.Time,
+		SubmissionURL:          row.SubmissionUrl.String,
+		SubmissionURLUpdatedAt: optionalTime(row.SubmissionUrlUpdatedAt),
 	}
-	links := make([]domain.LibrarySubmissionLink, 0, len(rows))
-	for _, row := range rows {
-		// The :one and :many queries select identical columns, so the generated
-		// row structs have identical underlying types and can be converted.
-		links = append(links, *librarySubmissionLinkFromRow(sqlc.GetLibrarySubmissionLinkRow(row)))
-	}
-	return links, nil
 }
 
-// librarySubmissionLinkFromRow maps a joined link row into the domain object.
-// Both Create (via its in-transaction re-read) and FindByID use it, so the
-// created object and the read object are identical.
-func librarySubmissionLinkFromRow(row sqlc.GetLibrarySubmissionLinkRow) *domain.LibrarySubmissionLink {
-	return &domain.LibrarySubmissionLink{
-		ID:               row.ID,
-		LibraryVersionID: row.LibraryVersionID,
-		SubmissionURL:    row.SubmissionUrl,
-		CreatedBy:        row.CreatedBy,
-		CreatedAt:        row.CreatedAt.Time,
-		NamespaceSlug:    row.NamespaceSlug,
-		LibrarySlug:      row.LibrarySlug,
-		VersionNumber:    int(row.VersionNumber),
-		Visibility:       domain.LibraryVisibility(row.Visibility),
-		OwnerUserID:      row.OwnerUserID,
+func optionalTime(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
 	}
+	t := value.Time
+	return &t
 }
 
 func newNamespace(id pgtype.UUID,

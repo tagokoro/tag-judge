@@ -481,6 +481,7 @@ type fakeLibraryVersionRepository struct {
 	// RED-GREEN wiring tests can assert the fetch is actor-scoped, not
 	// unconditional.
 	findActorID string
+	setParams   []repository.SetLibraryVersionSubmissionURLParams
 }
 
 func (r *fakeLibraryVersionRepository) Create(_ context.Context, params repository.CreateLibraryVersionParams) (*domain.LibraryVersion, error) {
@@ -512,6 +513,15 @@ func (r *fakeLibraryVersionRepository) FindByNumber(_ context.Context, _ string,
 func (r *fakeLibraryVersionRepository) ListSummaries(_ context.Context, params repository.ListLibraryVersionsParams) ([]domain.LibraryVersion, error) {
 	r.listParams = params
 	return r.summaries, nil
+}
+
+func (r *fakeLibraryVersionRepository) SetSubmissionURL(_ context.Context, params repository.SetLibraryVersionSubmissionURLParams) (*domain.LibraryVersion, error) {
+	r.setParams = append(r.setParams, params)
+	version := &domain.LibraryVersion{LibraryID: params.LibraryID, VersionNumber: params.VersionNumber}
+	if params.SubmissionURL != nil {
+		version.SubmissionURL = *params.SubmissionURL
+	}
+	return version, nil
 }
 
 func TestCreateLibraryVersionPassesSourceToRepository(t *testing.T) {
@@ -637,18 +647,62 @@ func TestListLibraryVersionSummariesThreadsActorIntoFetch(t *testing.T) {
 	}
 }
 
-func TestResolveThreadsActorIntoFetch(t *testing.T) {
-	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
-		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-		versions := &fakeLibraryVersionRepository{
-			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1}},
-		}
-		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-		if _, err := use.Resolve(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
-			t.Fatalf("Resolve as %q: %v", actor.UserID, err)
-		}
-		if versions.findActorID != actor.UserID {
-			t.Fatalf("Resolve actor %q: FindByNumber actorUserID = %q, want reader id", actor.UserID, versions.findActorID)
-		}
+func TestSetSubmissionURLNormalizesAndPassesOwner(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	versions := &fakeLibraryVersionRepository{}
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+	version, err := use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1, "  HTTPS://atcoder.jp/submissions/1  ")
+	if err != nil {
+		t.Fatalf("SetSubmissionURL: %v", err)
+	}
+	if version.SubmissionURL != "https://atcoder.jp/submissions/1" {
+		t.Fatalf("submission_url = %q", version.SubmissionURL)
+	}
+	if len(versions.setParams) != 1 || versions.setParams[0].ActorUserID != authorUserID || versions.setParams[0].VersionNumber != 1 {
+		t.Fatalf("set params = %+v", versions.setParams)
+	}
+
+	if err := use.ClearSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1); err != nil {
+		t.Fatalf("ClearSubmissionURL: %v", err)
+	}
+	if len(versions.setParams) != 2 || versions.setParams[1].SubmissionURL != nil {
+		t.Fatalf("clear must pass a nil URL, got %+v", versions.setParams)
+	}
+}
+
+func TestSetSubmissionURLRequiresOwner(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	versions := &fakeLibraryVersionRepository{}
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+	_, err := use.SetSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1, "https://example.com/x")
+	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
+	err = use.ClearSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1)
+	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
+
+	_, librariesPrivate := libraryFixture(domain.LibraryVisibilityPrivate)
+	use = usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, librariesPrivate), versions)
+	_, err = use.SetSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1, "https://example.com/x")
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
+	if len(versions.setParams) != 0 {
+		t.Fatalf("repository must not be called for non-owners, got %+v", versions.setParams)
+	}
+}
+
+func TestSetSubmissionURLValidatesInput(t *testing.T) {
+	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	versions := &fakeLibraryVersionRepository{}
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+	_, err := use.SetSubmissionURL(context.Background(), auth.Actor{}, "seed-author", "union-find", 1, "https://example.com/x")
+	if !errors.Is(err, apperror.ErrUnauthorized) {
+		t.Fatalf("anonymous set err = %v, want unauthorized", err)
+	}
+	_, err = use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 0, "https://example.com/x")
+	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_VERSION_NUMBER", "version_number must be a positive integer")
+	for _, raw := range []string{"", "ftp://example.com/x", "https://?x", "https://exa mple.com"} {
+		_, err = use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1, raw)
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
+	}
+	if len(versions.setParams) != 0 {
+		t.Fatalf("repository must not be called for invalid input, got %+v", versions.setParams)
 	}
 }

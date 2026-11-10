@@ -69,29 +69,52 @@ func (u *LibraryVersionUsecase) List(ctx context.Context, actor auth.Actor, name
 	})
 }
 
-// ResolvedLibraryVersion is the pair returned by Resolve: the readable library
-// plus one of its versions. Submission-link registration uses this resolution.
-type ResolvedLibraryVersion struct {
-	Library domain.Library
-	Version domain.LibraryVersion
-}
+const submissionURLInvalidMessage = "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters"
 
-// Resolve exposes library+version with the same visibility rules as Get. The
-// version row itself is fetched by number and checked to belong to the
-// library before any side effect runs; the actor's user id is threaded into
-// that fetch so the version is only exposed under the library's CURRENT
-// visibility.
-func (u *LibraryVersionUsecase) Resolve(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int) (*ResolvedLibraryVersion, error) {
+// SetSubmissionURL sets or replaces the self-declared "related submission" URL
+// of one version. Only the library owner may write it (403 on a public library,
+// 404 on a private one, as for other owner-only writes); the repository
+// re-checks ownership in the UPDATE itself. The URL is never fetched or judged,
+// and no Submission, Outbox, S3 object, or Judge run is created.
+func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, rawURL string) (*domain.LibraryVersion, error) {
+	if err := validateActor(actor); err != nil {
+		return nil, err
+	}
 	if versionNumber <= 0 {
 		return nil, apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
 	}
-	resolved, err := u.libraries.Get(ctx, actor, namespaceSlug, librarySlug)
+	submissionURL, err := domain.ValidateSubmissionURL(rawURL)
+	if err != nil {
+		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", submissionURLInvalidMessage)
+	}
+	library, err := u.libraries.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
 	if err != nil {
 		return nil, err
 	}
-	version, err := u.versions.FindByNumber(ctx, resolved.ID, versionNumber, actor.UserID)
-	if err != nil {
-		return nil, err
+	return u.versions.SetSubmissionURL(ctx, repository.SetLibraryVersionSubmissionURLParams{
+		LibraryID:     library.ID,
+		VersionNumber: versionNumber,
+		ActorUserID:   actor.UserID,
+		SubmissionURL: &submissionURL,
+	})
+}
+
+// ClearSubmissionURL removes the submission URL with the same owner-only rules.
+func (u *LibraryVersionUsecase) ClearSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int) error {
+	if err := validateActor(actor); err != nil {
+		return err
 	}
-	return &ResolvedLibraryVersion{Library: *resolved, Version: *version}, nil
+	if versionNumber <= 0 {
+		return apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
+	}
+	library, err := u.libraries.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
+	if err != nil {
+		return err
+	}
+	_, err = u.versions.SetSubmissionURL(ctx, repository.SetLibraryVersionSubmissionURLParams{
+		LibraryID:     library.ID,
+		VersionNumber: versionNumber,
+		ActorUserID:   actor.UserID,
+	})
+	return err
 }

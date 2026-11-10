@@ -34,6 +34,18 @@ CREATE INDEX libraries_namespace_visibility_idx
 CREATE INDEX libraries_namespace_created_idx
     ON libraries (namespace_id, created_at DESC, slug ASC);
 
+-- submission_url is an optional, self-declared "related submission" URL the
+-- library owner may set, replace, or clear after the version is created. It is
+-- never fetched, parsed for content, or judged, and is not proof of a verdict.
+--
+-- The submission_url CHECK constraints are a defensive DB backstop, NOT the
+-- authoritative validator. The authoritative gate is domain.ValidateSubmissionURL,
+-- called by the repository before persistence; it trims whitespace, lowercases
+-- the scheme, requires a non-empty host via net/url Hostname(), and caps the
+-- value at 2048 bytes. absolute_check is anchored to the URL end and excludes
+-- '@' from host characters, so hostless authorities ('https://?x',
+-- 'https://:443', 'https://user@') are rejected while every URL the domain
+-- validator accepts (Unicode/IDN hosts, IPv6 literals, userinfo) still passes.
 CREATE TABLE library_versions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     library_id uuid NOT NULL REFERENCES libraries (id),
@@ -43,6 +55,8 @@ CREATE TABLE library_versions (
     byte_size integer NOT NULL,
     created_by uuid NOT NULL REFERENCES users (id),
     created_at timestamptz NOT NULL DEFAULT now(),
+    submission_url text,
+    submission_url_updated_at timestamptz,
     CONSTRAINT library_versions_library_number_unique UNIQUE (library_id, version_number),
     CONSTRAINT library_versions_number_check CHECK (version_number >= 1),
     CONSTRAINT library_versions_source_check CHECK (btrim(source_code) <> ''),
@@ -52,15 +66,34 @@ CREATE TABLE library_versions (
     ),
     CONSTRAINT library_versions_byte_size_check CHECK (
         byte_size = octet_length(source_code) AND byte_size BETWEEN 1 AND 100000
-    )
+    ),
+    CONSTRAINT library_versions_submission_url_updated_check CHECK (
+        (submission_url IS NULL) = (submission_url_updated_at IS NULL)
+    ),
+    CONSTRAINT library_versions_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
+    CONSTRAINT library_versions_submission_url_absolute_check CHECK (
+        submission_url ~ '^https?://([^/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]][^/?#@[:space:][:cntrl:]]*([/?#].*)?$'
+    ),
+    CONSTRAINT library_versions_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
+    CONSTRAINT library_versions_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
 );
 
 CREATE INDEX library_versions_created_by_idx ON library_versions (created_by);
 
+-- A version's code and identity are immutable. Only the self-declared
+-- submission URL columns may change; every other UPDATE and every DELETE fails.
 CREATE FUNCTION reject_library_version_mutation() RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    IF TG_OP = 'UPDATE' AND
+       (NEW.id, NEW.library_id, NEW.version_number, NEW.source_code,
+        NEW.content_sha256, NEW.byte_size, NEW.created_by, NEW.created_at)
+       IS NOT DISTINCT FROM
+       (OLD.id, OLD.library_id, OLD.version_number, OLD.source_code,
+        OLD.content_sha256, OLD.byte_size, OLD.created_by, OLD.created_at) THEN
+        RETURN NEW;
+    END IF;
     RAISE EXCEPTION 'library_versions are immutable';
 END;
 $$;
@@ -69,57 +102,3 @@ CREATE TRIGGER library_versions_no_update_delete
     BEFORE UPDATE OR DELETE ON library_versions
     FOR EACH ROW
     EXECUTE FUNCTION reject_library_version_mutation();
-
--- library_submission_links stores self-declared "related submission" links for a
--- library version. A row is only a plain absolute HTTP(S) submission
--- URL plus its registrant and timestamp. There is NO adapter, harness,
--- Submission, Outbox, Judge run, verdict, score, or case result. The URL is
--- never fetched, parsed for content, or judged; a link is self-declared and is
--- not verified proof of the submitter, verdict, or the library version used.
---
--- These CHECK constraints are a defensive DB backstop, NOT the authoritative
--- validator. The authoritative gate is domain.ValidateSubmissionURL, called by
--- the repository before persistence (so invalid URLs are rejected even outside
--- the future API layer); it trims whitespace, requires a NON-EMPTY host via
--- net/url Hostname(), and caps the value at 2048 bytes. net/url accepts ANY
--- absolute HTTP(S) URL with a host, including internationalized/Unicode hosts,
--- so the DB backstop must NOT impose an ASCII-only first-host-character rule.
---
--- absolute_check is ANCHORED to the URL end (with an optional /, ? or #
--- path/query/fragment tail) and EXCLUDES '@' from HOST characters:
---   ^https?://                         scheme
---   ([^/?#[:space:][:cntrl:]]*@)?      optional userinfo, ending at the LAST @
---   [^/?#:@[:space:][:cntrl:]]         first host char (not a delimiter,
---                                      Unicode/IDN/'['/'.'/alnum all allowed)
---   [^/?#@[:space:][:cntrl:]]*         remaining host chars (no '@', no /?#,
---                                      no whitespace/control)
---   ([/?#].*)?$                        optional path/query/fragment, then end
--- Anchoring + excluding '@' from host chars rejects hostless authorities
--- ('https://?x', 'https://@', 'https://:443', 'https://#frag',
--- 'https:///path') AND userinfo-only/no-host forms ('https://user@',
--- 'https://user@/', 'https://user@?x', 'https://user@#frag') that a prefix-only
--- CHECK wrongly accepted. Optional userinfo allows '@' (greedy to the last @)
--- to match net/url, so URLs with a REAL host such as 'https://user@example.com'
--- or 'https://a@b@c' (host 'c') are accepted. This keeps the DB backstop a
--- SUBSET of the authoritative net/url Hostname() check: no URL accepted by the
--- domain validator can be rejected at INSERT time. Unicode/IDN hosts and IPv6
--- literals remain valid. no_space_check/no_control_check and the length check
--- back up whitespace, control and size rules (the tail .* may contain them).
-CREATE TABLE library_submission_links (
-    id bigserial PRIMARY KEY,
-    library_version_id uuid NOT NULL REFERENCES library_versions (id),
-    created_by uuid NOT NULL REFERENCES users (id),
-    submission_url text NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT library_submission_links_submission_url_length_check CHECK (octet_length(submission_url) <= 2048),
-    CONSTRAINT library_submission_links_submission_url_absolute_check CHECK (
-        submission_url ~ '^https?://([^/?#[:space:][:cntrl:]]*@)?[^/?#:@[:space:][:cntrl:]][^/?#@[:space:][:cntrl:]]*([/?#].*)?$'
-    ),
-    CONSTRAINT library_submission_links_submission_url_no_space_check CHECK (submission_url !~ '[[:space:]]'),
-    CONSTRAINT library_submission_links_submission_url_no_control_check CHECK (submission_url !~ '[[:cntrl:]]')
-);
-
-CREATE INDEX library_submission_links_version_idx
-    ON library_submission_links (library_version_id);
-CREATE INDEX library_submission_links_created_idx
-    ON library_submission_links (created_at DESC, id DESC);

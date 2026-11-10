@@ -3,7 +3,7 @@ package domain
 import "testing"
 
 // TestValidateSubmissionURL is the authoritative gate for self-declared
-// submission link URLs. It must accept ANY absolute HTTP(S) URL with a real
+// submission URLs. It must accept ANY absolute HTTP(S) URL with a real
 // host (including internationalized/Unicode hosts, no control/whitespace, at
 // most 2048 bytes), trim surrounding spaces, and reject all no-host forms.
 func TestValidateSubmissionURL(t *testing.T) {
