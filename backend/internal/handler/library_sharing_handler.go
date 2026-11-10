@@ -21,7 +21,7 @@ import (
 // decoded source at librarysource.MaxSourceBytes bytes, but JSON escaping can
 // expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
 // fully escaped valid body is still admitted while memory stays bounded.
-// Submission-link requests carry only a short URL but share this decoder.
+// Submission URL requests carry only a short URL but share this decoder.
 // Submission and code-run endpoints keep decodeJSON's original unbounded
 // contract.
 const maxLibraryRequestBytes = 6*librarysource.MaxSourceBytes + 64*1024
@@ -312,167 +312,105 @@ func parseVersionNumber(r *http.Request) (int, error) {
 	return int(value), nil
 }
 
+// setSubmissionURLRequest is the only accepted PUT body: a single absolute
+// HTTP(S) submission URL. No problem_id or adapter_source is accepted.
+type setSubmissionURLRequest struct {
+	SubmissionURL string `json:"submission_url"`
+}
+
+// SetSubmissionURL sets or replaces the owner's self-declared submission URL on
+// one version and returns the version. The URL is never fetched or judged.
+func (h *LibraryVersionHandler) SetSubmissionURL(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFromContext(r.Context())
+	var request setSubmissionURLRequest
+	if err := decodeLibraryJSON(r, &request); err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
+		return
+	}
+	versionNumber, err := parseVersionNumber(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	version, err := h.versions.SetSubmissionURL(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), versionNumber, request.SubmissionURL)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newLibraryVersionResponse(*version))
+}
+
+// ClearSubmissionURL removes the self-declared submission URL from one version.
+func (h *LibraryVersionHandler) ClearSubmissionURL(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFromContext(r.Context())
+	versionNumber, err := parseVersionNumber(r)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	if err := h.versions.ClearSubmissionURL(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), versionNumber); err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// submission_url is a self-declared "related submission" URL, never a judge
+// result: no verdict, score, status, or case result accompanies it. Both
+// fields are null when the owner has not set a URL.
 type libraryVersionResponse struct {
-	ID            string    `json:"id"`
-	VersionNumber int       `json:"version_number"`
-	SourceCode    string    `json:"source_code"`
-	ContentSHA256 string    `json:"content_sha256"`
-	ByteSize      int       `json:"byte_size"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                     string     `json:"id"`
+	VersionNumber          int        `json:"version_number"`
+	SourceCode             string     `json:"source_code"`
+	ContentSHA256          string     `json:"content_sha256"`
+	ByteSize               int        `json:"byte_size"`
+	CreatedAt              time.Time  `json:"created_at"`
+	SubmissionURL          *string    `json:"submission_url"`
+	SubmissionURLUpdatedAt *time.Time `json:"submission_url_updated_at"`
 }
 
 func newLibraryVersionResponse(version domain.LibraryVersion) libraryVersionResponse {
 	return libraryVersionResponse{
-		ID:            version.ID,
-		VersionNumber: version.VersionNumber,
-		SourceCode:    version.SourceCode,
-		ContentSHA256: version.ContentSHA256,
-		ByteSize:      version.ByteSize,
-		CreatedAt:     version.CreatedAt,
+		ID:                     version.ID,
+		VersionNumber:          version.VersionNumber,
+		SourceCode:             version.SourceCode,
+		ContentSHA256:          version.ContentSHA256,
+		ByteSize:               version.ByteSize,
+		CreatedAt:              version.CreatedAt,
+		SubmissionURL:          optionalString(version.SubmissionURL),
+		SubmissionURLUpdatedAt: version.SubmissionURLUpdatedAt,
 	}
 }
 
 // libraryVersionSummaryResponse intentionally has no source_code field; list
 // entries never carry the version body.
 type libraryVersionSummaryResponse struct {
-	ID            string    `json:"id"`
-	VersionNumber int       `json:"version_number"`
-	ContentSHA256 string    `json:"content_sha256"`
-	ByteSize      int       `json:"byte_size"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
-// LibrarySubmissionLinkHandler serves self-declared "related submission" URL
-// links. Responses carry only link data (URL, version identifiers, registrant,
-// timestamp); they never expose a verdict, score, status, adapter, or case
-// result because a link is not a judge result.
-type LibrarySubmissionLinkHandler struct {
-	submissionLinks *usecase.LibrarySubmissionLinkUsecase
-}
-
-func NewLibrarySubmissionLinkHandler(v *usecase.LibrarySubmissionLinkUsecase) *LibrarySubmissionLinkHandler {
-	return &LibrarySubmissionLinkHandler{submissionLinks: v}
-}
-
-// createSubmissionLinkRequest is the only accepted POST body: a single absolute
-// HTTP(S) submission URL. No problem_id or adapter_source is accepted.
-type createSubmissionLinkRequest struct {
-	SubmissionURL string `json:"submission_url"`
-}
-
-func (h *LibrarySubmissionLinkHandler) Create(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth.ActorFromContext(r.Context())
-	var req createSubmissionLinkRequest
-	if err := decodeLibraryJSON(r, &req); err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
-		return
-	}
-	version, err := parseVersionNumber(r)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	link, err := h.submissionLinks.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, req.SubmissionURL)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, newSubmissionLinkResponse(*link))
-}
-
-func parseSubmissionLinkID(r *http.Request) (int64, error) {
-	v, err := strconv.ParseInt(chi.URLParam(r, "submission_link_id"), 10, 64)
-	if err != nil {
-		return 0, apperror.InvalidInput("INVALID_LIBRARY_SUBMISSION_LINK_ID", "submission_link_id must be an integer")
-	}
-	if v <= 0 {
-		return 0, apperror.InvalidInput("INVALID_LIBRARY_SUBMISSION_LINK_ID", "submission_link_id must be a positive integer")
-	}
-	return v, nil
-}
-
-func (h *LibrarySubmissionLinkHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := parseSubmissionLinkID(r)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFromContext(r.Context())
-	link, err := h.submissionLinks.Get(r.Context(), actor, id)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, newSubmissionLinkResponse(*link))
-}
-
-func (h *LibrarySubmissionLinkHandler) List(w http.ResponseWriter, r *http.Request) {
-	limit, provided, err := parseOptionalInt(r, "limit")
-	if err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
-		return
-	}
-	offset, _, err := parseOptionalInt(r, "offset")
-	if err != nil {
-		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
-		return
-	}
-	version, err := parseVersionNumber(r)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFromContext(r.Context())
-	items, err := h.submissionLinks.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), version, limit, provided, offset)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-	result := make([]submissionLinkResponse, 0, len(items))
-	for _, item := range items {
-		result = append(result, newSubmissionLinkResponse(item))
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-// submissionLinkResponse is the self-declared "related submission" link shape.
-// It is deliberately NOT a judge result: verdict, score, status,
-// adapter_source, case_results, judged_at, submission_id, and problem_id are
-// absent. The submission_url is a plain pointer to a submission the registrant
-// says is related; authenticity of the submitter, verdict, or library version
-// used is not guaranteed.
-type submissionLinkResponse struct {
-	ID               int64     `json:"id"`
-	LibraryVersionID string    `json:"library_version_id"`
-	NamespaceSlug    string    `json:"namespace_slug"`
-	LibrarySlug      string    `json:"library_slug"`
-	VersionNumber    int       `json:"version_number"`
-	SubmissionURL    string    `json:"submission_url"`
-	CreatedBy        string    `json:"created_by"`
-	CreatedAt        time.Time `json:"created_at"`
-}
-
-func newSubmissionLinkResponse(v domain.LibrarySubmissionLink) submissionLinkResponse {
-	return submissionLinkResponse{
-		ID:               v.ID,
-		LibraryVersionID: v.LibraryVersionID,
-		NamespaceSlug:    v.NamespaceSlug,
-		LibrarySlug:      v.LibrarySlug,
-		VersionNumber:    v.VersionNumber,
-		SubmissionURL:    v.SubmissionURL,
-		CreatedBy:        v.CreatedBy,
-		CreatedAt:        v.CreatedAt,
-	}
+	ID                     string     `json:"id"`
+	VersionNumber          int        `json:"version_number"`
+	ContentSHA256          string     `json:"content_sha256"`
+	ByteSize               int        `json:"byte_size"`
+	CreatedAt              time.Time  `json:"created_at"`
+	SubmissionURL          *string    `json:"submission_url"`
+	SubmissionURLUpdatedAt *time.Time `json:"submission_url_updated_at"`
 }
 
 func newLibraryVersionSummaryResponse(version domain.LibraryVersion) libraryVersionSummaryResponse {
 	return libraryVersionSummaryResponse{
-		ID:            version.ID,
-		VersionNumber: version.VersionNumber,
-		ContentSHA256: version.ContentSHA256,
-		ByteSize:      version.ByteSize,
-		CreatedAt:     version.CreatedAt,
+		ID:                     version.ID,
+		VersionNumber:          version.VersionNumber,
+		ContentSHA256:          version.ContentSHA256,
+		ByteSize:               version.ByteSize,
+		CreatedAt:              version.CreatedAt,
+		SubmissionURL:          optionalString(version.SubmissionURL),
+		SubmissionURLUpdatedAt: version.SubmissionURLUpdatedAt,
 	}
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 type libraryResponse struct {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -112,6 +113,20 @@ func (r *fakeVersionRepo) ListSummaries(_ context.Context, params repository.Lis
 	return r.summaries, nil
 }
 
+func (r *fakeVersionRepo) SetSubmissionURL(_ context.Context, params repository.SetLibraryVersionSubmissionURLParams) (*domain.LibraryVersion, error) {
+	version, ok := r.byNumber[params.VersionNumber]
+	if !ok {
+		return nil, apperror.NotFound("LIBRARY_VERSION_NOT_FOUND", "library version not found")
+	}
+	if params.SubmissionURL == nil {
+		version.SubmissionURL, version.SubmissionURLUpdatedAt = "", nil
+	} else {
+		now := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+		version.SubmissionURL, version.SubmissionURLUpdatedAt = *params.SubmissionURL, &now
+	}
+	return version, nil
+}
+
 func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 	namespaces := &fakeNamespaceRepo{}
 	libraries := &fakeLibraryRepo{visibility: domain.LibraryVisibilityPublic}
@@ -129,7 +144,66 @@ func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 	router.With(auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).Create)
 	router.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).List)
 	router.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).Get)
+	router.With(auth.RequireAuth).Put("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).SetSubmissionURL)
+	router.With(auth.RequireAuth).Delete("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).ClearSubmissionURL)
 	return router, versions
+}
+
+// TestSubmissionURLSetAndClearViaHTTP pins the response shape: the version
+// carries submission_url / submission_url_updated_at (null when unset), PUT
+// returns 200 with the version, and DELETE returns 204.
+func TestSubmissionURLSetAndClearViaHTTP(t *testing.T) {
+	router, _ := newVersionRouter()
+	const path = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1"
+
+	readURL := func() map[string]any {
+		t.Helper()
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, path, nil))
+		var body struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return body.Data
+	}
+	if data := readURL(); data["submission_url"] != nil || data["submission_url_updated_at"] != nil {
+		t.Fatalf("unset URL must serialize as null, got %+v", data)
+	}
+
+	put := httptest.NewRequest(http.MethodPut, path+"/submission-url", strings.NewReader(`{"submission_url":"https://atcoder.jp/submissions/1"}`))
+	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("X-User-ID", handlerAuthorID)
+	put.Header.Set("X-User-Role", "author")
+	putRes := httptest.NewRecorder()
+	router.ServeHTTP(putRes, put)
+	if putRes.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d: %s", putRes.Code, putRes.Body.String())
+	}
+	if data := readURL(); data["submission_url"] != "https://atcoder.jp/submissions/1" || data["submission_url_updated_at"] == nil {
+		t.Fatalf("set URL = %+v", data)
+	}
+
+	del := httptest.NewRequest(http.MethodDelete, path+"/submission-url", nil)
+	del.Header.Set("X-User-ID", handlerAuthorID)
+	del.Header.Set("X-User-Role", "author")
+	delRes := httptest.NewRecorder()
+	router.ServeHTTP(delRes, del)
+	if delRes.Code != http.StatusNoContent || delRes.Body.Len() != 0 {
+		t.Fatalf("DELETE = %d %q, want 204 with empty body", delRes.Code, delRes.Body.String())
+	}
+	if data := readURL(); data["submission_url"] != nil {
+		t.Fatalf("cleared URL = %+v", data)
+	}
+
+	anon := httptest.NewRequest(http.MethodPut, path+"/submission-url", strings.NewReader(`{"submission_url":"https://atcoder.jp/submissions/1"}`))
+	anon.Header.Set("Content-Type", "application/json")
+	anonRes := httptest.NewRecorder()
+	router.ServeHTTP(anonRes, anon)
+	if anonRes.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous PUT status = %d, want 401", anonRes.Code)
+	}
 }
 
 func TestListLibraryVersionsOmitsSource(t *testing.T) {
@@ -309,20 +383,19 @@ func TestOpenAPINullableFieldsUseUnionTypes(t *testing.T) {
 	}
 }
 
-// TestOpenAPISubmissionLinkHasNoJudgeFields pins the URL-link contract: the
-// submissionLink schemas expose only a self-declared submission_url and link
-// metadata, never a verdict/score/status/adapter/case-result field, and the
-// POST request no longer accepts problem_id or adapter_source.
-func TestOpenAPISubmissionLinkHasNoJudgeFields(t *testing.T) {
+// TestOpenAPISubmissionURLHasNoJudgeFields pins the submission URL contract:
+// the PUT request accepts only a self-declared submission_url, never a
+// problem_id, adapter, verdict, score, status, or case-result field.
+func TestOpenAPISubmissionURLHasNoJudgeFields(t *testing.T) {
 	content, err := os.ReadFile("../../docs/openapi.yaml")
 	if err != nil {
 		t.Fatalf("read openapi.yaml: %v", err)
 	}
 	text := string(content)
-	start := strings.Index(text, "    CreateSubmissionLinkRequest:")
+	start := strings.Index(text, "    SetSubmissionURLRequest:")
 	end := strings.Index(text, "    ErrorResponse:")
 	if start < 0 || end < 0 || end <= start {
-		t.Fatal("submissionLink schemas region not found in openapi.yaml")
+		t.Fatal("SetSubmissionURLRequest schema not found in openapi.yaml")
 	}
 	// Drop comment lines so the descriptive contract text does not trigger the
 	// banned-field scan; only actual YAML schema entries remain.
@@ -336,14 +409,14 @@ func TestOpenAPISubmissionLinkHasNoJudgeFields(t *testing.T) {
 	}
 	block := schemaOnly.String()
 	if !strings.Contains(block, "submission_url") {
-		t.Fatal("submissionLink schemas must expose submission_url")
+		t.Fatal("SetSubmissionURLRequest must expose submission_url")
 	}
 	for _, banned := range []string{
 		"problem_id", "submission_id", "adapter_source", "adapter_sha256",
 		"case_results", "case_result", "verdict", "score", "judged_at", "status",
 	} {
 		if strings.Contains(block, banned) {
-			t.Fatalf("submissionLink schemas must not carry the judge field %q", banned)
+			t.Fatalf("SetSubmissionURLRequest must not carry the judge field %q", banned)
 		}
 	}
 }

@@ -42,41 +42,22 @@ type Library struct {
 
 // LibraryVersion is one immutable snapshot of a library's single-file Python
 // source. Version numbers are assigned by the database starting at 1.
-type LibraryVersion struct {
-	ID            string
-	LibraryID     string
-	VersionNumber int
-	SourceCode    string
-	ContentSHA256 string
-	ByteSize      int
-	CreatedBy     string
-	CreatedAt     time.Time
-}
-
-// LibrarySubmissionLink is a self-declared "related submission" link for one
-// library version: a plain absolute HTTP(S) submission URL. A row
-// is NOT a verified proof: there is no adapter, harness, Submission, Outbox,
-// Judge run, verdict, score, or case result. The URL is never fetched, parsed
-// for content, or judged; it merely points at a submission the registrant says
-// is related. Authenticity of the submitter, verdict, or the library version
-// used is not guaranteed.
 //
-// Read methods enforce the current library/namespace visibility in the same
-// SQL statement as the data fetch (public to anyone, private to owner only).
-// Those fields are read-time context,
-// not columns stored on the link itself.
-type LibrarySubmissionLink struct {
-	ID               int64
-	LibraryVersionID string
-	SubmissionURL    string
-	CreatedBy        string
-	CreatedAt        time.Time
-	// Current library state, joined at read time for authorization:
-	NamespaceSlug string
-	LibrarySlug   string
-	VersionNumber int
-	Visibility    LibraryVisibility
-	OwnerUserID   string
+// SubmissionURL is the only mutable part: an optional, self-declared "related
+// submission" URL the library owner may set, replace, or clear. It is never
+// fetched, parsed for content, or judged, and is not proof of a verdict or of
+// the library version used. Empty means no URL is set.
+type LibraryVersion struct {
+	ID                     string
+	LibraryID              string
+	VersionNumber          int
+	SourceCode             string
+	ContentSHA256          string
+	ByteSize               int
+	CreatedBy              string
+	CreatedAt              time.Time
+	SubmissionURL          string
+	SubmissionURLUpdatedAt *time.Time
 }
 
 // Namespace is the single personal space a user owns. It holds libraries and
@@ -105,7 +86,7 @@ func validSlug(slug string, min, max int) bool {
 }
 
 // MaxSubmissionURLLength is the maximum accepted length (in bytes) of a
-// submission URL. It matches the library_submission_links DB CHECK backstop.
+// submission URL. It matches the library_versions DB CHECK backstop.
 const MaxSubmissionURLLength = 2048
 
 // ErrInvalidSubmissionURL is returned by ValidateSubmissionURL when the value
@@ -113,7 +94,7 @@ const MaxSubmissionURLLength = 2048
 var ErrInvalidSubmissionURL = errors.New("invalid submission URL")
 
 // ValidateSubmissionURL is the authoritative FORMAT gate for a self-declared
-// submission link. It trims surrounding whitespace and requires an absolute
+// submission URL. It trims surrounding whitespace and requires an absolute
 // HTTP(S) URL with a real (non-empty) host, no control characters or internal
 // whitespace, and at most MaxSubmissionURLLength bytes. The host check uses
 // net/url's Hostname(), so ANY absolute HTTP(S) URL with a host is accepted,

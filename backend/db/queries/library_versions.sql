@@ -35,7 +35,9 @@ RETURNING
     content_sha256,
     byte_size,
     created_by::text AS created_by,
-    created_at;
+    created_at,
+    submission_url,
+    submission_url_updated_at;
 
 -- Read authorization is enforced IN THE SAME STATEMENT as the data fetch: the
 -- join to the current library/namespace lets the WHERE clause gate every row
@@ -46,7 +48,8 @@ RETURNING
 -- flip cannot expose source that is private at the moment it is returned.
 -- name: GetLibraryVersionByNumber :one
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, lv.source_code,
-       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at,
+       lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
@@ -56,7 +59,8 @@ WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
 
 -- name: ListLibraryVersionSummaries :many
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
-       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at
+       lv.content_sha256, lv.byte_size, lv.created_by::text AS created_by, lv.created_at,
+       lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
 JOIN namespaces n ON n.id = l.namespace_id
@@ -64,3 +68,29 @@ WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
   AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text))
 ORDER BY lv.version_number DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- Only the library owner may set or clear the self-declared submission URL.
+-- Ownership is checked in the SAME statement as the write, so no prior read or
+-- lock is needed. A NULL submission_url clears both URL columns. No row means
+-- the version is missing or the actor is not the owner.
+-- name: SetLibraryVersionSubmissionURL :one
+UPDATE library_versions lv
+SET submission_url = sqlc.narg(submission_url),
+    submission_url_updated_at = CASE WHEN sqlc.narg(submission_url)::text IS NULL THEN NULL ELSE now() END
+FROM libraries l
+JOIN namespaces n ON n.id = l.namespace_id
+WHERE l.id = lv.library_id
+  AND lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
+  AND lv.version_number = sqlc.arg(version_number)
+  AND lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text)
+RETURNING
+    lv.id::text AS id,
+    lv.library_id::text AS library_id,
+    lv.version_number,
+    lv.source_code,
+    lv.content_sha256,
+    lv.byte_size,
+    lv.created_by::text AS created_by,
+    lv.created_at,
+    lv.submission_url,
+    lv.submission_url_updated_at;
