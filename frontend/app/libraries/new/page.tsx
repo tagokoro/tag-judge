@@ -65,10 +65,10 @@ function NewLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
         <Field label="名前" hint="1〜80 文字">
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="UnionFind" />
         </Field>
-        <Field label="公開範囲">
+        <Field label="Visibility">
           <select value={visibility} onChange={(event) => setVisibility(event.target.value as Visibility)}>
-            <option value="private">非公開（自分だけ）</option>
-            <option value="public">公開（誰でも見られる）</option>
+            <option value="private">private（自分だけ）</option>
+            <option value="public">public（誰でも見られる）</option>
           </select>
         </Field>
       </div>

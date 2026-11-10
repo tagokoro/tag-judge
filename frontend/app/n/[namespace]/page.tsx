@@ -17,7 +17,7 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
 
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "ライブラリ一覧", href: HOME_PATH }, { label: namespaceSlug }]} />
+      <Breadcrumbs items={[{ label: "Libraries", href: HOME_PATH }, { label: namespaceSlug }]} />
       {namespace.data ? (
         <div className="page-title">
           <h1>{namespace.data.display_name}</h1>
@@ -45,7 +45,7 @@ export default function NamespacePage({ params }: { params: Promise<{ namespace:
               <p className="empty">
                 {owner
                   ? "まだ Library がありません。「Library を作成」から最初の Library を作ってください。"
-                  : "公開されている Library はまだありません。"}
+                  : "public な Library はまだありません。"}
               </p>
             ) : (
               <LibraryList libraries={libraries.data} />

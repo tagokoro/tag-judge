@@ -19,9 +19,9 @@ import { useAsyncAction } from "./useAsyncAction";
 const SHOW_DEV_AUTH = process.env.NODE_ENV !== "production";
 
 const NAV_ITEMS = [
-  { href: HOME_PATH, label: "ライブラリ一覧" },
-  { href: PROBLEMS_PATH, label: "問題一覧" },
-  { href: SUBMISSIONS_PATH, label: "提出一覧" },
+  { href: HOME_PATH, label: "Libraries" },
+  { href: PROBLEMS_PATH, label: "Problems" },
+  { href: SUBMISSIONS_PATH, label: "Submissions" },
 ];
 
 export function Header() {

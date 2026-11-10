@@ -9,10 +9,10 @@ export default function ProblemsPage() {
 
   return (
     <div className="page">
-      <h1>問題一覧</h1>
+      <h1>Problems</h1>
       {problems.data ? (
         problems.data.length === 0 ? (
-          <p className="empty">公開されている問題はまだありません。</p>
+          <p className="empty">public な問題はまだありません。</p>
         ) : (
           <div className="panel">
             <ProblemList problems={problems.data} />

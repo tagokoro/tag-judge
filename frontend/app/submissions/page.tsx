@@ -10,8 +10,8 @@ export default function SubmissionsPage() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>提出一覧</h1>
-        <p className="page-sub">公開されている問題への最近の提出です。ソースコードは表示しません。</p>
+        <h1>Submissions</h1>
+        <p className="page-sub">public な問題への最近の提出です。ソースコードは表示しません。</p>
       </div>
       {submissions.data ? (
         submissions.data.length === 0 ? (

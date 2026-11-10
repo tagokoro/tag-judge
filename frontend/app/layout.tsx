@@ -11,7 +11,7 @@ const FONTS_URL =
 
 export const metadata: Metadata = {
   title: "TagJudge",
-  description: "競技プログラミング用ライブラリを版ごとに公開する",
+  description: "競技プログラミング用ライブラリを版ごとに共有する",
 };
 
 export default function RootLayout({

@@ -26,7 +26,7 @@ export default function EditLibraryPage({
     <div className="page">
       <Breadcrumbs
         items={[
-          { label: "ライブラリ一覧", href: HOME_PATH },
+          { label: "Libraries", href: HOME_PATH },
           { label: namespaceSlug, href: namespacePath(namespaceSlug) },
           { label: librarySlug, href: backHref },
           { label: "設定を編集" },
@@ -64,16 +64,16 @@ function LibrarySettingsForm({
     <Card
       title={library.name}
       owner
-      note="非公開にすると、自分以外からは Library も Version も見えなくなります。slug は変更できません。"
+      note="private にすると、自分以外からは Library も Version も見えなくなります。slug は変更できません。"
     >
       <div className="row">
         <Field label="名前">
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
-        <Field label="公開範囲">
+        <Field label="Visibility">
           <select value={visibility} onChange={(event) => setVisibility(event.target.value as Visibility)}>
-            <option value="private">非公開（自分だけ）</option>
-            <option value="public">公開（誰でも見られる）</option>
+            <option value="private">private（自分だけ）</option>
+            <option value="public">public（誰でも見られる）</option>
           </select>
         </Field>
       </div>

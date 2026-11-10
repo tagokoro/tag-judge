@@ -17,7 +17,7 @@ export default function MyProblemsPage() {
     <div className="page">
       <div className="page-head">
         <h1>自分の問題</h1>
-        <p className="page-sub">自分が作成した問題です。非公開の問題も含みます。</p>
+        <p className="page-sub">自分が作成した問題です。private の問題も含みます。</p>
       </div>
       {problems.data ? (
         problems.data.length === 0 ? (

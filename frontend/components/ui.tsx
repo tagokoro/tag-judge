@@ -128,7 +128,7 @@ export function ErrorNote({ error }: { error: string | null }) {
 export function VisibilityBadge({ visibility }: { visibility: Visibility }) {
   return (
     <span className={`badge badge-${visibility}`}>
-      {visibility === "public" ? "公開" : "非公開"}
+      {visibility}
     </span>
   );
 }

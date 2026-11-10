@@ -31,7 +31,7 @@ export default function VersionPage({
     <div className="page">
       <Breadcrumbs
         items={[
-          { label: "ライブラリ一覧", href: HOME_PATH },
+          { label: "Libraries", href: HOME_PATH },
           { label: namespaceSlug, href: namespacePath(namespaceSlug) },
           { label: librarySlug, href: libraryPath(namespaceSlug, librarySlug) },
           { label: `v${rawVersion}` },

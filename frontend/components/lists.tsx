@@ -43,7 +43,7 @@ export function ProblemList({ problems, showVisibility = false }: { problems: Pr
           <th scope="col" className="col-shrink">ID</th>
           <th scope="col">問題</th>
           <th scope="col" className="col-shrink">制限</th>
-          {showVisibility ? <th scope="col">公開範囲</th> : null}
+          {showVisibility ? <th scope="col">Visibility</th> : null}
         </tr>
       </thead>
       <tbody>
