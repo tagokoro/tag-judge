@@ -230,3 +230,22 @@ cd backend
 ADMISSION_TEST_DATABASE_URL='postgres://judge_user:judge_pass@localhost:5432/judge?sslmode=disable' \
   go test ./internal/infra/postgres -run 'TestAdmission|TestCodeRunOutbox' -v
 ```
+
+## 9. Next.js フロントエンド（別プロセス）
+
+フロントエンドは `frontend/` の独立した Next.js（App Router + TypeScript）プロジェクトです。Go API（`localhost:8080`）とは**別プロセス**で `localhost:3000` に起動し、Go は API のみを提供して静的ファイルは配信しません（画面は Next.js が配信します）。Node.js 20.9.0 以上 / npm 10 以上が必要です。
+
+```sh
+make frontend-install   # npm ci（exact lockfile）
+make run-frontend       # http://localhost:3000/
+```
+
+ブラウザは `http://localhost:3000/api/:path*` だけを呼び、`frontend/next.config.ts` の rewrite がサーバー側で `API_SERVER_ORIGIN`（開発既定 `http://localhost:8080`）へ転送します。この変数は `NEXT_PUBLIC_` を付けないサーバー側専用の値で、ブラウザには公開されません。Google OAuth のコールバックも同じ rewrite を通すため、ローカルの `.env` では次を設定します。
+
+```text
+GOOGLE_OAUTH_REDIRECT_URL=http://localhost:3000/api/v1/auth/google/callback
+AUTH_SUCCESS_REDIRECT_URL=http://localhost:3000/
+API_SERVER_ORIGIN=http://localhost:8080
+```
+
+lint / 型チェック / ビルドは `make frontend-check` で実行できます。画面はプレースホルダーのみで、ライブラリ共有 UI は後続の PR で実装します。
