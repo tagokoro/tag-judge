@@ -289,4 +289,4 @@ make frontend-check
 | HTTP APIの仕様 | [OpenAPI](backend/docs/openapi.yaml) |
 | フロントの API rewrite とサーバー側 proxy 先 | [next.config.ts](frontend/next.config.ts) |
 
-関連資料は[ローカル開発](docs/local-development.md)、[Rust Judge設計方針](docs/rust-judge-design.md)、[judge-core要件](docs/judge-core-requirements.md)、[AWS開発環境](infra/aws/dev/README.md)、[Terraform CI/CD](docs/terraform-cicd.md)を参照してください。設計資料には初期構想も含まれるため、現在の動作はこのREADMEと実装を基準に確認してください。
+関連資料は[ローカル開発](docs/local-development.md)、[Rust Judge設計方針](docs/rust-judge-design.md)、[judge-core要件](docs/judge-core-requirements.md)、[ライブラリ共有仕様](docs/library-sharing.md)、[AWS開発環境](infra/aws/dev/README.md)、[Terraform CI/CD](docs/terraform-cicd.md)を参照してください。設計資料には初期構想も含まれるため、現在の動作はこのREADMEと実装を基準に確認してください。

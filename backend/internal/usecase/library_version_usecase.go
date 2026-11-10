@@ -6,7 +6,6 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 )
 
@@ -29,7 +28,7 @@ func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, na
 	if err != nil {
 		return nil, err
 	}
-	if err := librarysource.ValidateSource(sourceCode); err != nil {
+	if err := domain.ValidateLibrarySource(sourceCode); err != nil {
 		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must be 1-100000 bytes, non-blank, and must not contain NUL")
 	}
 	return u.versions.Create(ctx, repository.CreateLibraryVersionParams{
@@ -74,8 +73,7 @@ const submissionURLInvalidMessage = "submission_url must be an absolute HTTP(S) 
 // SetSubmissionURL sets or replaces the self-declared "related submission" URL
 // of one version. Only the library owner may write it (403 on a public library,
 // 404 on a private one, as for other owner-only writes); the repository
-// re-checks ownership in the UPDATE itself. The URL is never fetched or judged,
-// and no Submission, Outbox, S3 object, or Judge run is created.
+// re-checks ownership in the UPDATE itself.
 func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, rawURL string) (*domain.LibraryVersion, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err

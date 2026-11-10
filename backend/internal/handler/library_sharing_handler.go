@@ -12,19 +12,18 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
-	"github.com/tagokoro/tag-judge/backend/internal/librarysource"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
 // maxLibraryRequestBytes bounds the raw JSON body for library-sharing endpoints
 // that accept a large library version source. The version usecase caps a
-// decoded source at librarysource.MaxSourceBytes bytes, but JSON escaping can
+// decoded source at domain.MaxLibrarySourceBytes bytes, but JSON escaping can
 // expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
 // fully escaped valid body is still admitted while memory stays bounded.
 // Submission URL requests carry only a short URL but share this decoder.
 // Submission and code-run endpoints keep decodeJSON's original unbounded
 // contract.
-const maxLibraryRequestBytes = 6*librarysource.MaxSourceBytes + 64*1024
+const maxLibraryRequestBytes = 6*domain.MaxLibrarySourceBytes + 64*1024
 
 // decodeLibraryJSON bounds a request body before the shared decoder runs so an
 // oversized body gets a stable 400 rather than being silently truncated.
@@ -307,14 +306,13 @@ func parseVersionNumber(r *http.Request) (int, error) {
 	return int(value), nil
 }
 
-// setSubmissionURLRequest is the only accepted PUT body: a single absolute
-// HTTP(S) submission URL. No problem_id or adapter_source is accepted.
+// setSubmissionURLRequest is the PUT body; decodeJSON rejects unknown fields.
 type setSubmissionURLRequest struct {
 	SubmissionURL string `json:"submission_url"`
 }
 
 // SetSubmissionURL sets or replaces the owner's self-declared submission URL on
-// one version and returns the version. The URL is never fetched or judged.
+// one version and returns the version.
 func (h *LibraryVersionHandler) SetSubmissionURL(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request setSubmissionURLRequest
@@ -350,9 +348,7 @@ func (h *LibraryVersionHandler) ClearSubmissionURL(w http.ResponseWriter, r *htt
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// submission_url is a self-declared "related submission" URL, never a judge
-// result: no verdict, score, status, or case result accompanies it. Both
-// fields are null when the owner has not set a URL.
+// Both submission URL fields are null when the owner has not set a URL.
 type libraryVersionResponse struct {
 	ID                     string     `json:"id"`
 	VersionNumber          int        `json:"version_number"`
