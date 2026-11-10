@@ -56,29 +56,33 @@ type LibraryVersionRepository interface {
 	ListSummaries(ctx context.Context, params ListLibraryVersionsParams) ([]domain.LibraryVersion, error)
 }
 
+// CreateLibraryVerificationParams carries a self-declared submission URL link.
+// ActorUserID is the authenticated registrant (stored as created_by). The
+// namespace/library/version ids are re-checked under a lock so a concurrent
+// visibility change cannot let a non-owner commit a link.
 type CreateLibraryVerificationParams struct {
 	ActorUserID      string
 	NamespaceID      string
 	LibraryID        string
 	LibraryVersionID string
-	ProblemID        int64
-	Language         domain.SubmissionLanguage
-	SourceCodeKey    string
-	TestCasesKey     string
-	TimeLimitMS      int
-	AdapterSource    string
+	SubmissionURL    string
 }
 
 type ListLibraryVerificationsParams struct {
-	UserID string
-	Limit  int
-	Offset int
+	LibraryVersionID string
+	Limit            int
+	Offset           int
 }
 
+// LibraryVerificationRepository persists self-declared submission URL links.
+// Create re-checks the library's current visibility under a row lock and the
+// version's membership, and NEVER creates a Submission, Outbox record, S3
+// object, or Judge run (no admission control). FindByID/ListByVersion join the
+// current library/namespace so the caller can authorize reads by visibility.
 type LibraryVerificationRepository interface {
-	CreateWithSubmission(ctx context.Context, params CreateLibraryVerificationParams) (*domain.LibraryVerification, *domain.Submission, error)
+	Create(ctx context.Context, params CreateLibraryVerificationParams) (*domain.LibraryVerification, error)
 	FindByID(ctx context.Context, id int64) (*domain.LibraryVerification, error)
-	ListByUserID(ctx context.Context, params ListLibraryVerificationsParams) ([]domain.LibraryVerification, error)
+	ListByVersion(ctx context.Context, params ListLibraryVerificationsParams) ([]domain.LibraryVerification, error)
 }
 
 type NamespaceRepository interface {

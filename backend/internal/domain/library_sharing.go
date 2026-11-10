@@ -49,25 +49,31 @@ type LibraryVersion struct {
 	CreatedAt     time.Time
 }
 
-// LibraryVerification records that one library version was verified against
-// one existing public problem. The problem and the starter stay with the
-// submissions row; no duplicated columns exist here.
+// LibraryVerification is a self-declared "related submission" link for one
+// library version: a plain absolute HTTP(S) submission URL. The DB table name
+// is kept from the earlier design to keep the PR review diff small, but a row
+// is NOT a verified proof: there is no adapter, harness, Submission, Outbox,
+// Judge run, verdict, score, or case result. The URL is never fetched, parsed
+// for content, or judged; it merely points at a submission the registrant says
+// is related. Authenticity of the submitter, verdict, or the library version
+// used is not guaranteed.
+//
+// Read methods join the current library/namespace so callers can authorize
+// reads by the library's CURRENT visibility (public links are viewable by
+// anyone, private links by the owner only). Those fields are read-time context,
+// not columns stored on the link itself.
 type LibraryVerification struct {
 	ID               int64
 	LibraryVersionID string
-	LibrarySlug      string
-	NamespaceSlug    string
-	VersionNumber    int
-	ProblemID        int64
-	SubmissionID     int64
-	UserID           string
-	Language         SubmissionLanguage
-	Status           SubmissionStatus
-	Score            int
-	AdapterSource    string
-	AdapterSHA256    string
+	SubmissionURL    string
+	CreatedBy        string
 	CreatedAt        time.Time
-	JudgedAt         *time.Time
+	// Current library state, joined at read time for authorization:
+	NamespaceSlug string
+	LibrarySlug   string
+	VersionNumber int
+	Visibility    LibraryVisibility
+	OwnerUserID   string
 }
 
 // Namespace is the single personal space a user owns. It holds libraries and
