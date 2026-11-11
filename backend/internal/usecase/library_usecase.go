@@ -160,6 +160,16 @@ func (u *LibraryUsecase) List(ctx context.Context, actor auth.Actor, namespaceSl
 	return libraries, err
 }
 
+// ListAllPublic lists public libraries across every namespace. Anyone may call
+// it; private libraries are never included.
+func (u *LibraryUsecase) ListAllPublic(ctx context.Context, limit int, limitProvided bool, offset int) ([]domain.Library, error) {
+	limit, offset, err := validatePaging(limit, limitProvided, offset)
+	if err != nil {
+		return nil, err
+	}
+	return u.libraries.ListAllPublic(ctx, limit, offset)
+}
+
 func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, input UpdateLibraryInput) (*domain.Library, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err

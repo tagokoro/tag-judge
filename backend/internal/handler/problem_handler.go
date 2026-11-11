@@ -130,6 +130,37 @@ func (h *ProblemHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// ListMine lists every problem the actor created, private ones included.
+func (h *ProblemHandler) ListMine(w http.ResponseWriter, r *http.Request) {
+	limit, limitProvided, err := parseOptionalInt(r, "limit")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
+		return
+	}
+	offset, _, err := parseOptionalInt(r, "offset")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
+		return
+	}
+
+	actor, _ := auth.ActorFromContext(r.Context())
+	problems, err := h.problems.ListMyProblems(r.Context(), actor, usecase.ListProblemsInput{
+		Limit:         limit,
+		LimitProvided: limitProvided,
+		Offset:        offset,
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	response := make([]problemResponse, 0, len(problems))
+	for _, problem := range problems {
+		response = append(response, newProblemResponse(problem))
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id, err := parseProblemID(r)
 	if err != nil {

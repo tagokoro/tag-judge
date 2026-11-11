@@ -375,6 +375,36 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /submissions/recent:
+    get:
+      summary: List recent submissions to public problems
+      description: |
+        Anyone may call this. Only submissions to public problems are listed,
+        newest first. No source code key and no user id are returned; the
+        submitter is shown by their namespace slug, or null when they have none.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Recent public submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSubmissionListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
   /submissions/{submission_id}:
     get:
       summary: Get a submission with case results
@@ -615,6 +645,64 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+  /libraries:
+    get:
+      summary: List public libraries across every namespace
+      description: Anyone may call this. Private libraries are never listed. Newest first.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Public libraries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /me/problems:
+    get:
+      summary: List the problems the current user created
+      description: Includes private problems. Newest first.
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserRoleHeader"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Current user's problems
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
           $ref: "#/components/responses/Error"
   /namespaces:
     post:
@@ -1510,6 +1598,43 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Submission"
+    PublicSubmission:
+      type: object
+      required: [id, problem_id, problem_title, language, status, score, created_at, judged_at, submitter_namespace_slug]
+      properties:
+        id:
+          type: integer
+          format: int64
+        problem_id:
+          type: integer
+          format: int64
+        problem_title:
+          type: string
+        language:
+          type: string
+          enum: [python]
+        status:
+          type: string
+          enum: [pending, running, ac, wa, tle, mle, re, ce, ie]
+        score:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        judged_at:
+          type: [string, "null"]
+          format: date-time
+        submitter_namespace_slug:
+          type: [string, "null"]
+    PublicSubmissionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicSubmission"
     CreateNamespaceRequest:
       type: object
       required: [slug, display_name]

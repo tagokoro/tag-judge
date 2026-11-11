@@ -29,10 +29,17 @@ type ListSubmissionsParams struct {
 	Offset int
 }
 
+type ListRecentSubmissionsParams struct {
+	Limit  int
+	Offset int
+}
+
 type SubmissionRepository interface {
 	FindByID(ctx context.Context, id int64) (*domain.Submission, error)
 	ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error)
 	ListByUserID(ctx context.Context, params ListSubmissionsParams) ([]domain.Submission, error)
+	// ListRecentPublic lists recent submissions to public problems for everyone.
+	ListRecentPublic(ctx context.Context, params ListRecentSubmissionsParams) ([]domain.PublicSubmission, error)
 }
 
 // AdmissionControl creates execution records under a shared admission-control

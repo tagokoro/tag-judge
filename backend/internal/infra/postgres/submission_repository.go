@@ -198,6 +198,37 @@ func (r *SubmissionRepository) ListByUserID(ctx context.Context, params reposito
 	return submissions, nil
 }
 
+func (r *SubmissionRepository) ListRecentPublic(ctx context.Context, params repository.ListRecentSubmissionsParams) ([]domain.PublicSubmission, error) {
+	rows, err := r.queries.ListRecentPublicSubmissions(ctx, sqlc.ListRecentPublicSubmissionsParams{
+		ResultLimit:  int32(params.Limit),
+		ResultOffset: int32(params.Offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	submissions := make([]domain.PublicSubmission, 0, len(rows))
+	for _, row := range rows {
+		var judgedAt *time.Time
+		if row.JudgedAt.Valid {
+			value := row.JudgedAt.Time
+			judgedAt = &value
+		}
+		submissions = append(submissions, domain.PublicSubmission{
+			ID:                     row.ID,
+			ProblemID:              row.ProblemID,
+			ProblemTitle:           row.ProblemTitle,
+			Language:               domain.SubmissionLanguage(row.Language),
+			Status:                 domain.SubmissionStatus(row.Status),
+			Score:                  int(row.Score),
+			CreatedAt:              row.CreatedAt.Time,
+			JudgedAt:               judgedAt,
+			SubmitterNamespaceSlug: row.SubmitterNamespaceSlug.String,
+		})
+	}
+	return submissions, nil
+}
+
 func newSubmission(
 	id int64,
 	userID string,

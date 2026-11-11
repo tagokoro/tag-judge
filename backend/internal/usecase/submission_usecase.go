@@ -198,6 +198,32 @@ func (u *SubmissionUsecase) List(ctx context.Context, input ListSubmissionsInput
 	})
 }
 
+type ListRecentSubmissionsInput struct {
+	Limit         int
+	LimitProvided bool
+	Offset        int
+}
+
+// ListRecentPublic lists recent submissions to public problems. Anyone may
+// call it; the result carries no source and no user id.
+func (u *SubmissionUsecase) ListRecentPublic(ctx context.Context, input ListRecentSubmissionsInput) ([]domain.PublicSubmission, error) {
+	limit := input.Limit
+	if !input.LimitProvided {
+		limit = defaultSubmissionLimit
+	}
+	if limit <= 0 || limit > maxSubmissionLimit {
+		return nil, apperror.InvalidInput("INVALID_LIMIT", "limit must be between 1 and 100")
+	}
+	if input.Offset < 0 {
+		return nil, apperror.InvalidInput("INVALID_OFFSET", "offset must be greater than or equal to 0")
+	}
+
+	return u.submissions.ListRecentPublic(ctx, repository.ListRecentSubmissionsParams{
+		Limit:  limit,
+		Offset: input.Offset,
+	})
+}
+
 func newSourceCodeKey(userID string, problemID int64, language domain.SubmissionLanguage) (string, error) {
 	token, err := randomHex(16)
 	if err != nil {

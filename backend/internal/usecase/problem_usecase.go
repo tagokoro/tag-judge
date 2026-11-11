@@ -204,6 +204,29 @@ func (u *ProblemUsecase) ListPublicProblems(ctx context.Context, input ListProbl
 	})
 }
 
+// ListMyProblems lists every problem the actor created, private ones included.
+func (u *ProblemUsecase) ListMyProblems(ctx context.Context, actor auth.Actor, input ListProblemsInput) ([]domain.Problem, error) {
+	if err := validateActor(actor); err != nil {
+		return nil, err
+	}
+	limit := input.Limit
+	if !input.LimitProvided {
+		limit = defaultProblemLimit
+	}
+	if limit <= 0 || limit > maxProblemLimit {
+		return nil, apperror.InvalidInput("INVALID_LIMIT", "limit must be between 1 and 100")
+	}
+	if input.Offset < 0 {
+		return nil, apperror.InvalidInput("INVALID_OFFSET", "offset must be greater than or equal to 0")
+	}
+
+	return u.problems.ListByCreator(ctx, repository.ListProblemsByCreatorParams{
+		CreatedBy: actor.UserID,
+		Limit:     limit,
+		Offset:    input.Offset,
+	})
+}
+
 func (u *ProblemUsecase) GetPublicProblem(ctx context.Context, id int64) (*domain.Problem, error) {
 	if id <= 0 {
 		return nil, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")

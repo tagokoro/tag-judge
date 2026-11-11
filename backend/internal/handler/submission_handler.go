@@ -103,6 +103,64 @@ func (h *SubmissionHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// ListRecent lists recent submissions to public problems for everyone.
+func (h *SubmissionHandler) ListRecent(w http.ResponseWriter, r *http.Request) {
+	limit, limitProvided, err := parseOptionalInt(r, "limit")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
+		return
+	}
+	offset, _, err := parseOptionalInt(r, "offset")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
+		return
+	}
+
+	submissions, err := h.submissions.ListRecentPublic(r.Context(), usecase.ListRecentSubmissionsInput{
+		Limit:         limit,
+		LimitProvided: limitProvided,
+		Offset:        offset,
+	})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	response := make([]publicSubmissionResponse, 0, len(submissions))
+	for _, submission := range submissions {
+		response = append(response, newPublicSubmissionResponse(submission))
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// publicSubmissionResponse has no source key and no user id; the submitter is
+// identified only by their namespace slug (null when they have none).
+type publicSubmissionResponse struct {
+	ID                     int64      `json:"id"`
+	ProblemID              int64      `json:"problem_id"`
+	ProblemTitle           string     `json:"problem_title"`
+	Language               string     `json:"language"`
+	Status                 string     `json:"status"`
+	Score                  int        `json:"score"`
+	CreatedAt              time.Time  `json:"created_at"`
+	JudgedAt               *time.Time `json:"judged_at"`
+	SubmitterNamespaceSlug *string    `json:"submitter_namespace_slug"`
+}
+
+func newPublicSubmissionResponse(submission domain.PublicSubmission) publicSubmissionResponse {
+	return publicSubmissionResponse{
+		ID:                     submission.ID,
+		ProblemID:              submission.ProblemID,
+		ProblemTitle:           submission.ProblemTitle,
+		Language:               string(submission.Language),
+		Status:                 string(submission.Status),
+		Score:                  submission.Score,
+		CreatedAt:              submission.CreatedAt,
+		JudgedAt:               submission.JudgedAt,
+		SubmitterNamespaceSlug: optionalString(submission.SubmitterNamespaceSlug),
+	}
+}
+
 func decodeJSON(r *http.Request, target any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
