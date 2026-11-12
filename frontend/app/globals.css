@@ -159,8 +159,11 @@ code {
   text-decoration: none;
 }
 
-.brand-mark {
-  flex: none;
+/* The logo file is drawn at 3x; it shows 32px tall (28px on phones). */
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 32px;
 }
 
 .site-nav {
@@ -1219,6 +1222,10 @@ textarea.code-input {
   .site-header-inner {
     flex-wrap: nowrap;
     padding: 6px 16px;
+  }
+
+  .brand-logo {
+    height: 28px;
   }
 
   .site-nav,
