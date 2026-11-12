@@ -89,7 +89,7 @@ export function Card({
 /** The owner's "Edit" button in a card heading; `what` names the card for screen readers. */
 export function EditLink({ href, what }: { href: string; what: string }) {
   return (
-    <Link className="btn" href={href} aria-label={`Edit ${what}`}>
+    <Link className="btn btn-primary" href={href} aria-label={`Edit ${what}`}>
       Edit
     </Link>
   );
