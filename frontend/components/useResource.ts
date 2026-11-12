@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JudgeClient } from "@/lib/api";
+import { devHeadersOf } from "@/lib/session";
 import { useAuth } from "./AuthProvider";
 
 interface Loaded<T> {
@@ -24,12 +25,21 @@ export interface Resource<T> {
  * (pass null to skip). A result is shown only for the key and actor it was
  * requested for, and a superseded request is aborted, so a late response can
  * never show data for another target or another actor.
+ *
+ * Nothing is requested until the cookie session is known, so a page never
+ * fetches as anonymous and then again as the signed-in user.
+ *
+ * `initial` is data a Server Component already fetched with the visitor's
+ * cookies. It is used as is, without a request, unless dev header auth is on
+ * (the server never sees dev headers, so its answer may be for another actor)
+ * or `reload` was called.
  */
 export function useResource<T>(
   key: string | null,
   load: (api: JudgeClient) => Promise<T>,
+  initial?: { data: T },
 ): Resource<T> {
-  const { client, identity } = useAuth();
+  const { client, identity, state } = useAuth();
   const [tick, setTick] = useState(0);
   const [loaded, setLoaded] = useState<Loaded<T> | null>(null);
 
@@ -39,7 +49,9 @@ export function useResource<T>(
     loadRef.current = load;
   });
 
-  const fullKey = key === null ? null : `${identity}\n${key}\n${tick}`;
+  const useInitial = initial !== undefined && tick === 0 && devHeadersOf(state) === null;
+  const fullKey =
+    key === null || useInitial || !state.cookieChecked ? null : `${identity}\n${key}\n${tick}`;
 
   useEffect(() => {
     if (fullKey === null) {
@@ -71,11 +83,15 @@ export function useResource<T>(
     [fullKey],
   );
 
+  if (useInitial) {
+    return { data: initial.data, error: null, loading: false, reload, setData };
+  }
   const current = loaded !== null && loaded.key === fullKey ? loaded : null;
   return {
     data: current?.data ?? null,
     error: current?.error ?? null,
-    loading: fullKey !== null && current === null,
+    // Still waiting for the session check counts as loading.
+    loading: key !== null && current === null,
     reload,
     setData,
   };

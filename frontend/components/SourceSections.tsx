@@ -1,24 +1,25 @@
 "use client";
 
-import Link from "next/link";
 import { formatDateTime } from "@/lib/format";
 import { isValidSubmissionUrl } from "@/lib/submissionUrl";
 import type { LibraryVersion } from "@/lib/types";
 import { CodeView } from "./CodeEditor";
-import { Card } from "./ui";
+import { Card, EditLink } from "./ui";
 
 /** The code and submission-URL cards of a library's latest code. */
 export function SourceSections({
   version,
+  editCodeHref,
   editUrlHref,
 }: {
   version: LibraryVersion;
-  /** Shown as an edit button in the submission-URL card when set (owner only). */
+  /** Edit buttons in the card headings, set only for the owner. */
+  editCodeHref?: string;
   editUrlHref?: string;
 }) {
   return (
     <>
-      <Card title="Code">
+      <Card title="Code" action={editCodeHref ? <EditLink href={editCodeHref} what="Code" /> : null}>
         <dl className="kv">
           <dt>更新日時</dt>
           <dd className="num">{formatDateTime(version.created_at)}</dd>
@@ -32,7 +33,7 @@ export function SourceSections({
           <CodeView value={version.source_code} label="コード" />
         </div>
       </Card>
-      <Card title="Verification">
+      <Card title="Verification" action={editUrlHref ? <EditLink href={editUrlHref} what="Verification" /> : null}>
         {version.submission_url ? (
           <dl className="kv">
             <dt>URL</dt>
@@ -55,13 +56,6 @@ export function SourceSections({
         ) : (
           <p className="empty">提出 URL は登録されていません。</p>
         )}
-        {editUrlHref ? (
-          <div className="card-actions">
-            <Link className="btn" href={editUrlHref}>
-              提出 URL を編集
-            </Link>
-          </div>
-        ) : null}
       </Card>
     </>
   );

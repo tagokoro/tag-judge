@@ -13,12 +13,12 @@ import {
   PROBLEMS_PATH,
   SUBMISSIONS_PATH,
 } from "@/lib/routes";
+import { DEV_AUTH_AVAILABLE } from "@/lib/session";
 import type { Role } from "@/lib/types";
 import logo from "@/assets/tagjudge-logo.png";
 import { useAuth } from "./AuthProvider";
 import { useAsyncAction } from "./useAsyncAction";
 
-const SHOW_DEV_AUTH = process.env.NODE_ENV !== "production";
 
 const NAV_ITEMS = [
   { href: HOME_PATH, label: "Libraries" },
@@ -62,7 +62,7 @@ export function Header() {
           <NavLinks pathname={pathname} />
         </nav>
         <div className="site-actions">
-          {SHOW_DEV_AUTH && !state.session ? <DevAuthMenu /> : null}
+          {DEV_AUTH_AVAILABLE && !state.session ? <DevAuthMenu /> : null}
           {!state.cookieChecked ? null : actor ? (
             <UserMenu />
           ) : (
@@ -150,7 +150,7 @@ function PhoneSheet({ pathname }: { pathname: string }) {
           </a>
         </div>
       )}
-      {SHOW_DEV_AUTH && !state.session ? (
+      {DEV_AUTH_AVAILABLE && !state.session ? (
         <div className="sheet-group">
           <DevAuthMenu />
         </div>

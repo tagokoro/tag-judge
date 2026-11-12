@@ -54,22 +54,44 @@ export function Card({
   title,
   note,
   owner = false,
+  action,
   children,
 }: {
   title: string;
   note?: ReactNode;
   owner?: boolean;
+  /** A control shown at the right of the heading, such as an EditLink (「編集」). */
+  action?: ReactNode;
   children: ReactNode;
 }) {
+  const heading = (
+    <h2>
+      {title}
+      {owner ? <span className="owner-tag">所有者のみ</span> : null}
+    </h2>
+  );
   return (
     <section className={owner ? "section section-owner" : "section"}>
-      <h2>
-        {title}
-        {owner ? <span className="owner-tag">所有者のみ</span> : null}
-      </h2>
+      {action ? (
+        <div className="section-head">
+          {heading}
+          {action}
+        </div>
+      ) : (
+        heading
+      )}
       {note ? <p className="note">{note}</p> : null}
       {children}
     </section>
+  );
+}
+
+/** The owner's 「編集」 button in a card heading; `what` names the card for screen readers. */
+export function EditLink({ href, what }: { href: string; what: string }) {
+  return (
+    <Link className="btn btn-primary" href={href} aria-label={`${what} を編集`}>
+      編集
+    </Link>
   );
 }
 

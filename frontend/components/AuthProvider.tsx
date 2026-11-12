@@ -125,11 +125,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 /**
  * Remounts the page whenever the effective actor changes, so data loaded for
  * the previous actor is dropped and its in-flight requests are aborted.
+ *
+ * It renders at once, even before the cookie session is known, so server-
+ * rendered content shows on the first paint; client fetches wait for the
+ * session check inside useResource instead.
  */
 export function ActorScope({ children }: { children: ReactNode }) {
-  const { identity, state } = useAuth();
-  if (!state.cookieChecked) {
-    return <p className="muted">セッションを確認しています…</p>;
-  }
+  const { identity } = useAuth();
   return <div key={identity}>{children}</div>;
 }

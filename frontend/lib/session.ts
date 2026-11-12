@@ -61,3 +61,6 @@ export function devHeadersOf(state: SessionState): DevHeaders | null {
 export function isOwner(actor: Actor | null, ownerUserId: string): boolean {
   return actor !== null && actor.userId.toLowerCase() === ownerUserId.toLowerCase();
 }
+
+/** Dev header auth exists only outside production builds. */
+export const DEV_AUTH_AVAILABLE = process.env.NODE_ENV !== "production";

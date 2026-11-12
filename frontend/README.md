@@ -30,7 +30,8 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 
 - Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
 - 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
-  「設定を編集」「コードを更新」「提出 URL を編集」などのボタンから編集ページへ移ります。
+  Description・Code・Verification の各カードの見出しの右にある「編集」ボタンから、それぞれの編集ページへ移ります
+  （Description の「編集」は名前・説明・公開範囲の設定ページです）。
 - 編集ボタンと編集ページのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。
   表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
 - 提出 URL は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
@@ -63,11 +64,24 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 
 ## データの読み込みと actor の切り替え
 
+- **public なページはサーバーで描画します**（Server Component）。`/`、`/problems`、`/submissions`、
+  `/n/[namespace]`、`/n/[namespace]/[library]` は `lib/serverApi.ts` で Go API から直接データを取得し、
+  中身の入った HTML とページごとのタイトルを返します。
+  - 取得には訪問者の cookie を付けるので、ログイン中の所有者には private の Library も最初から表示されます。
+  - Go API の場所は `lib/apiOrigin.ts`（`API_SERVER_ORIGIN`）で、rewrite と共通です。
+  - dev 認証のヘッダーはブラウザにしかないため、dev 認証が有効なときはブラウザ側で取り直します。
+    開発ビルドでは、サーバーで 404 だった Library もブラウザ側で取り直します（dev ユーザーが所有者の場合があるため）。
+  - 所有者向けのボタン、編集ページ、自分の一覧はブラウザ側で描画します。
+- **見つからないページは 404 です**（`app/not-found.tsx`）。存在しない Namespace・Library、
+  他人の private Library、所有者以外が開いた編集ページは、すべて同じ「ページが見つかりません」になり、
+  何が存在するかを区別できません。描画中のエラーは `app/error.tsx` で受け止めます。
+  - 編集ページは所有者の判定をブラウザで行うため、画面は 404 でも HTTP ステータスは 200 です。
 - ログイン状態は `components/AuthProvider.tsx` がルートレイアウトで 1 つだけ持ちます。誰が actor かの判定
   （cookie 優先、dev 認証、所有者判定）は React 非依存の `lib/session.ts` にあります。
-- ページは `ActorScope` の中で actor ごとに再マウントされます。ログイン・ログアウトや dev ユーザーの切り替えで
+- ページは `ActorScope` の中で actor ごとに再マウントされます。セッションの確認中もページは表示し、
+  ブラウザ側の読み込みだけが確認を待ちます。ログイン・ログアウトや dev ユーザーの切り替えで
   前の actor 向けに読み込んだデータ（private のソースを含む）は破棄され、実行中のリクエストも中止されます。
-- 各ページの読み込みは `components/useResource.ts` で行います。結果は「どの actor が、何を」要求したかの
+- ブラウザ側の読み込みは `components/useResource.ts` で行います（サーバーで取得済みのデータは `initial` で受け取ります）。結果は「どの actor が、何を」要求したかの
   キーと一緒に保持し、キーが変わった古い応答は表示しません。対象が変わると前のリクエストは中止されます。
 
 ## 必要なもの・起動

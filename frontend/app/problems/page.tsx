@@ -1,25 +1,21 @@
-"use client";
-
+import type { Metadata } from "next";
 import { ProblemList } from "@/components/lists";
-import { useResource } from "@/components/useResource";
-import { LoadState } from "@/components/ui";
+import { serverClient } from "@/lib/serverApi";
 
-export default function ProblemsPage() {
-  const problems = useResource("problems", (api) => api.listProblems());
+export const metadata: Metadata = { title: "Problems" };
+
+export default async function ProblemsPage() {
+  const problems = await (await serverClient()).listProblems();
 
   return (
     <div className="page">
       <h1>Problems</h1>
-      {problems.data ? (
-        problems.data.length === 0 ? (
-          <p className="empty">public な問題はまだありません。</p>
-        ) : (
-          <div className="panel">
-            <ProblemList problems={problems.data} />
-          </div>
-        )
+      {problems.length === 0 ? (
+        <p className="empty">public な問題はまだありません。</p>
       ) : (
-        <LoadState loading={problems.loading} error={problems.error} notFound="" />
+        <div className="panel">
+          <ProblemList problems={problems} />
+        </div>
       )}
     </div>
   );

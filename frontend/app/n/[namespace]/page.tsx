@@ -1,60 +1,22 @@
-"use client";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { NamespaceView } from "@/components/NamespaceView";
+import { getNamespace, serverClient } from "@/lib/serverApi";
 
-import Link from "next/link";
-import { use } from "react";
-import { LibraryList } from "@/components/lists";
-import { useNamespaceOwner } from "@/components/OwnerOnly";
-import { useResource } from "@/components/useResource";
-import { Breadcrumbs, Card, LoadState } from "@/components/ui";
-import { HOME_PATH, NEW_LIBRARY_PATH } from "@/lib/routes";
+type Params = Promise<{ namespace: string }>;
 
-export default function NamespacePage({ params }: { params: Promise<{ namespace: string }> }) {
-  const { namespace: namespaceSlug } = use(params);
-  const { namespace, owner } = useNamespaceOwner(namespaceSlug);
-  const libraries = useResource(`ns:${namespaceSlug}:libraries`, (api) =>
-    api.listLibraries(namespaceSlug),
-  );
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const namespace = await getNamespace((await params).namespace);
+  return { title: namespace ? `${namespace.display_name} (@${namespace.slug})` : "Namespace が見つかりません" };
+}
 
-  return (
-    <div className="page">
-      <Breadcrumbs items={[{ label: "Libraries", href: HOME_PATH }, { label: namespaceSlug }]} />
-      {namespace.data ? (
-        <div className="page-title">
-          <h1>{namespace.data.display_name}</h1>
-          <span className="page-sub">@{namespace.data.slug}</span>
-          {owner ? (
-            <div className="page-actions">
-              <Link className="btn btn-primary" href={NEW_LIBRARY_PATH}>
-                Library を作成
-              </Link>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <LoadState
-          loading={namespace.loading}
-          error={namespace.error}
-          notFound="この Namespace は見つかりません。"
-        />
-      )}
+export default async function NamespacePage({ params }: { params: Params }) {
+  const { namespace: namespaceSlug } = await params;
+  const namespace = await getNamespace(namespaceSlug);
+  if (!namespace) {
+    notFound();
+  }
+  const libraries = await (await serverClient()).listLibraries(namespaceSlug);
 
-      {namespace.data ? (
-        <Card title="Library">
-          {libraries.data ? (
-            libraries.data.length === 0 ? (
-              <p className="empty">
-                {owner
-                  ? "まだ Library がありません。「Library を作成」から最初の Library を作ってください。"
-                  : "public な Library はまだありません。"}
-              </p>
-            ) : (
-              <LibraryList libraries={libraries.data} />
-            )
-          ) : (
-            <LoadState loading={libraries.loading} error={libraries.error} notFound="" />
-          )}
-        </Card>
-      ) : null}
-    </div>
-  );
+  return <NamespaceView namespaceSlug={namespaceSlug} initial={{ namespace, libraries }} />;
 }

@@ -601,10 +601,24 @@ code {
   overflow: hidden;
 }
 
-.section > h2 {
+.section > h2,
+.section-head > h2 {
   font-size: 1.15rem;
   font-weight: 700;
   margin-bottom: 16px;
+}
+
+/* A card heading with a control (Edit) at its right. */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-head > h2 {
+  margin-bottom: 0;
 }
 
 .section > .note {
@@ -1188,14 +1202,14 @@ textarea.code-input {
   word-break: break-all;
 }
 
+/* The server's stand-in for the read-only CodeMirror view: same frame and text metrics. */
 .source-view {
-  margin-top: 1rem;
-  padding: 1rem 1.1rem;
-  border-radius: var(--radius-panel);
-  background: var(--mist);
+  padding: 4px 8px 4px 32px;
+  border-radius: var(--radius-control);
+  background: var(--paper);
   border: 1px solid var(--line);
-  font-size: 0.86rem;
-  line-height: 1.65;
+  font-size: 0.88rem;
+  line-height: 1.6;
   white-space: pre;
   overflow-x: auto;
 }
@@ -1260,8 +1274,7 @@ textarea.code-input {
   }
 
   /* Form buttons stack full width, the main one first. */
-  .row > .btn,
-  .card-actions > .btn {
+  .row > .btn {
     flex: 1 1 100%;
     width: 100%;
   }
@@ -1282,10 +1295,4 @@ textarea.code-input {
     transition: none !important;
     animation: none !important;
   }
-}
-
-/* ---------- Card actions ---------- */
-
-.card-actions {
-  margin-top: 1rem;
 }
