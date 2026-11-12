@@ -601,10 +601,24 @@ code {
   overflow: hidden;
 }
 
-.section > h2 {
+.section > h2,
+.section-head > h2 {
   font-size: 1.15rem;
   font-weight: 700;
   margin-bottom: 16px;
+}
+
+/* A card heading with a control (Edit) at its right. */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-head > h2 {
+  margin-bottom: 0;
 }
 
 .section > .note {
@@ -1260,8 +1274,7 @@ textarea.code-input {
   }
 
   /* Form buttons stack full width, the main one first. */
-  .row > .btn,
-  .card-actions > .btn {
+  .row > .btn {
     flex: 1 1 100%;
     width: 100%;
   }
@@ -1282,10 +1295,4 @@ textarea.code-input {
     transition: none !important;
     animation: none !important;
   }
-}
-
-/* ---------- Card actions ---------- */
-
-.card-actions {
-  margin-top: 1rem;
 }

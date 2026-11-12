@@ -1,13 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useNamespaceOwner } from "./OwnerOnly";
 import { RichText } from "./RichText";
 import { SourceSections } from "./SourceSections";
 import { useLatestVersion } from "./useLatestVersion";
 import { useResource } from "./useResource";
 import type { Library, LibraryVersion, Namespace } from "@/lib/types";
-import { Breadcrumbs, Card, LoadState, VisibilityBadge } from "./ui";
+import { Breadcrumbs, Card, EditLink, LoadState, VisibilityBadge } from "./ui";
 import {
   HOME_PATH,
   libraryCodeEditPath,
@@ -58,23 +57,16 @@ export function LibraryView({
           <div className="page-title">
             <h1>{library.data.name}</h1>
             <VisibilityBadge visibility={library.data.visibility} />
-            {owner ? (
-              <div className="page-actions">
-                <Link className="btn" href={libraryEditPath(namespaceSlug, librarySlug)}>
-                  設定を編集
-                </Link>
-                <Link className="btn btn-primary" href={libraryCodeEditPath(namespaceSlug, librarySlug)}>
-                  コードを更新
-                </Link>
-              </div>
-            ) : null}
           </div>
-          <Card title="Description">
+          <Card
+            title="Description"
+            action={owner ? <EditLink href={libraryEditPath(namespaceSlug, librarySlug)} what="Description" /> : null}
+          >
             {library.data.description ? (
               <RichText source={library.data.description} />
             ) : (
               <p className="empty">
-                {owner ? "説明はまだありません。「設定を編集」から書けます。" : "説明はまだありません。"}
+                {owner ? "説明はまだありません。Edit から書けます。" : "説明はまだありません。"}
               </p>
             )}
           </Card>
@@ -91,12 +83,16 @@ export function LibraryView({
         latest.data ? (
           <SourceSections
             version={latest.data}
+            editCodeHref={owner ? libraryCodeEditPath(namespaceSlug, librarySlug) : undefined}
             editUrlHref={owner ? submissionUrlEditPath(namespaceSlug, librarySlug) : undefined}
           />
         ) : latest.empty ? (
-          <Card title="Code">
+          <Card
+            title="Code"
+            action={owner ? <EditLink href={libraryCodeEditPath(namespaceSlug, librarySlug)} what="Code" /> : null}
+          >
             <p className="empty">
-              {owner ? "まだコードがありません。「コードを更新」から登録してください。" : "まだコードがありません。"}
+              {owner ? "まだコードがありません。Edit から登録してください。" : "まだコードがありません。"}
             </p>
           </Card>
         ) : (

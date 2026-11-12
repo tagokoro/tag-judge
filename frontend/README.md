@@ -30,7 +30,8 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 
 - Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
 - 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
-  「設定を編集」「コードを更新」「提出 URL を編集」などのボタンから編集ページへ移ります。
+  Description・Code・Verification の各カードの見出しの右にある「Edit」ボタンから、それぞれの編集ページへ移ります
+  （Description の Edit は名前・説明・公開範囲の設定ページです）。
 - 編集ボタンと編集ページのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。
   表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
 - 提出 URL は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
