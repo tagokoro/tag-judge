@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { formatDateTime, statusLabel, statusTone } from "@/lib/format";
+import { descriptionSummary, formatDateTime, statusLabel, statusTone } from "@/lib/format";
 import { libraryPath, namespacePath } from "@/lib/routes";
 import type { Library, Problem } from "@/lib/types";
 import { VisibilityBadge } from "./ui";
@@ -16,21 +16,25 @@ export function LibraryList({
 }) {
   return (
     <ul className="lib-list">
-      {libraries.map((library) => (
-        <li key={library.id}>
-          <Link className="lib-row" href={libraryPath(library.namespace_slug, library.slug)}>
-            <span>
-              <span className="lib-name">{library.name}</span>
-              <span className="lib-slug">
-                {showNamespace ? `${library.namespace_slug}/` : ""}
-                {library.slug}
+      {libraries.map((library) => {
+        // Rows are links, so the description is a plain-text summary, never rendered Markdown.
+        const summary = descriptionSummary(library.description);
+        return (
+          <li key={library.id}>
+            <Link className="lib-row" href={libraryPath(library.namespace_slug, library.slug)}>
+              <span>
+                <span className="lib-name">{library.name}</span>
+                <span className="lib-slug">
+                  {showNamespace ? `${library.namespace_slug}/` : ""}
+                  {library.slug}
+                </span>
               </span>
-            </span>
-            <VisibilityBadge visibility={library.visibility} />
-            {library.description ? <span className="lib-desc">{library.description}</span> : null}
-          </Link>
-        </li>
-      ))}
+              <VisibilityBadge visibility={library.visibility} />
+              {summary ? <span className="lib-desc">{summary}</span> : null}
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -49,13 +53,13 @@ export function ProblemList({ problems, showVisibility = false }: { problems: Pr
       <tbody>
         {problems.map((problem) => (
           <tr key={problem.id}>
-            <td className="num col-shrink">{problem.id}</td>
-            <td>{problem.title}</td>
-            <td className="num muted col-shrink">
+            <td className="num col-shrink" data-label="ID">{problem.id}</td>
+            <td className="cell-main" data-label="問題">{problem.title}</td>
+            <td className="num muted col-shrink" data-label="制限">
               {problem.time_limit_ms / 1000} 秒 / {Math.round(problem.memory_limit_kb / 1024)} MB
             </td>
             {showVisibility ? (
-              <td>
+              <td data-label="Visibility">
                 <VisibilityBadge visibility={problem.visibility === "public" ? "public" : "private"} />
               </td>
             ) : null}
@@ -98,10 +102,10 @@ export function SubmissionTable({
       <tbody>
         {submissions.map((submission) => (
           <tr key={submission.id}>
-            <td className="num col-shrink">{formatDateTime(submission.created_at)}</td>
-            <td>{submission.problem}</td>
+            <td className="num col-shrink" data-label="提出日時">{formatDateTime(submission.created_at)}</td>
+            <td className="cell-main" data-label="問題">{submission.problem}</td>
             {showSubmitter ? (
-              <td>
+              <td data-label="提出者">
                 {submission.submitter ? (
                   <Link href={namespacePath(submission.submitter)}>{submission.submitter}</Link>
                 ) : (
@@ -109,13 +113,13 @@ export function SubmissionTable({
                 )}
               </td>
             ) : null}
-            <td>{submission.language}</td>
-            <td>
+            <td data-label="言語">{submission.language}</td>
+            <td data-label="結果">
               <span className={`status status-${statusTone(submission.status)}`}>
                 {statusLabel(submission.status)}
               </span>
             </td>
-            <td className="num">{submission.score}</td>
+            <td className="num" data-label="得点">{submission.score}</td>
           </tr>
         ))}
       </tbody>

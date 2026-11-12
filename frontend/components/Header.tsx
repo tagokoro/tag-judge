@@ -27,25 +27,37 @@ const NAV_ITEMS = [
 export function Header() {
   const { state, actor } = useAuth();
   const pathname = usePathname();
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  // A new page closes the phone menu.
+  const [sheetPath, setSheetPath] = useState(pathname);
+  if (sheetPath !== pathname) {
+    setSheetPath(pathname);
+    setSheetOpen(false);
+  }
+
+  useEffect(() => {
+    if (!sheetOpen) {
+      return;
+    }
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSheetOpen(false);
+      }
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [sheetOpen]);
 
   return (
     <header className="site-header">
       <div className="site-header-inner">
         <Link href={HOME_PATH} className="brand">
-          <VersionMark />
+          <BrandMark />
           TagJudge
         </Link>
         <nav className="site-nav" aria-label="メインメニュー">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={pathname === item.href ? "active" : undefined}
-              aria-current={pathname === item.href ? "page" : undefined}
-            >
-              {item.label}
-            </Link>
-          ))}
+          <NavLinks pathname={pathname} />
         </nav>
         <div className="site-actions">
           {SHOW_DEV_AUTH && !state.session ? <DevAuthMenu /> : null}
@@ -58,8 +70,102 @@ export function Header() {
             </a>
           )}
         </div>
+        <button
+          type="button"
+          className="menu-toggle"
+          aria-expanded={sheetOpen}
+          aria-controls="site-sheet"
+          aria-label={sheetOpen ? "メニューを閉じる" : "メニューを開く"}
+          onClick={() => setSheetOpen((value) => !value)}
+        >
+          <MenuIcon open={sheetOpen} />
+        </button>
       </div>
+      {sheetOpen ? <PhoneSheet pathname={pathname} /> : null}
     </header>
+  );
+}
+
+function NavLinks({ pathname }: { pathname: string }) {
+  return NAV_ITEMS.map((item) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className={pathname === item.href ? "active" : undefined}
+      aria-current={pathname === item.href ? "page" : undefined}
+    >
+      {item.label}
+    </Link>
+  ));
+}
+
+const MY_ITEMS = [
+  { href: ME_PATH, label: "自分のライブラリ" },
+  { href: MY_SUBMISSIONS_PATH, label: "自分の提出" },
+  { href: MY_PROBLEMS_PATH, label: "自分の問題" },
+];
+
+/** The phone menu: every page link and the account actions in one sheet. */
+function PhoneSheet({ pathname }: { pathname: string }) {
+  const { state, actor, logout } = useAuth();
+  const { busy, error, run } = useAsyncAction();
+
+  return (
+    <div id="site-sheet" className="site-sheet">
+      <nav className="sheet-group" aria-label="メインメニュー（スマートフォン）">
+        <NavLinks pathname={pathname} />
+      </nav>
+      {!state.cookieChecked ? null : actor ? (
+        <div className="sheet-group">
+          <p className="sheet-who">
+            {actor.source === "dev" ? "dev " : ""}
+            {actor.userId.slice(0, 8)} <span className="user-role">{actor.role}</span>
+          </p>
+          {MY_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={pathname === item.href ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          ))}
+          {actor.source === "cookie" ? (
+            <button type="button" className="menu-danger" onClick={() => run(logout)} disabled={busy}>
+              ログアウト
+            </button>
+          ) : null}
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="sheet-group">
+          <a className="btn btn-primary" href={GOOGLE_LOGIN_PATH}>
+            Google でログイン
+          </a>
+        </div>
+      )}
+      {SHOW_DEV_AUTH && !state.session ? (
+        <div className="sheet-group">
+          <DevAuthMenu />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      {open ? (
+        <path d="M5 5l12 12M17 5L5 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      ) : (
+        <path d="M3 6h16M3 11h16M3 16h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      )}
+    </svg>
   );
 }
 
@@ -90,11 +196,6 @@ function UserMenu() {
   if (!actor) {
     return null;
   }
-  const items = [
-    { href: ME_PATH, label: "自分のライブラリ" },
-    { href: MY_SUBMISSIONS_PATH, label: "自分の提出" },
-    { href: MY_PROBLEMS_PATH, label: "自分の問題" },
-  ];
 
   return (
     <div className="user-menu" ref={rootRef}>
@@ -117,7 +218,7 @@ function UserMenu() {
       </button>
       {open ? (
         <div className="user-menu-panel" role="menu">
-          {items.map((item) => (
+          {MY_ITEMS.map((item) => (
             <Link key={item.href} href={item.href} role="menuitem" onClick={() => setOpen(false)}>
               {item.label}
             </Link>
@@ -152,8 +253,8 @@ function UserMenu() {
   );
 }
 
-/** Three versions on one line: the site's version-line motif. */
-function VersionMark() {
+/** The brand mark: three linked nodes. */
+function BrandMark() {
   return (
     <svg className="brand-mark" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true">
       <line x1="5" y1="7" x2="29" y2="7" stroke="var(--mizu)" strokeWidth="2" />

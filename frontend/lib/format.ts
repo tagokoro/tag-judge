@@ -39,3 +39,32 @@ export function statusTone(status: string): "accepted" | "rejected" | "waiting" 
   }
   return status === "pending" || status === "running" ? "waiting" : "rejected";
 }
+
+/**
+ * A one-paragraph plain-text summary of a Markdown + TeX description, for list
+ * rows: the first paragraph of prose, with inline Markdown and math delimiters
+ * dropped. Headings, list items, code blocks and display math are skipped.
+ */
+export function descriptionSummary(markdown: string): string {
+  const paragraphs = markdown
+    .replace(/```[\s\S]*?```/g, "\n\n")
+    .replace(/\$\$[\s\S]*?\$\$/g, "\n\n")
+    .split(/\n\s*\n/);
+  for (const paragraph of paragraphs) {
+    const lines = paragraph
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !/^(#{1,6}\s|[-*+]\s|\d+\.\s|>|\|)/.test(line));
+    if (lines.length === 0) {
+      continue;
+    }
+    return lines
+      .join(" ")
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/(\*\*|__|\*|_|~~|`)/g, "")
+      .replace(/\$([^$]*)\$/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return "";
+}

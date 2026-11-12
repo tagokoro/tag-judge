@@ -134,8 +134,8 @@ function segment(value: string): string {
   return encodeURIComponent(value.trim());
 }
 
-function list(path: string): string {
-  return `${path}?limit=${LIST_LIMIT}`;
+function list(path: string, limit = LIST_LIMIT): string {
+  return `${path}?limit=${limit}`;
 }
 
 export interface JudgeClient {
@@ -152,7 +152,8 @@ export interface JudgeClient {
     librarySlug: string,
     patch: UpdateLibraryInput,
   ): Promise<Library>;
-  listVersions(namespaceSlug: string, librarySlug: string): Promise<LibraryVersionSummary[]>;
+  /** Newest first. `limit` defaults to the usual list size; pass 1 for just the latest. */
+  listVersions(namespaceSlug: string, librarySlug: string, limit?: number): Promise<LibraryVersionSummary[]>;
   getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
   createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
   // Site-wide lists.
@@ -213,8 +214,8 @@ export function createJudgeClient(
         method: "PATCH",
         json: patch,
       }),
-    listVersions: (namespaceSlug, librarySlug) =>
-      call<LibraryVersionSummary[]>(list(`${libraryBase(namespaceSlug, librarySlug)}/versions`)),
+    listVersions: (namespaceSlug, librarySlug, limit) =>
+      call<LibraryVersionSummary[]>(list(`${libraryBase(namespaceSlug, librarySlug)}/versions`, limit)),
     getVersion: (namespaceSlug, librarySlug, version) =>
       call<LibraryVersion>(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}`),
     createVersion: (namespaceSlug, librarySlug, sourceCode) =>

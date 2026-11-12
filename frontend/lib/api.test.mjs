@@ -176,6 +176,10 @@ test("createJudgeClient keeps the namespace/library/version contract", async () 
 
   await client.getNamespace("a b");
   assert.equal(calls[2].url, "/api/v1/namespaces/a%20b");
+  await client.listVersions("my-ns", "uf");
+  assert.equal(calls[3].url, "/api/v1/namespaces/my-ns/libraries/uf/versions?limit=100");
+  await client.listVersions("my-ns", "uf", 1);
+  assert.equal(calls[4].url, "/api/v1/namespaces/my-ns/libraries/uf/versions?limit=1");
 });
 
 test("createJudgeClient uses the dev-header provider on every request", async () => {

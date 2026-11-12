@@ -12,7 +12,7 @@ const FONTS_URL =
 
 export const metadata: Metadata = {
   title: "TagJudge",
-  description: "競技プログラミング用ライブラリを版ごとに共有する",
+  description: "競技プログラミング用ライブラリを共有する",
 };
 
 export default function RootLayout({
@@ -26,9 +26,12 @@ export default function RootLayout({
         <link rel="stylesheet" href={FONTS_URL} />
       </head>
       <body>
+        <a className="skip-link" href="#main">
+          本文へ移動
+        </a>
         <AuthProvider>
           <Header />
-          <main className="container">
+          <main id="main" className="container">
             <ActorScope>{children}</ActorScope>
           </main>
         </AuthProvider>

@@ -16,3 +16,12 @@ test("statusLabel and statusTone describe judge results", async () => {
   assert.equal(statusTone("wa"), "rejected");
   assert.equal(statusTone("running"), "waiting");
 });
+
+test("descriptionSummary keeps the first prose paragraph as plain text", async () => {
+  const { descriptionSummary } = await import("./format.ts");
+  const seed =
+    "素集合を管理する **Union-Find** です。\n\n- `find(x)`: 根を返す\n\n計算量はならし $O(\\alpha(N))$ です。\n\n$$\\alpha(N) \\le 4$$";
+  assert.equal(descriptionSummary(seed), "素集合を管理する Union-Find です。");
+  assert.equal(descriptionSummary("# 見出し\n\n[解説](https://example.com) と `code`"), "解説 と code");
+  assert.equal(descriptionSummary("$$x$$\n\n- a\n- b"), "");
+});

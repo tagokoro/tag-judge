@@ -1,32 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  libraryCodeEditPath,
   libraryEditPath,
   libraryPath,
   namespacePath,
-  newVersionPath,
-  parseVersionParam,
-  versionEditPath,
-  versionPath,
+  submissionUrlEditPath,
 } from "./routes.ts";
 
 test("page paths live under /n/ and encode each slug as one segment", () => {
   assert.equal(namespacePath("seed-author"), "/n/seed-author");
   assert.equal(libraryPath("seed-author", "union-find"), "/n/seed-author/union-find");
-  assert.equal(versionPath("seed-author", "union-find", 3), "/n/seed-author/union-find/v/3");
   assert.equal(namespacePath("a/b"), "/n/a%2Fb");
-});
-
-test("parseVersionParam accepts 1..int32 max only", () => {
-  assert.equal(parseVersionParam("1"), 1);
-  assert.equal(parseVersionParam("2147483647"), 2147483647);
-  for (const raw of ["0", "-1", "01", "1.5", "abc", "", "2147483648"]) {
-    assert.equal(parseVersionParam(raw), null, raw);
-  }
 });
 
 test("edit pages live beside the read-only pages", () => {
   assert.equal(libraryEditPath("ns", "uf"), "/n/ns/uf/edit");
-  assert.equal(newVersionPath("ns", "uf"), "/n/ns/uf/versions/new");
-  assert.equal(versionEditPath("ns", "uf", 2), "/n/ns/uf/v/2/edit");
+  assert.equal(libraryCodeEditPath("ns", "uf"), "/n/ns/uf/code/edit");
+  assert.equal(submissionUrlEditPath("ns", "uf"), "/n/ns/uf/submission-url/edit");
 });

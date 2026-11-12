@@ -22,22 +22,24 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 | `/me/submissions` | 自分の提出 | `GET /submissions` |
 | `/me/problems` | 自分が作った問題（非公開を含む） | `GET /me/problems` |
 | `/n/[namespace]` | Namespace の Library 一覧（閲覧のみ） | `GET /namespaces/{ns}`、`GET .../libraries` |
-| `/n/[namespace]/[library]` | Library の詳細と Version 一覧（閲覧のみ） | `GET .../libraries/{lib}`、`GET .../versions` |
-| `/n/[namespace]/[library]/v/[version]` | Version のソースと提出 URL（閲覧のみ） | `GET .../versions/{n}` |
+| `/n/[namespace]/[library]` | Library の説明と、最新のコード・提出 URL（閲覧のみ） | `GET .../libraries/{lib}`、`GET .../versions`、`GET .../versions/{n}` |
 | `/libraries/new` | Library の作成（自分の Namespace に作る） | `GET /me/namespace`、`POST .../libraries` |
 | `/n/[namespace]/[library]/edit` | Library の設定（名前・説明・公開範囲） | `PATCH .../libraries/{lib}` |
-| `/n/[namespace]/[library]/versions/new` | Version の追加 | `POST .../versions` |
-| `/n/[namespace]/[library]/v/[version]/edit` | 提出 URL の設定・削除 | `PUT` / `DELETE .../versions/{n}/submission-url` |
+| `/n/[namespace]/[library]/code/edit` | コードの更新（最新のコードを編集して保存） | `POST .../versions` |
+| `/n/[namespace]/[library]/submission-url/edit` | 最新のコードの提出 URL の設定・削除 | `PUT` / `DELETE .../versions/{n}/submission-url` |
 
 - Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
 - 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
-  「設定を編集」「Version を追加」「提出 URL を編集」などのボタンから編集ページへ移ります。
+  「設定を編集」「コードを更新」「提出 URL を編集」などのボタンから編集ページへ移ります。
 - 編集ボタンと編集ページのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。
   表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
-- 各 Version の「関連する提出 URL」は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
+- 提出 URL は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
   判定は行わず、検証済み（AC など）バッジやステータス・スコアも表示しません。設定しても
   Submission / Outbox / S3 オブジェクト / Judge 実行は作られません。
-- Version は不変です。更新・削除の UI はありません（API も `405`）。
+- 画面には Version（版）の概念を出しません。常に最新のコードだけを表示します。
+  - API 上はコードを保存するたびに新しい Version が作られ、古い Version はサーバーに残ります（画面からは見えません）。
+  - 提出 URL は Version ごとに持つので、コードを更新すると提出 URL は空になります。
+  - 内容を変えずに保存すると提出 URL が消えるだけなので、保存ボタンは押せないようにしています。
 
 ## 認証とセキュリティ
 
@@ -50,13 +52,14 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 - すべてのリクエストは `credentials: "same-origin"` で `/api/v1/*` のみを呼びます。
   `API_SERVER_ORIGIN` はサーバー側 rewrite だけで使い、ブラウザには公開しません（`NEXT_PUBLIC_` 不使用）。
 - **private ソース / 提出 URL の規則を維持**。private Library の `source_code` と提出 URL は
-  API の認可（所有者）に従って表示されます。公開 Library の Version は匿名で読めます。
+  API の認可（所有者）に従って表示されます。公開 Library のコードは匿名で読めます。
 - **HTML は描画しない**。`innerHTML` / `dangerouslySetInnerHTML` は使いません。
   - Library の説明は Markdown と TeX の数式（`$...$` / `$$...$$`）として描画します
     （react-markdown + remark-gfm + remark-math + rehype-katex）。説明に書かれた生の HTML は描画されず、
     リンクの URL は react-markdown の安全な URL フィルタを通ります。
-  - Version のソースは CodeMirror（Python のシンタックスハイライト）でテキストとして表示・編集します。
-  - 提出 URL はリンクにせずテキストとして表示し、自動取得・自動遷移もしません。
+  - コードは CodeMirror（Python のシンタックスハイライト）でテキストとして表示・編集します。
+  - 提出 URL は http / https の形式を確認できたものだけリンクにします。クリックすると新しいタブで開き、
+    `rel="noopener noreferrer nofollow"` を付けます。自動取得・自動遷移はしません。
 
 ## データの読み込みと actor の切り替え
 
@@ -110,18 +113,18 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
   制御文字・IDN/IPv6）。
 - `lib/session.test.mjs` — cookie セッションが dev 認証より優先されること、dev ヘッダーはオプトイン時だけ
   送ること、actor ごとの識別子、所有者判定（大文字小文字を区別しない）。
-- `lib/routes.test.mjs` — ページパスの組み立て（`/n/` 配下・slug のエンコード）と Version 番号の解釈。
+- `lib/routes.test.mjs` — ページパスの組み立て（`/n/` 配下・slug のエンコード）と編集ページのパス。
 
 ## 手動 E2E の目安
 
 `DEV_HEADER_AUTH=true` のローカルで、seed（author `...0001` / admin `...0002`）を使います。
 ヘッダーの dev 認証を有効化 → ユーザーメニューの「自分のライブラリ」で Namespace 作成 → private Library 作成 → seed ユーザーを切り替えて
-404 になることを確認 → 戻して public 化 → Version 作成 → 提出 URL を設定 → 別ユーザーでは編集フォームが
-出ないこと、ログアウト状態でも public の Version と URL が読めることを確認します。
+404 になることを確認 → 戻して public 化 → コードを登録 → 提出 URL を設定 → 別ユーザーでは編集フォームが
+出ないこと、ログアウト状態でも public のコードと URL が読めることを確認します。
 
 ## 制限（設計どおりの MVP 範囲）
 
-- Library Version は Python ソース 1 本（複数ファイル・複数言語は対象外）。
+- Library のコードは Python ソース 1 本（複数ファイル・複数言語は対象外）。
 - fork / draft / publish / yank / ライセンス / API Token / Change Request / 検索は実装しません。
 - 提出 URL は検証・判定されず、Submission / Outbox / S3 / Judge は作られません。
   既存の Submission API / Judge は変更していません。

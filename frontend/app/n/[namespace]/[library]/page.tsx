@@ -4,15 +4,16 @@ import Link from "next/link";
 import { use } from "react";
 import { useNamespaceOwner } from "@/components/OwnerOnly";
 import { RichText } from "@/components/RichText";
+import { SourceSections } from "@/components/SourceSections";
+import { useLatestVersion } from "@/components/useLatestVersion";
 import { useResource } from "@/components/useResource";
 import { Breadcrumbs, Card, LoadState, VisibilityBadge } from "@/components/ui";
-import { formatDateTime } from "@/lib/format";
 import {
   HOME_PATH,
+  libraryCodeEditPath,
   libraryEditPath,
   namespacePath,
-  newVersionPath,
-  versionPath,
+  submissionUrlEditPath,
 } from "@/lib/routes";
 
 export default function LibraryPage({
@@ -25,9 +26,7 @@ export default function LibraryPage({
   const library = useResource(`lib:${namespaceSlug}/${librarySlug}`, (api) =>
     api.getLibrary(namespaceSlug, librarySlug),
   );
-  const versions = useResource(`lib:${namespaceSlug}/${librarySlug}:versions`, (api) =>
-    api.listVersions(namespaceSlug, librarySlug),
-  );
+  const latest = useLatestVersion(namespaceSlug, librarySlug);
 
   return (
     <div className="page">
@@ -48,17 +47,21 @@ export default function LibraryPage({
                 <Link className="btn" href={libraryEditPath(namespaceSlug, librarySlug)}>
                   設定を編集
                 </Link>
-                <Link className="btn btn-primary" href={newVersionPath(namespaceSlug, librarySlug)}>
-                  Version を追加
+                <Link className="btn btn-primary" href={libraryCodeEditPath(namespaceSlug, librarySlug)}>
+                  コードを更新
                 </Link>
               </div>
             ) : null}
           </div>
-          {library.data.description ? (
-            <Card title="説明">
+          <Card title="Description">
+            {library.data.description ? (
               <RichText source={library.data.description} />
-            </Card>
-          ) : null}
+            ) : (
+              <p className="empty">
+                {owner ? "説明はまだありません。「設定を編集」から書けます。" : "説明はまだありません。"}
+              </p>
+            )}
+          </Card>
         </>
       ) : (
         <LoadState
@@ -69,36 +72,20 @@ export default function LibraryPage({
       )}
 
       {library.data ? (
-        <Card title="Version">
-          {versions.data ? (
-            versions.data.length === 0 ? (
-              <p className="empty">
-                {owner
-                  ? "まだ Version がありません。「Version を追加」からソースを登録すると v1 になります。"
-                  : "まだ Version がありません。"}
-              </p>
-            ) : (
-              <ol className="version-line">
-                {versions.data.map((version) => (
-                  <li key={version.id}>
-                    <Link
-                      className="version-node"
-                      href={versionPath(namespaceSlug, librarySlug, version.version_number)}
-                    >
-                      <span className="version-dot">v{version.version_number}</span>
-                      <span className="version-meta">
-                        <span className="num">{formatDateTime(version.created_at)}</span>
-                        <span className="muted num">{version.byte_size} バイト</span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ol>
-            )
-          ) : (
-            <LoadState loading={versions.loading} error={versions.error} notFound="" />
-          )}
-        </Card>
+        latest.data ? (
+          <SourceSections
+            version={latest.data}
+            editUrlHref={owner ? submissionUrlEditPath(namespaceSlug, librarySlug) : undefined}
+          />
+        ) : latest.empty ? (
+          <Card title="Code">
+            <p className="empty">
+              {owner ? "まだコードがありません。「コードを更新」から登録してください。" : "まだコードがありません。"}
+            </p>
+          </Card>
+        ) : (
+          <LoadState loading={latest.loading} error={latest.error} notFound="コードが見つかりません。" />
+        )
       ) : null}
     </div>
   );

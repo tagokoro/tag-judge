@@ -6,24 +6,19 @@ import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { OwnerOnly } from "@/components/OwnerOnly";
 import { useAsyncAction } from "@/components/useAsyncAction";
-import { useResource } from "@/components/useResource";
+import { fetchLatestVersionNumber, useLatestVersion } from "@/components/useLatestVersion";
 import { Breadcrumbs, Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
-import { HOME_PATH, libraryPath, namespacePath, parseVersionParam, versionPath } from "@/lib/routes";
+import { HOME_PATH, libraryPath, namespacePath } from "@/lib/routes";
 import { isValidSubmissionUrl } from "@/lib/submissionUrl";
 import type { LibraryVersion } from "@/lib/types";
 
 export default function EditSubmissionUrlPage({
   params,
 }: {
-  params: Promise<{ namespace: string; library: string; version: string }>;
+  params: Promise<{ namespace: string; library: string }>;
 }) {
-  const { namespace: namespaceSlug, library: librarySlug, version: rawVersion } = use(params);
-  const versionNumber = parseVersionParam(rawVersion);
-  const backHref = versionPath(namespaceSlug, librarySlug, versionNumber ?? 0);
-  const version = useResource(
-    versionNumber === null ? null : `ver:${namespaceSlug}/${librarySlug}/${versionNumber}`,
-    (api) => api.getVersion(namespaceSlug, librarySlug, versionNumber ?? 0),
-  );
+  const { namespace: namespaceSlug, library: librarySlug } = use(params);
+  const backHref = libraryPath(namespaceSlug, librarySlug);
 
   return (
     <div className="page">
@@ -31,30 +26,27 @@ export default function EditSubmissionUrlPage({
         items={[
           { label: "Libraries", href: HOME_PATH },
           { label: namespaceSlug, href: namespacePath(namespaceSlug) },
-          { label: librarySlug, href: libraryPath(namespaceSlug, librarySlug) },
-          { label: `v${rawVersion}`, href: backHref },
+          { label: librarySlug, href: backHref },
           { label: "提出 URL を編集" },
         ]}
       />
       <h1>提出 URL を編集</h1>
-      {versionNumber === null ? (
-        <p className="empty">Version 番号が正しくありません。</p>
-      ) : (
-        <OwnerOnly namespaceSlug={namespaceSlug} backHref={backHref}>
-          {version.data ? (
-            <SubmissionUrlForm
-              namespaceSlug={namespaceSlug}
-              librarySlug={librarySlug}
-              version={version.data}
-              backHref={backHref}
-            />
-          ) : (
-            <LoadState loading={version.loading} error={version.error} notFound="この Version は見つかりません。" />
-          )}
-        </OwnerOnly>
-      )}
+      <OwnerOnly namespaceSlug={namespaceSlug} backHref={backHref}>
+        <SubmissionUrlLoader namespaceSlug={namespaceSlug} librarySlug={librarySlug} backHref={backHref} />
+      </OwnerOnly>
     </div>
   );
+}
+
+function SubmissionUrlLoader(props: { namespaceSlug: string; librarySlug: string; backHref: string }) {
+  const latest = useLatestVersion(props.namespaceSlug, props.librarySlug);
+  if (latest.data) {
+    return <SubmissionUrlForm {...props} version={latest.data} />;
+  }
+  if (latest.empty) {
+    return <p className="empty">先に「コードを更新」からコードを登録してください。</p>;
+  }
+  return <LoadState loading={latest.loading} error={latest.error} notFound="この Library は見つかりません。" />;
 }
 
 function SubmissionUrlForm({
@@ -73,11 +65,21 @@ function SubmissionUrlForm({
   const { busy, error, run } = useAsyncAction();
   const [input, setInput] = useState(version.submission_url ?? "");
 
+  // The URL belongs to the code shown when this page opened. If the code was
+  // updated since (e.g. in another tab), writing would attach the URL to an
+  // older, hidden upload, so stop and ask for a reload instead.
+  const ensureStillLatest = async (signal: AbortSignal) => {
+    const latest = await fetchLatestVersionNumber(client.withSignal(signal), namespaceSlug, librarySlug);
+    if (latest !== version.version_number) {
+      throw new Error("このページを開いたあとにコードが更新されました。ページを再読み込みしてから保存してください。");
+    }
+  };
+
   return (
     <Card
-      title={`${librarySlug} v${version.version_number}`}
+      title={librarySlug}
       owner
-      note="この版を使った提出の URL を 1 件登録できます。提出の内容や判定結果は確認しません。"
+      note="今のコードを使った提出の URL を 1 件登録できます。提出の内容や判定結果は確認しません。"
     >
       <Field label="提出 URL" hint="絶対 HTTP(S) URL・2048 バイトまで">
         <input
@@ -97,6 +99,7 @@ function SubmissionUrlForm({
               if (!isValidSubmissionUrl(input)) {
                 throw new Error("絶対 HTTP(S) URL（ホストあり）を入力してください。");
               }
+              await ensureStillLatest(signal);
               await client
                 .withSignal(signal)
                 .setSubmissionUrl(namespaceSlug, librarySlug, version.version_number, {
@@ -117,6 +120,7 @@ function SubmissionUrlForm({
             variant="danger"
             onClick={() =>
               run(async (signal) => {
+                await ensureStillLatest(signal);
                 await client
                   .withSignal(signal)
                   .clearSubmissionUrl(namespaceSlug, librarySlug, version.version_number);
