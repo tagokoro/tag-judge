@@ -32,7 +32,7 @@ export default function EditCodePage({
         ]}
       />
       <h1>コードを更新</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug} backHref={backHref}>
+      <OwnerOnly namespaceSlug={namespaceSlug}>
         <EditCodeLoader namespaceSlug={namespaceSlug} librarySlug={librarySlug} backHref={backHref} />
       </OwnerOnly>
     </div>

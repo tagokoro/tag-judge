@@ -4,6 +4,7 @@ import { python } from "@codemirror/lang-python";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
+import { useSyncExternalStore } from "react";
 
 // Syntax colors tuned to the white + 水色 palette (WCAG AA on white).
 const highlight = HighlightStyle.define([
@@ -63,8 +64,27 @@ export function CodeEditor({
   );
 }
 
-/** Read-only, highlighted view of a stored source. Shown as text, never as HTML. */
+const noSubscribe = () => () => {};
+
+/** False in the server render and during hydration, true once running in the browser. */
+function useInBrowser(): boolean {
+  return useSyncExternalStore(noSubscribe, () => true, () => false);
+}
+
+/**
+ * Read-only, highlighted view of a stored source. Shown as text, never as HTML.
+ * CodeMirror only draws in the browser, so the server sends a plain <pre> with
+ * the same text, which CodeMirror replaces after hydration.
+ */
 export function CodeView({ value, label }: { value: string; label: string }) {
+  const inBrowser = useInBrowser();
+  if (!inBrowser) {
+    return (
+      <pre className="source-view" aria-label={label}>
+        {value}
+      </pre>
+    );
+  }
   return (
     <CodeMirror
       value={value}

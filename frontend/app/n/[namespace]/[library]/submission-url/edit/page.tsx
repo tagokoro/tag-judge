@@ -31,7 +31,7 @@ export default function EditSubmissionUrlPage({
         ]}
       />
       <h1>提出 URL を編集</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug} backHref={backHref}>
+      <OwnerOnly namespaceSlug={namespaceSlug}>
         <SubmissionUrlLoader namespaceSlug={namespaceSlug} librarySlug={librarySlug} backHref={backHref} />
       </OwnerOnly>
     </div>

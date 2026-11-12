@@ -1,11 +1,11 @@
-"use client";
-
+import type { Metadata } from "next";
 import { SubmissionTable } from "@/components/lists";
-import { useResource } from "@/components/useResource";
-import { LoadState } from "@/components/ui";
+import { serverClient } from "@/lib/serverApi";
 
-export default function SubmissionsPage() {
-  const submissions = useResource("submissions/recent", (api) => api.listRecentSubmissions());
+export const metadata: Metadata = { title: "Submissions" };
+
+export default async function SubmissionsPage() {
+  const submissions = await (await serverClient()).listRecentSubmissions();
 
   return (
     <div className="page">
@@ -13,23 +13,19 @@ export default function SubmissionsPage() {
         <h1>Submissions</h1>
         <p className="page-sub">public な問題への最近の提出です。ソースコードは表示しません。</p>
       </div>
-      {submissions.data ? (
-        submissions.data.length === 0 ? (
-          <p className="empty">まだ提出がありません。</p>
-        ) : (
-          <div className="panel">
-            <SubmissionTable
-              showSubmitter
-              submissions={submissions.data.map((submission) => ({
-                ...submission,
-                problem: submission.problem_title,
-                submitter: submission.submitter_namespace_slug,
-              }))}
-            />
-          </div>
-        )
+      {submissions.length === 0 ? (
+        <p className="empty">まだ提出がありません。</p>
       ) : (
-        <LoadState loading={submissions.loading} error={submissions.error} notFound="" />
+        <div className="panel">
+          <SubmissionTable
+            showSubmitter
+            submissions={submissions.map((submission) => ({
+              ...submission,
+              problem: submission.problem_title,
+              submitter: submission.submitter_namespace_slug,
+            }))}
+          />
+        </div>
       )}
     </div>
   );

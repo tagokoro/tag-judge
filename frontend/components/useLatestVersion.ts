@@ -27,14 +27,22 @@ export async function fetchLatestVersionNumber(
  * Loads a library's latest code. Pages never pick an older upload: a
  * one-row version list (newest first) only tells which one is the latest.
  */
-export function useLatestVersion(namespaceSlug: string, librarySlug: string): LatestVersion {
-  const latestNumber = useResource(`lib:${namespaceSlug}/${librarySlug}:latest`, (api) =>
-    fetchLatestVersionNumber(api, namespaceSlug, librarySlug),
+export function useLatestVersion(
+  namespaceSlug: string,
+  librarySlug: string,
+  /** The latest code the server already fetched (null: none). */
+  initial?: { data: LibraryVersion | null },
+): LatestVersion {
+  const latestNumber = useResource(
+    `lib:${namespaceSlug}/${librarySlug}:latest`,
+    (api) => fetchLatestVersionNumber(api, namespaceSlug, librarySlug),
+    initial && { data: initial.data?.version_number ?? null },
   );
   const latest = latestNumber.data;
   const version = useResource(
     latest === null ? null : `ver:${namespaceSlug}/${librarySlug}/${latest}`,
     (api) => api.getVersion(namespaceSlug, librarySlug, latest ?? 0),
+    initial?.data ? { data: initial.data } : undefined,
   );
   return {
     data: version.data,

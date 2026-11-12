@@ -11,7 +11,7 @@ const FONTS_URL =
   "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap";
 
 export const metadata: Metadata = {
-  title: "TagJudge",
+  title: { default: "TagJudge", template: "%s | TagJudge" },
   description: "競技プログラミング用ライブラリを共有する",
 };
 

@@ -34,7 +34,7 @@ export default function EditLibraryPage({
         ]}
       />
       <h1>Library の設定</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug} backHref={backHref}>
+      <OwnerOnly namespaceSlug={namespaceSlug}>
         {library.data ? (
           <LibrarySettingsForm namespaceSlug={namespaceSlug} library={library.data} backHref={backHref} />
         ) : (

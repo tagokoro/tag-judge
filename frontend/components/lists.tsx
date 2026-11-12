@@ -1,4 +1,4 @@
-"use client";
+// Plain markup with no hooks, so Server and Client Components can both use it.
 
 import Link from "next/link";
 import { descriptionSummary, formatDateTime, statusLabel, statusTone } from "@/lib/format";
