@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import {
   SUBMISSIONS_PATH,
 } from "@/lib/routes";
 import type { Role } from "@/lib/types";
+import logo from "@/assets/tagjudge-logo.png";
 import { useAuth } from "./AuthProvider";
 import { useAsyncAction } from "./useAsyncAction";
 
@@ -53,8 +55,8 @@ export function Header() {
     <header className="site-header">
       <div className="site-header-inner">
         <Link href={HOME_PATH} className="brand">
-          <BrandMark />
-          TagJudge
+          {/* On every page above the fold, so it loads at once instead of lazily. */}
+          <Image src={logo} alt="TagJudge" className="brand-logo" loading="eager" />
         </Link>
         <nav className="site-nav" aria-label="メインメニュー">
           <NavLinks pathname={pathname} />
@@ -250,18 +252,6 @@ function UserMenu() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** The brand mark: three linked nodes. */
-function BrandMark() {
-  return (
-    <svg className="brand-mark" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true">
-      <line x1="5" y1="7" x2="29" y2="7" stroke="var(--mizu)" strokeWidth="2" />
-      <circle cx="5" cy="7" r="4" fill="var(--paper)" stroke="var(--mizu)" strokeWidth="2" />
-      <circle cx="17" cy="7" r="4" fill="var(--paper)" stroke="var(--mizu)" strokeWidth="2" />
-      <circle cx="29" cy="7" r="5" fill="var(--deep)" />
-    </svg>
   );
 }
 
