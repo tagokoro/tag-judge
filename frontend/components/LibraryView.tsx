@@ -66,7 +66,7 @@ export function LibraryView({
               <RichText source={library.data.description} />
             ) : (
               <p className="empty">
-                {owner ? "説明はまだありません。Edit から書けます。" : "説明はまだありません。"}
+                {owner ? "説明はまだありません。「編集」から書けます。" : "説明はまだありません。"}
               </p>
             )}
           </Card>
@@ -92,7 +92,7 @@ export function LibraryView({
             action={owner ? <EditLink href={libraryCodeEditPath(namespaceSlug, librarySlug)} what="Code" /> : null}
           >
             <p className="empty">
-              {owner ? "まだコードがありません。Edit から登録してください。" : "まだコードがありません。"}
+              {owner ? "まだコードがありません。「編集」から登録してください。" : "まだコードがありません。"}
             </p>
           </Card>
         ) : (

@@ -60,7 +60,7 @@ export function Card({
   title: string;
   note?: ReactNode;
   owner?: boolean;
-  /** A control shown at the right of the heading, such as an EditLink. */
+  /** A control shown at the right of the heading, such as an EditLink (「編集」). */
   action?: ReactNode;
   children: ReactNode;
 }) {
@@ -86,11 +86,11 @@ export function Card({
   );
 }
 
-/** The owner's "Edit" button in a card heading; `what` names the card for screen readers. */
+/** The owner's 「編集」 button in a card heading; `what` names the card for screen readers. */
 export function EditLink({ href, what }: { href: string; what: string }) {
   return (
-    <Link className="btn btn-primary" href={href} aria-label={`Edit ${what}`}>
-      Edit
+    <Link className="btn btn-primary" href={href} aria-label={`${what} を編集`}>
+      編集
     </Link>
   );
 }
