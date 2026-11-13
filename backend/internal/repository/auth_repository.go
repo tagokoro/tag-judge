@@ -13,11 +13,11 @@ type GoogleUser struct {
 	Email          string
 }
 
-// GoogleLogin is the user a Google login resolved to. HasProfile is false
-// until the user creates their handle.
+// GoogleLogin is the user a Google login resolved to. HasHandle is false
+// until the user registers their handle.
 type GoogleLogin struct {
-	Actor      auth.Actor
-	HasProfile bool
+	Actor     auth.Actor
+	HasHandle bool
 }
 
 type CreateSessionParams struct {

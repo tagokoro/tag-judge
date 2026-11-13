@@ -82,7 +82,7 @@ func (u *AuthUsecase) HandleGoogleCallback(ctx context.Context, code string) (au
 	return auth.Session{
 		Token:       token,
 		ExpiresAt:   expiresAt,
-		NeedsHandle: !login.HasProfile,
+		NeedsHandle: !login.HasHandle,
 	}, nil
 }
 
