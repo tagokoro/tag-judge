@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -12,17 +13,33 @@ import (
 const oauthStateCookieName = "tag_judge_oauth_state"
 
 type AuthHandler struct {
-	auth               *usecase.AuthUsecase
-	cookieSecure       bool
-	successRedirectURL string
+	auth                  *usecase.AuthUsecase
+	cookieSecure          bool
+	successRedirectURL    string
+	onboardingRedirectURL string
 }
+
+// onboardingPath is the frontend sign-up page where a new user enters their
+// handle.
+const onboardingPath = "/signup"
 
 func NewAuthHandler(auth *usecase.AuthUsecase, cookieSecure bool, successRedirectURL string) *AuthHandler {
 	return &AuthHandler{
-		auth:               auth,
-		cookieSecure:       cookieSecure,
-		successRedirectURL: successRedirectURL,
+		auth:                  auth,
+		cookieSecure:          cookieSecure,
+		successRedirectURL:    successRedirectURL,
+		onboardingRedirectURL: onboardingRedirectURL(successRedirectURL),
 	}
+}
+
+// onboardingRedirectURL puts the handle-creation page on the same origin as
+// the configured success URL, so no separate setting is needed.
+func onboardingRedirectURL(successRedirectURL string) string {
+	base, err := url.Parse(successRedirectURL)
+	if err != nil {
+		return onboardingPath
+	}
+	return base.ResolveReference(&url.URL{Path: onboardingPath}).String()
 }
 
 func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +77,10 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, h.clearCookie(oauthStateCookieName))
 	http.SetCookie(w, h.sessionCookie(session))
+	if session.NeedsHandle {
+		http.Redirect(w, r, h.onboardingRedirectURL, http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, h.successRedirectURL, http.StatusFound)
 }
 

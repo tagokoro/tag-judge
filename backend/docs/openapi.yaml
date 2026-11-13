@@ -30,9 +30,9 @@ paths:
       responses:
         "302":
           description: |-
-            Creates a session cookie. Redirects to AUTH_ONBOARDING_REDIRECT_URL
-            (default /settings/profile) when the user has no handle yet, and to
-            AUTH_SUCCESS_REDIRECT_URL otherwise.
+            Creates a session cookie. Redirects to /signup on the
+            origin of AUTH_SUCCESS_REDIRECT_URL when the user has no handle yet,
+            and to AUTH_SUCCESS_REDIRECT_URL otherwise.
           headers:
             Set-Cookie:
               schema:
@@ -651,7 +651,7 @@ paths:
           $ref: "#/components/responses/Error"
   /libraries:
     get:
-      summary: List public libraries across every user and namespace
+      summary: List public libraries across every user and category
       description: Anyone may call this. Private libraries are never listed. Ordered by created_at DESC.
       parameters:
         - name: limit
@@ -709,11 +709,12 @@ paths:
           $ref: "#/components/responses/Error"
   /me/profile:
     post:
-      summary: Create the caller's handle and display name
+      summary: Create the caller's handle
       description: |-
-        Run once, right after the first login. The handle is chosen once and
-        never changes. 409 HANDLE_ALREADY_SET when the caller already has a
-        handle; 409 HANDLE_TAKEN when another user uses it.
+        Run once, from the /signup page. The handle is the user's only
+        name; it is chosen once and never changes. 409 HANDLE_ALREADY_SET when
+        the caller already has a handle; 409 HANDLE_TAKEN when another user
+        uses it.
       security:
         - CookieAuth: []
       requestBody:
@@ -735,258 +736,17 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
-    patch:
-      summary: Update the caller's display name or external links
-      description: |-
-        The handle cannot be changed. An empty string or null link removes it.
-        409 HANDLE_REQUIRED when the caller has no handle yet.
-      security:
-        - CookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateProfileRequest"
-      responses:
-        "200":
-          description: Profile updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserProfileResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
-  /me/namespaces:
-    get:
-      summary: List the caller's own namespaces
-      description: Includes empty namespaces and namespaces with only private libraries. Ordered by slug ASC.
-      security:
-        - CookieAuth: []
-      responses:
-        "200":
-          description: Own namespaces
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NamespaceListResponse"
-        "401":
-          $ref: "#/components/responses/Error"
+  /me/libraries:
     post:
-      summary: Create a namespace for the caller
+      summary: Create a library under one of the caller's categories
       description: |-
-        A user owns at most 20 namespaces. The slug is unique per user, chosen
-        once, and never changes; the reserved slugs edit, new, settings,
-        libraries, problems, and submissions are rejected with 400 INVALID_SLUG.
-        409 HANDLE_REQUIRED, NAMESPACE_SLUG_TAKEN, or NAMESPACE_LIMIT.
+        category names the caller's category to file the library under: the
+        caller's category with that name (ignoring letter case) is used, or a
+        new one is created in the same transaction. 409 HANDLE_REQUIRED when
+        the caller has no handle; 409 CATEGORY_LIMIT when a new category would
+        be the 21st. 400 INVALID_CATEGORY for a bad category name.
       security:
         - CookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateNamespaceRequest"
-      responses:
-        "201":
-          description: Namespace created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NamespaceResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
-  /users/{handle}:
-    get:
-      summary: Get a user's public profile
-      description: |-
-        Publicly readable. library_count and problem_count count what the
-        caller can see: everything for the user themself, public only for
-        everyone else.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-      responses:
-        "200":
-          description: User profile
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserProfileResponse"
-        "404":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/libraries:
-    get:
-      summary: List a user's libraries across their namespaces
-      description: |-
-        The user themself sees public and private libraries; everyone else
-        sees only public libraries. Ordered by updated_at DESC then slug ASC.
-        A namespace filter the caller cannot see returns an empty list.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - name: namespace
-          in: query
-          description: Only libraries in this namespace slug.
-          schema:
-            type: string
-        - $ref: "#/components/parameters/LimitQuery"
-        - $ref: "#/components/parameters/OffsetQuery"
-      responses:
-        "200":
-          description: Libraries visible to the caller
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LibraryListResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/problems:
-    get:
-      summary: List the problems a user created
-      description: |-
-        The user themself sees public, private, and group problems; everyone
-        else sees only public problems. Ordered by updated_at DESC then id DESC.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/LimitQuery"
-        - $ref: "#/components/parameters/OffsetQuery"
-      responses:
-        "200":
-          description: Problems visible to the caller
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProblemListResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces:
-    get:
-      summary: List a user's namespaces
-      description: |-
-        The user themself sees every namespace; everyone else sees only
-        namespaces that contain at least one public library. Ordered by slug ASC.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/LimitQuery"
-        - $ref: "#/components/parameters/OffsetQuery"
-      responses:
-        "200":
-          description: Namespaces visible to the caller
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NamespaceListResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}:
-    get:
-      summary: Get a namespace
-      description: |-
-        A namespace without a public library returns 404 for everyone except
-        its owner.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-      responses:
-        "200":
-          description: Namespace
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NamespaceResponse"
-        "404":
-          $ref: "#/components/responses/Error"
-    patch:
-      summary: Update a namespace's display name or description
-      description: Owner-only. The slug cannot be changed.
-      security:
-        - CookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateNamespaceRequest"
-      responses:
-        "200":
-          description: Namespace updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NamespaceResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-    delete:
-      summary: Delete an empty namespace
-      description: Owner-only. 409 NAMESPACE_NOT_EMPTY while the namespace has any library.
-      security:
-        - CookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-      responses:
-        "204":
-          description: Namespace deleted
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}/libraries:
-    get:
-      summary: List libraries in a namespace
-      description: |-
-        The namespace owner sees public and private libraries; everyone else
-        sees only public libraries. Results are ordered by updated_at DESC then
-        slug ASC.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LimitQuery"
-        - $ref: "#/components/parameters/OffsetQuery"
-      responses:
-        "200":
-          description: Libraries visible to the caller
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LibraryListResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-    post:
-      summary: Create a library in a namespace
-      security:
-        - CookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
       requestBody:
         required: true
         content:
@@ -1004,21 +764,186 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /me/categories:
+    get:
+      summary: List the caller's own categories
+      description: Includes empty categories and categories with only private libraries. Ordered by created_at ASC.
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Own categories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryListResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+  /users/{handle}:
+    get:
+      summary: Get a user's public profile
+      description: Publicly readable. Never includes the user id, email, or Google account name.
+      parameters:
+        - $ref: "#/components/parameters/HandlePath"
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfileResponse"
+        "404":
+          $ref: "#/components/responses/Error"
+  /users/{handle}/categories:
+    get:
+      summary: List a user's categories
+      description: |-
+        The user themself sees every category; everyone else sees only
+        categories that contain at least one public library. Ordered by
+        created_at ASC.
+      parameters:
+        - $ref: "#/components/parameters/HandlePath"
+        - $ref: "#/components/parameters/LimitQuery"
+        - $ref: "#/components/parameters/OffsetQuery"
+      responses:
+        "200":
+          description: Categories visible to the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /categories/{category_id}:
+    get:
+      summary: Get a category
+      description: |-
+        A category without a public library returns 404 for everyone except
+        its owner. A malformed id is a 404 too.
+      parameters:
+        - $ref: "#/components/parameters/CategoryIDPath"
+      responses:
+        "200":
+          description: Category
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryResponse"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Rename a category or change its description
+      description: |-
+        Owner-only. The id never changes. Categories are otherwise created and
+        removed with their libraries; there is no create or delete.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CategoryIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryRequest"
+      responses:
+        "200":
+          description: Category updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}/libraries/{library_slug}/versions:
+  /categories/{category_id}/libraries:
+    get:
+      summary: List libraries in a category
+      description: |-
+        The category owner sees public and private libraries; everyone else
+        sees only public libraries. Ordered by updated_at DESC then id ASC.
+      parameters:
+        - $ref: "#/components/parameters/CategoryIDPath"
+        - $ref: "#/components/parameters/LimitQuery"
+        - $ref: "#/components/parameters/OffsetQuery"
+      responses:
+        "200":
+          description: Libraries visible to the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /libraries/{library_id}:
+    get:
+      summary: Get one library
+      description: Private libraries return 404 for everyone except the owner.
+      parameters:
+        - $ref: "#/components/parameters/LibraryIDPath"
+      responses:
+        "200":
+          description: Library
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update a library or move it to another category
+      description: |-
+        Only the owner may update a library. category moves it to the owner's
+        category with that name, created when missing (409 CATEGORY_LIMIT when
+        that would be the 21st); a category left without libraries is removed
+        in the same transaction. The library id and URL do not change.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LibraryIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLibraryRequest"
+      responses:
+        "200":
+          description: Library updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /libraries/{library_id}/versions:
     get:
       summary: List library version summaries
       description: |-
         Summaries never include source_code. Ordered by version_number DESC.
       parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LibrarySlugPath"
+        - $ref: "#/components/parameters/LibraryIDPath"
         - $ref: "#/components/parameters/LimitQuery"
         - $ref: "#/components/parameters/OffsetQuery"
       responses:
@@ -1041,9 +966,7 @@ paths:
       security:
         - CookieAuth: []
       parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LibrarySlugPath"
+        - $ref: "#/components/parameters/LibraryIDPath"
       requestBody:
         required: true
         content:
@@ -1067,13 +990,11 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}:
+  /libraries/{library_id}/versions/{version_number}:
     get:
       summary: Get one library version with its source
       parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LibrarySlugPath"
+        - $ref: "#/components/parameters/LibraryIDPath"
         - $ref: "#/components/parameters/VersionNumberPath"
       responses:
         "200":
@@ -1086,54 +1007,7 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}/libraries/{library_slug}:
-    get:
-      summary: Get one library
-      description: Private libraries return 404 for everyone except the owner.
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LibrarySlugPath"
-      responses:
-        "200":
-          description: Library
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LibraryResponse"
-        "404":
-          $ref: "#/components/responses/Error"
-    patch:
-      summary: Update library name, description, or visibility
-      description: Only the namespace owner may update a library.
-      security:
-        - CookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/HandlePath"
-        - $ref: "#/components/parameters/NamespaceSlugPath"
-        - $ref: "#/components/parameters/LibrarySlugPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateLibraryRequest"
-      responses:
-        "200":
-          description: Library updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LibraryResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /users/{handle}/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url:
+  /libraries/{library_id}/versions/{version_number}/submission-url:
     put:
       summary: Set or replace a version's related submission URL
       description: >-
@@ -1144,39 +1018,53 @@ paths:
         without control characters. Surrounding whitespace is trimmed and the
         scheme is lowercased. The version's source code and the library's
         updated_at are unchanged.
-      security: [{CookieAuth: []}]
+      security:
+        - CookieAuth: []
       parameters:
-        - {$ref: '#/components/parameters/HandlePath'}
-        - {$ref: '#/components/parameters/NamespaceSlugPath'}
-        - {$ref: '#/components/parameters/LibrarySlugPath'}
-        - {$ref: '#/components/parameters/VersionNumberPath'}
+        - $ref: "#/components/parameters/LibraryIDPath"
+        - $ref: "#/components/parameters/VersionNumberPath"
       requestBody:
         required: true
         content:
-          application/json: {schema: {$ref: '#/components/schemas/SetSubmissionURLRequest'}}
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSubmissionURLRequest"
       responses:
-        '200': {description: Updated library version, content: {application/json: {schema: {$ref: '#/components/schemas/LibraryVersionResponse'}}}}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
+        "200":
+          description: Updated library version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryVersionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
     delete:
       summary: Remove a version's related submission URL
       description: >-
         Clear the submission URL of one library version. Owner-only, with the
         same 403/404 rules as PUT. Clearing a version without a URL succeeds.
-      security: [{CookieAuth: []}]
+      security:
+        - CookieAuth: []
       parameters:
-        - {$ref: '#/components/parameters/HandlePath'}
-        - {$ref: '#/components/parameters/NamespaceSlugPath'}
-        - {$ref: '#/components/parameters/LibrarySlugPath'}
-        - {$ref: '#/components/parameters/VersionNumberPath'}
+        - $ref: "#/components/parameters/LibraryIDPath"
+        - $ref: "#/components/parameters/VersionNumberPath"
       responses:
-        '204': {description: Submission URL removed}
-        '400': {$ref: '#/components/responses/Error'}
-        '401': {$ref: '#/components/responses/Error'}
-        '403': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
+        "204":
+          description: Submission URL removed
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 
 components:
   parameters:
@@ -1239,16 +1127,18 @@ components:
       required: true
       schema:
         type: string
-    NamespaceSlugPath:
-      name: namespace_slug
+    CategoryIDPath:
+      name: category_id
       in: path
       required: true
+      description: The category id (20 lowercase hex characters).
       schema:
         type: string
-    LibrarySlugPath:
-      name: library_slug
+    LibraryIDPath:
+      name: library_id
       in: path
       required: true
+      description: The library id (20 lowercase hex characters).
       schema:
         type: string
     VersionNumberPath:
@@ -1566,7 +1456,6 @@ components:
         - user_id
         - role
         - handle
-        - display_name
       properties:
         user_id:
           type: string
@@ -1577,9 +1466,7 @@ components:
           enum: [user, author, admin]
         handle:
           type: [string, "null"]
-          description: Null until the caller creates their profile.
-        display_name:
-          type: [string, "null"]
+          description: Null until the caller creates their handle.
     MeResponse:
       type: object
       required: [data]
@@ -1813,7 +1700,7 @@ components:
             $ref: "#/components/schemas/PublicSubmission"
     CreateProfileRequest:
       type: object
-      required: [handle, display_name]
+      required: [handle]
       additionalProperties: false
       properties:
         handle:
@@ -1821,118 +1708,42 @@ components:
           pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
           minLength: 2
           maxLength: 32
-        display_name:
-          type: string
-          minLength: 1
-          maxLength: 64
-    UpdateProfileRequest:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      description: Each link field takes the service's username (a leading @ is stripped); an empty string or null removes it.
-      properties:
-        display_name:
-          type: string
-          minLength: 1
-          maxLength: 64
-        atcoder_username:
-          type: [string, "null"]
-          pattern: "^@?[A-Za-z0-9_]{3,16}$|^$"
-        topcoder_username:
-          type: [string, "null"]
-          description: The accepted format is to be confirmed before implementation.
-        x_username:
-          type: [string, "null"]
-          pattern: "^@?[A-Za-z0-9_]{1,15}$|^$"
-        github_username:
-          type: [string, "null"]
-          pattern: "^@?[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}$|^$"
-    ExternalLink:
-      type: object
-      required: [username, url]
-      properties:
-        username:
-          type: string
-        url:
-          type: string
-          format: uri
-          description: Built by the server from the username; always https.
     UserProfile:
       type: object
-      required: [handle, display_name, links, library_count, problem_count]
+      required: [handle]
       properties:
         handle:
           type: string
-        display_name:
-          type: string
-        links:
-          type: object
-          required: [atcoder, topcoder, x, github]
-          properties:
-            atcoder:
-              oneOf: [{$ref: "#/components/schemas/ExternalLink"}, {type: "null"}]
-            topcoder:
-              oneOf: [{$ref: "#/components/schemas/ExternalLink"}, {type: "null"}]
-            x:
-              oneOf: [{$ref: "#/components/schemas/ExternalLink"}, {type: "null"}]
-            github:
-              oneOf: [{$ref: "#/components/schemas/ExternalLink"}, {type: "null"}]
-        library_count:
-          type: integer
-          minimum: 0
-          description: Libraries the caller can see.
-        problem_count:
-          type: integer
-          minimum: 0
-          description: Problems the caller can see.
     UserProfileResponse:
       type: object
       required: [data]
       properties:
         data:
           $ref: "#/components/schemas/UserProfile"
-    CreateNamespaceRequest:
-      type: object
-      required: [slug, display_name]
-      additionalProperties: false
-      properties:
-        slug:
-          type: string
-          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-          minLength: 2
-          maxLength: 32
-        display_name:
-          type: string
-          minLength: 1
-          maxLength: 64
-        description:
-          type: string
-          maxLength: 500
-          default: ""
-    UpdateNamespaceRequest:
+    UpdateCategoryRequest:
       type: object
       additionalProperties: false
       minProperties: 1
       properties:
-        display_name:
+        name:
           type: string
           minLength: 1
           maxLength: 64
         description:
           type: string
           maxLength: 500
-    Namespace:
+    Category:
       type: object
-      required: [id, owner, slug, display_name, description, created_at, updated_at]
+      required: [id, owner, name, description, created_at, updated_at]
       properties:
         id:
           type: string
+          pattern: "^[0-9a-f]{20}$"
+          description: Random id assigned by the system; never changes.
         owner:
           type: string
           description: The owner's handle.
-        slug:
-          type: string
-        display_name:
+        name:
           type: string
         description:
           type: string
@@ -1942,34 +1753,35 @@ components:
         updated_at:
           type: string
           format: date-time
-    NamespaceResponse:
+    CategoryResponse:
       type: object
       required: [data]
       properties:
         data:
-          $ref: "#/components/schemas/Namespace"
-    NamespaceListResponse:
+          $ref: "#/components/schemas/Category"
+    CategoryListResponse:
       type: object
       required: [data]
       properties:
         data:
           type: array
           items:
-            $ref: "#/components/schemas/Namespace"
+            $ref: "#/components/schemas/Category"
     CreateLibraryRequest:
       type: object
-      required: [slug, name, visibility]
+      required: [name, category, visibility]
       additionalProperties: false
       properties:
-        slug:
+        category:
           type: string
-          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-          minLength: 2
-          maxLength: 48
+          minLength: 1
+          maxLength: 64
+          description: Name of the caller's category to file the library under; created when missing.
         name:
           type: string
           minLength: 1
           maxLength: 80
+          description: Free text, trimmed. May repeat.
         description:
           type: string
           maxLength: 2000
@@ -1991,19 +1803,30 @@ components:
         visibility:
           type: string
           enum: [public, private]
+        category:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Moves the library to the owner's category with this name, created when missing.
     Library:
       type: object
-      required: [id, owner, namespace_slug, slug, name, description, visibility, created_at, updated_at]
+      required: [id, owner, category, name, description, visibility, created_at, updated_at]
       properties:
         id:
           type: string
+          pattern: "^[0-9a-f]{20}$"
+          description: Random id assigned by the system; never changes.
         owner:
           type: string
           description: The owner's handle.
-        namespace_slug:
-          type: string
-        slug:
-          type: string
+        category:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
         name:
           type: string
         description:
@@ -2017,7 +1840,7 @@ components:
         updated_at:
           type: string
           format: date-time
-          description: Bumped by a library update or a new version, not by a submission URL change.
+          description: Bumped by a library update or move, or a new version; not by a submission URL change.
     LibraryResponse:
       type: object
       required: [data]

@@ -27,59 +27,66 @@ const (
 	libraryFixtureSource = "def add(a, b):\n    return a + b\n"
 )
 
-type fakeNamespaceRepo struct{}
+const (
+	handlerCategoryID = "aaaaaaaaaaaaaaaaaaaa"
+	handlerLibraryID  = "bbbbbbbbbbbbbbbbbbbb"
+)
 
-func (r *fakeNamespaceRepo) Create(_ context.Context, params repository.CreateNamespaceParams) (*domain.Namespace, error) {
-	return &domain.Namespace{OwnerUserID: params.OwnerUserID, Slug: params.Slug, DisplayName: params.DisplayName}, nil
-}
+type fakeCategoryRepo struct{}
 
-func (r *fakeNamespaceRepo) FindByOwner(_ context.Context, ownerUserID string) (*domain.Namespace, error) {
-	return &domain.Namespace{ID: "11111111-1111-4111-8111-111111111111", OwnerUserID: ownerUserID, Slug: "seed-author", DisplayName: "Seed Author"}, nil
-}
-
-func (r *fakeNamespaceRepo) FindBySlug(_ context.Context, _ string) (*domain.Namespace, error) {
-	return &domain.Namespace{ID: "11111111-1111-4111-8111-111111111111", OwnerUserID: handlerAuthorID, Slug: "seed-author", DisplayName: "Seed Author"}, nil
-}
-
-type fakeLibraryRepo struct {
-	visibility libraryVisibilityAlias
-}
-
-type libraryVisibilityAlias = domain.LibraryVisibility
-
-func (r *fakeLibraryRepo) Create(_ context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
-	return &domain.Library{Slug: params.Slug, Name: params.Name, Visibility: params.Visibility}, nil
-}
-
-func (r *fakeLibraryRepo) Update(_ context.Context, params repository.UpdateLibraryParams) (*domain.Library, error) {
-	visibility := ""
-	if params.Visibility != nil {
-		visibility = *params.Visibility
-	}
-	return &domain.Library{Slug: "union-find", Visibility: domain.LibraryVisibility(visibility)}, nil
-}
-
-func (r *fakeLibraryRepo) FindBySlug(_ context.Context, _, _ string) (*domain.Library, error) {
-	return &domain.Library{
-		ID:            "22222222-2222-4222-8222-222222222222",
-		NamespaceID:   "11111111-1111-4111-8111-111111111111",
-		NamespaceSlug: "seed-author",
-		Slug:          "union-find",
-		Name:          "UnionFind",
-		Visibility:    r.visibility,
+func (r *fakeCategoryRepo) FindByPublicID(_ context.Context, publicID string) (*domain.Category, error) {
+	return &domain.Category{
+		ID: "11111111-1111-4111-8111-111111111111", PublicID: publicID, OwnerUserID: handlerAuthorID,
+		OwnerHandle: "seed-author", Name: "グラフ", HasPublicLibrary: true,
 	}, nil
 }
 
-func (r *fakeLibraryRepo) ListPublic(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
+func (r *fakeCategoryRepo) ListByOwner(_ context.Context, _ repository.ListCategoriesParams) ([]domain.Category, error) {
+	return nil, nil
+}
+
+func (r *fakeCategoryRepo) Update(_ context.Context, params repository.UpdateCategoryParams) (*domain.Category, error) {
+	return &domain.Category{ID: params.ID, PublicID: handlerCategoryID, OwnerUserID: handlerAuthorID}, nil
+}
+
+type fakeLibraryRepo struct {
+	visibility domain.LibraryVisibility
+}
+
+func (r *fakeLibraryRepo) library() *domain.Library {
+	return &domain.Library{
+		ID: "22222222-2222-4222-8222-222222222222", PublicID: handlerLibraryID, CategoryPublicID: handlerCategoryID,
+		CategoryName: "グラフ", OwnerUserID: handlerAuthorID, OwnerHandle: "seed-author", Name: "UnionFind", Visibility: r.visibility,
+	}
+}
+
+func (r *fakeLibraryRepo) Create(_ context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
+	library := r.library()
+	library.Name, library.Visibility = params.Name, params.Visibility
+	return library, nil
+}
+
+func (r *fakeLibraryRepo) Update(_ context.Context, params repository.UpdateLibraryParams) (*domain.Library, error) {
+	library := r.library()
+	if params.Visibility != nil {
+		library.Visibility = domain.LibraryVisibility(*params.Visibility)
+	}
+	return library, nil
+}
+
+func (r *fakeLibraryRepo) FindByPublicID(_ context.Context, publicID string) (*domain.Library, error) {
+	if publicID != handlerLibraryID {
+		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	}
+	return r.library(), nil
+}
+
+func (r *fakeLibraryRepo) ListByCategory(_ context.Context, _ repository.ListLibrariesParams) ([]domain.Library, error) {
 	return []domain.Library{}, nil
 }
 
 func (r *fakeLibraryRepo) ListAllPublic(_ context.Context, _, _ int) ([]domain.Library, error) {
 	return nil, nil
-}
-
-func (r *fakeLibraryRepo) ListAll(_ context.Context, _ string, _, _ int) ([]domain.Library, error) {
-	return []domain.Library{}, nil
 }
 
 type fakeVersionRepo struct {
@@ -130,7 +137,7 @@ func (r *fakeVersionRepo) SetSubmissionURL(_ context.Context, params repository.
 }
 
 func newVersionRouter() (http.Handler, *fakeVersionRepo) {
-	namespaces := &fakeNamespaceRepo{}
+	categories := &fakeCategoryRepo{}
 	libraries := &fakeLibraryRepo{visibility: domain.LibraryVisibilityPublic}
 	versions := &fakeVersionRepo{
 		byNumber: map[int]*domain.LibraryVersion{
@@ -143,11 +150,11 @@ func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 	auth := appmiddleware.NewAuthMiddleware(nil, true)
 	router := chi.NewRouter()
 	router.Use(auth.InjectActor)
-	router.With(auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).Create)
-	router.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).List)
-	router.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).Get)
-	router.With(auth.RequireAuth).Put("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).SetSubmissionURL)
-	router.With(auth.RequireAuth).Delete("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)).ClearSubmissionURL)
+	router.With(auth.RequireAuth).Post("/api/v1/libraries/{library_id}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).Create)
+	router.Get("/api/v1/libraries/{library_id}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).List)
+	router.Get("/api/v1/libraries/{library_id}/versions/{version_number}", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).Get)
+	router.With(auth.RequireAuth).Put("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).SetSubmissionURL)
+	router.With(auth.RequireAuth).Delete("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).ClearSubmissionURL)
 	return router, versions
 }
 
@@ -156,7 +163,7 @@ func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 // returns 200 with the version, and DELETE returns 204.
 func TestSubmissionURLSetAndClearViaHTTP(t *testing.T) {
 	router, _ := newVersionRouter()
-	const path = "/api/v1/namespaces/seed-author/libraries/union-find/versions/1"
+	const path = "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions/1"
 
 	readURL := func() map[string]any {
 		t.Helper()
@@ -211,7 +218,7 @@ func TestSubmissionURLSetAndClearViaHTTP(t *testing.T) {
 func TestListLibraryVersionsOmitsSource(t *testing.T) {
 	router, _ := newVersionRouter()
 
-	list := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions", nil)
+	list := httptest.NewRequest(http.MethodGet, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions", nil)
 	listRes := httptest.NewRecorder()
 	router.ServeHTTP(listRes, list)
 	if listRes.Code != http.StatusOK {
@@ -233,7 +240,7 @@ func TestListLibraryVersionsOmitsSource(t *testing.T) {
 		t.Fatalf("summary = %+v", body.Data[0])
 	}
 
-	detail := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions/1", nil)
+	detail := httptest.NewRequest(http.MethodGet, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions/1", nil)
 	detailRes := httptest.NewRecorder()
 	router.ServeHTTP(detailRes, detail)
 	if detailRes.Code != http.StatusOK {
@@ -255,7 +262,7 @@ func TestListLibraryVersionsOmitsSource(t *testing.T) {
 func TestListLibraryVersionsValidatesPagination(t *testing.T) {
 	router, versions := newVersionRouter()
 
-	defaultList := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions", nil)
+	defaultList := httptest.NewRequest(http.MethodGet, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions", nil)
 	defaultRes := httptest.NewRecorder()
 	router.ServeHTTP(defaultRes, defaultList)
 	if defaultRes.Code != http.StatusOK {
@@ -266,7 +273,7 @@ func TestListLibraryVersionsValidatesPagination(t *testing.T) {
 	}
 
 	for _, query := range []string{"?limit=0", "?limit=101", "?offset=-1"} {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/seed-author/libraries/union-find/versions"+query, nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions"+query, nil)
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
 		if res.Code != http.StatusBadRequest {
@@ -292,7 +299,7 @@ func TestListLibraryVersionsValidatesPagination(t *testing.T) {
 
 func TestLibraryVersionRequestBodyShape(t *testing.T) {
 	router, versions := newVersionRouter()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewBufferString(`{"source_code":"x","extra":1}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions", bytes.NewBufferString(`{"source_code":"x","extra":1}`))
 	req.Header.Set("X-User-ID", handlerAuthorID)
 	req.Header.Set("X-User-Role", "author")
 	res := httptest.NewRecorder()
@@ -322,7 +329,7 @@ func TestCreateLibraryVersionAcceptsEscapedMaxSizeSource(t *testing.T) {
 	if len(body) <= 300001 {
 		t.Fatalf("escaped body is only %d bytes; the regression needs a body over 300001", len(body))
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions", bytes.NewReader(body))
 	req.Header.Set("X-User-ID", handlerAuthorID)
 	req.Header.Set("X-User-Role", "author")
 	res := httptest.NewRecorder()
@@ -348,7 +355,7 @@ func TestCreateLibraryVersionRejectsOversizedBody(t *testing.T) {
 	if int64(len(body)) <= 6*domain.MaxLibrarySourceBytes+64*1024 {
 		t.Fatalf("body is too small to exercise the cap: %d", len(body))
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/seed-author/libraries/union-find/versions", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/libraries/bbbbbbbbbbbbbbbbbbbb/versions", bytes.NewReader(body))
 	req.Header.Set("X-User-ID", handlerAuthorID)
 	req.Header.Set("X-User-Role", "author")
 	res := httptest.NewRecorder()

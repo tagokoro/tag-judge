@@ -9,6 +9,15 @@ SET
     role = EXCLUDED.role,
     updated_at = now();
 
+INSERT INTO user_profiles (user_id, handle)
+VALUES
+    ('00000000-0000-4000-8000-000000000001', 'seed-author'),
+    ('00000000-0000-4000-8000-000000000002', 'seed-admin')
+ON CONFLICT (user_id) DO UPDATE
+SET
+    handle = EXCLUDED.handle,
+    updated_at = now();
+
 INSERT INTO problems (
     id,
     title,

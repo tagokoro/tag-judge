@@ -9,9 +9,19 @@ import (
 	"unicode"
 )
 
-// NamespaceSlugPattern is the shared slug contract for namespaces and
-// libraries: lowercase letters and digits joined by single hyphens.
-var namespaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+// handlePattern is the handle contract: lowercase letters and digits joined by
+// single hyphens.
+var handlePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// publicIDPattern is the shape of the random public id the database assigns to
+// categories and libraries: 20 lowercase hex characters.
+var publicIDPattern = regexp.MustCompile(`^[0-9a-f]{20}$`)
+
+// ValidPublicID reports whether id has the shape of a category or library
+// public id. Anything else cannot exist, so callers answer 404.
+func ValidPublicID(id string) bool {
+	return publicIDPattern.MatchString(id)
+}
 
 // LibraryVisibility is the read access level of a library. Only public and
 // private exist; group and unlisted are outside this version.
@@ -26,18 +36,28 @@ func (v LibraryVisibility) Valid() bool {
 	return v == LibraryVisibilityPublic || v == LibraryVisibilityPrivate
 }
 
-// Library is a named set of code kept under a personal namespace. Visibility
-// decides who can read it; writes stay with the namespace owner.
+// Library is a named set of code kept in one of its owner's categories. ID is
+// the internal key; PublicID is the random id URLs and the API use. The name
+// is free text and may repeat. Visibility decides who can read it; writes stay
+// with the owner.
 type Library struct {
-	ID            string
-	NamespaceID   string
-	NamespaceSlug string
-	Slug          string
-	Name          string
-	Description   string
-	Visibility    LibraryVisibility
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               string
+	PublicID         string
+	CategoryPublicID string
+	CategoryName     string
+	OwnerUserID      string
+	OwnerHandle      string
+	Name             string
+	Description      string
+	Visibility       LibraryVisibility
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// ReadableBy reports whether userID may see the library: private libraries
+// hide from everyone except the owner, including admins.
+func (l Library) ReadableBy(userID string) bool {
+	return l.Visibility != LibraryVisibilityPrivate || (userID != "" && userID == l.OwnerUserID)
 }
 
 // LibraryVersion is one immutable snapshot of a library's single-file Python
@@ -60,29 +80,31 @@ type LibraryVersion struct {
 	SubmissionURLUpdatedAt *time.Time
 }
 
-// Namespace is the single personal space a user owns. It holds libraries and
-// has no group membership in this version.
-type Namespace struct {
-	ID          string
-	OwnerUserID string
-	Slug        string
-	DisplayName string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+// MaxCategoriesPerUser is how many categories one user may own.
+const MaxCategoriesPerUser = 20
+
+// Category is how a user groups their libraries, such as "グラフ". It is not
+// managed on its own: it comes with the first library filed under its name
+// and goes with the last one. ID is the internal key; PublicID is the random
+// id URLs and the API use. The name is free text, unique per owner ignoring
+// letter case. HasPublicLibrary is read together with the category and
+// decides whether anyone but the owner may see it.
+type Category struct {
+	ID               string
+	PublicID         string
+	OwnerUserID      string
+	OwnerHandle      string
+	Name             string
+	Description      string
+	HasPublicLibrary bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
-// ValidNamespaceSlug validates a user-created namespace slug (2-32 chars).
-func ValidNamespaceSlug(slug string) bool {
-	return validSlug(slug, 2, 32)
-}
-
-// ValidLibrarySlug validates a user-created library slug (2-48 chars).
-func ValidLibrarySlug(slug string) bool {
-	return validSlug(slug, 2, 48)
-}
-
-func validSlug(slug string, min, max int) bool {
-	return len(slug) >= min && len(slug) <= max && namespaceSlugPattern.MatchString(slug)
+// VisibleTo reports whether userID may see the category: its owner always
+// may, everyone else only while it holds a public library.
+func (c Category) VisibleTo(userID string) bool {
+	return c.HasPublicLibrary || (userID != "" && userID == c.OwnerUserID)
 }
 
 // MaxSubmissionURLLength is the maximum accepted length (in bytes) of a

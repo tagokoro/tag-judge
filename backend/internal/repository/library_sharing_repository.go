@@ -6,36 +6,64 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 )
 
-type CreateNamespaceParams struct {
-	OwnerUserID string
-	Slug        string
-	DisplayName string
+// ListCategoriesParams lists one owner's categories. IncludeHidden also lists
+// categories without a public library, which only their owner may see.
+type ListCategoriesParams struct {
+	OwnerUserID   string
+	IncludeHidden bool
+	Limit         int
+	Offset        int
 }
 
-type CreateLibraryParams struct {
-	NamespaceID string
-	Slug        string
-	Name        string
-	Description string
-	Visibility  domain.LibraryVisibility
-}
-
-// UpdateLibraryParams uses nil to mark fields the PATCH does not touch.
-type UpdateLibraryParams struct {
+// UpdateCategoryParams uses nil to mark fields the PATCH does not touch. ID is
+// the internal category id.
+type UpdateCategoryParams struct {
 	ID          string
 	Name        *string
 	Description *string
-	Visibility  *string
 }
 
+// CreateLibraryParams files the library under the owner's category named
+// CategoryName, creating that category when the owner has none by that name.
+type CreateLibraryParams struct {
+	OwnerUserID  string
+	CategoryName string
+	Name         string
+	Description  string
+	Visibility   domain.LibraryVisibility
+}
+
+// UpdateLibraryParams uses nil to mark fields the PATCH does not touch.
+// CategoryName moves the library to the owner's category by that name,
+// creating it when needed; a category left empty by the move is removed.
+// OwnerUserID is the library's owner, whom the caller has authorized.
+type UpdateLibraryParams struct {
+	ID           string
+	OwnerUserID  string
+	Name         *string
+	Description  *string
+	Visibility   *string
+	CategoryName *string
+}
+
+// ListLibrariesParams lists one category's libraries (internal category id).
+// IncludePrivate also lists private ones, for the owner.
+type ListLibrariesParams struct {
+	CategoryID     string
+	IncludePrivate bool
+	Limit          int
+	Offset         int
+}
+
+// Every method returns libraries with their category and owner filled in.
+// Create and Update enforce that the owner has a handle and stays within
+// domain.MaxCategoriesPerUser when they add a category.
 type LibraryRepository interface {
 	Create(ctx context.Context, params CreateLibraryParams) (*domain.Library, error)
 	Update(ctx context.Context, params UpdateLibraryParams) (*domain.Library, error)
-	FindBySlug(ctx context.Context, namespaceID, slug string) (*domain.Library, error)
-	ListPublic(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error)
-	ListAll(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error)
-	// ListAllPublic lists public libraries across every namespace, with
-	// NamespaceSlug filled in.
+	FindByPublicID(ctx context.Context, publicID string) (*domain.Library, error)
+	ListByCategory(ctx context.Context, params ListLibrariesParams) ([]domain.Library, error)
+	// ListAllPublic lists public libraries across every category.
 	ListAllPublic(ctx context.Context, limit, offset int) ([]domain.Library, error)
 }
 
@@ -69,8 +97,12 @@ type SetLibraryVersionSubmissionURLParams struct {
 	SubmissionURL *string
 }
 
-type NamespaceRepository interface {
-	Create(ctx context.Context, params CreateNamespaceParams) (*domain.Namespace, error)
-	FindByOwner(ctx context.Context, ownerUserID string) (*domain.Namespace, error)
-	FindBySlug(ctx context.Context, slug string) (*domain.Namespace, error)
+// CategoryRepository reads and edits categories. They are created and removed
+// only through LibraryRepository, together with the libraries in them.
+type CategoryRepository interface {
+	// FindByPublicID finds a category whoever may see it; callers apply
+	// Category.VisibleTo.
+	FindByPublicID(ctx context.Context, publicID string) (*domain.Category, error)
+	ListByOwner(ctx context.Context, params ListCategoriesParams) ([]domain.Category, error)
+	Update(ctx context.Context, params UpdateCategoryParams) (*domain.Category, error)
 }

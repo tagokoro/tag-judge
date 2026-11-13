@@ -36,18 +36,18 @@ type Submission struct {
 }
 
 // PublicSubmission is what anyone may see about a submission to a public
-// problem: no source and no user id. SubmitterNamespaceSlug is empty when the
-// submitter has no namespace.
+// problem: no source and no user id. SubmitterHandle is empty when the
+// submitter has no handle.
 type PublicSubmission struct {
-	ID                     int64
-	ProblemID              int64
-	ProblemTitle           string
-	Language               SubmissionLanguage
-	Status                 SubmissionStatus
-	Score                  int
-	CreatedAt              time.Time
-	JudgedAt               *time.Time
-	SubmitterNamespaceSlug string
+	ID              int64
+	ProblemID       int64
+	ProblemTitle    string
+	Language        SubmissionLanguage
+	Status          SubmissionStatus
+	Score           int
+	CreatedAt       time.Time
+	JudgedAt        *time.Time
+	SubmitterHandle string
 }
 
 type SubmissionDetail struct {

@@ -18,7 +18,8 @@ type Handlers struct {
 	Me              *handler.MeHandler
 	AuthHTTP        *handler.AuthHandler
 	Auth            *appmiddleware.AuthMiddleware
-	Namespaces      *handler.NamespaceHandler
+	Profiles        *handler.UserProfileHandler
+	Categories      *handler.CategoryHandler
 	Libraries       *handler.LibraryHandler
 	LibraryVersions *handler.LibraryVersionHandler
 }
@@ -59,22 +60,25 @@ func New(handlers Handlers) http.Handler {
 	r.Get("/api/v1/auth/google/login", handlers.AuthHTTP.GoogleLogin)
 	r.Get("/api/v1/auth/google/callback", handlers.AuthHTTP.GoogleCallback)
 	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
-	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces", handlers.Namespaces.Create)
-	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/namespace", handlers.Namespaces.GetMine)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/me/profile", handlers.Profiles.CreateMine)
+	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/categories", handlers.Categories.ListMine)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/me/libraries", handlers.Libraries.Create)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/problems", handlers.Problems.ListMine)
+	r.Get("/api/v1/users/{handle}", handlers.Profiles.GetByHandle)
+	r.Get("/api/v1/users/{handle}/categories", handlers.Categories.ListByHandle)
+	r.Get("/api/v1/categories/{category_id}", handlers.Categories.Get)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/categories/{category_id}", handlers.Categories.Update)
+	r.Get("/api/v1/categories/{category_id}/libraries", handlers.Libraries.List)
 	r.Get("/api/v1/libraries", handlers.Libraries.ListAllPublic)
-	r.Get("/api/v1/namespaces/{namespace_slug}", handlers.Namespaces.GetBySlug)
-	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.Create)
-	r.Get("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.List)
-	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Get)
-	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}", handlers.Libraries.Update)
-	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.Create)
-	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions", handlers.LibraryVersions.List)
-	r.Get("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}", handlers.LibraryVersions.Get)
+	r.Get("/api/v1/libraries/{library_id}", handlers.Libraries.Get)
+	r.With(handlers.Auth.RequireAuth).Patch("/api/v1/libraries/{library_id}", handlers.Libraries.Update)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/libraries/{library_id}/versions", handlers.LibraryVersions.Create)
+	r.Get("/api/v1/libraries/{library_id}/versions", handlers.LibraryVersions.List)
+	r.Get("/api/v1/libraries/{library_id}/versions/{version_number}", handlers.LibraryVersions.Get)
 	// Only the library owner may set or clear a version's self-declared
 	// submission URL; reads come with the version above.
-	r.With(handlers.Auth.RequireAuth).Put("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handlers.LibraryVersions.SetSubmissionURL)
-	r.With(handlers.Auth.RequireAuth).Delete("/api/v1/namespaces/{namespace_slug}/libraries/{library_slug}/versions/{version_number}/submission-url", handlers.LibraryVersions.ClearSubmissionURL)
+	r.With(handlers.Auth.RequireAuth).Put("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handlers.LibraryVersions.SetSubmissionURL)
+	r.With(handlers.Auth.RequireAuth).Delete("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handlers.LibraryVersions.ClearSubmissionURL)
 
 	return r
 }

@@ -1,12 +1,19 @@
+-- has_profile tells the login callback whether the user still has to pick a
+-- handle.
 -- name: UpsertGoogleUser :one
-INSERT INTO users (provider, provider_user_id, name, email, role)
-VALUES ('google', $1, $2, $3, 'user')
-ON CONFLICT (provider, provider_user_id) DO UPDATE
-SET
-    name = EXCLUDED.name,
-    email = EXCLUDED.email,
-    updated_at = now()
-RETURNING id::text AS user_id, role;
+WITH u AS (
+    INSERT INTO users (provider, provider_user_id, name, email, role)
+    VALUES ('google', sqlc.arg(provider_user_id), sqlc.arg(name), sqlc.arg(email), 'user')
+    ON CONFLICT (provider, provider_user_id) DO UPDATE
+    SET
+        name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        updated_at = now()
+    RETURNING id, role
+)
+SELECT u.id::text AS user_id, u.role,
+       EXISTS (SELECT 1 FROM user_profiles p WHERE p.user_id = u.id) AS has_profile
+FROM u;
 
 -- name: CreateSession :exec
 INSERT INTO sessions (user_id, token_hash, expires_at)

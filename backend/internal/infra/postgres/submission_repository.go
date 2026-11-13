@@ -215,15 +215,15 @@ func (r *SubmissionRepository) ListRecentPublic(ctx context.Context, params repo
 			judgedAt = &value
 		}
 		submissions = append(submissions, domain.PublicSubmission{
-			ID:                     row.ID,
-			ProblemID:              row.ProblemID,
-			ProblemTitle:           row.ProblemTitle,
-			Language:               domain.SubmissionLanguage(row.Language),
-			Status:                 domain.SubmissionStatus(row.Status),
-			Score:                  int(row.Score),
-			CreatedAt:              row.CreatedAt.Time,
-			JudgedAt:               judgedAt,
-			SubmitterNamespaceSlug: row.SubmitterNamespaceSlug.String,
+			ID:              row.ID,
+			ProblemID:       row.ProblemID,
+			ProblemTitle:    row.ProblemTitle,
+			Language:        domain.SubmissionLanguage(row.Language),
+			Status:          domain.SubmissionStatus(row.Status),
+			Score:           int(row.Score),
+			CreatedAt:       row.CreatedAt.Time,
+			JudgedAt:        judgedAt,
+			SubmitterHandle: row.SubmitterHandle.String,
 		})
 	}
 	return submissions, nil

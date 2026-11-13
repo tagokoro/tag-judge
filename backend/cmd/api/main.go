@@ -48,7 +48,8 @@ func run() error {
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
-	namespaceRepo := postgres.NewNamespaceRepository(db)
+	userProfileRepo := postgres.NewUserProfileRepository(db)
+	categoryRepo := postgres.NewCategoryRepository(db)
 	libraryRepo := postgres.NewLibraryRepository(db)
 	libraryVersionRepo := postgres.NewLibraryVersionRepository(db)
 	sourceCodeStorage, executionDispatcher, err := buildJudgeInfra(ctx, cfg)
@@ -82,8 +83,9 @@ func run() error {
 	go codeRunPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
-	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
-	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
+	userProfileUsecase := usecase.NewUserProfileUsecase(userProfileRepo)
+	categoryUsecase := usecase.NewCategoryUsecase(categoryRepo, userProfileRepo)
+	libraryUsecase := usecase.NewLibraryUsecase(categoryRepo, libraryRepo)
 	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
@@ -91,10 +93,11 @@ func run() error {
 	codeRunHandler := handler.NewCodeRunHandler(codeRunUsecase)
 	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	groupHandler := handler.NewGroupHandler(groupUsecase)
-	meHandler := handler.NewMeHandler()
+	meHandler := handler.NewMeHandler(userProfileUsecase)
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
 	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
-	namespaceHandler := handler.NewNamespaceHandler(namespaceUsecase)
+	userProfileHandler := handler.NewUserProfileHandler(userProfileUsecase)
+	categoryHandler := handler.NewCategoryHandler(categoryUsecase)
 	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
 	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
 
@@ -109,7 +112,8 @@ func run() error {
 			Me:              meHandler,
 			AuthHTTP:        authHandler,
 			Auth:            authMiddleware,
-			Namespaces:      namespaceHandler,
+			Profiles:        userProfileHandler,
+			Categories:      categoryHandler,
 			Libraries:       libraryHandler,
 			LibraryVersions: libraryVersionHandler,
 		}),

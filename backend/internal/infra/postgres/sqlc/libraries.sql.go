@@ -12,34 +12,46 @@ import (
 )
 
 const createLibrary = `-- name: CreateLibrary :one
-INSERT INTO libraries (namespace_id, slug, name, description, visibility)
-VALUES ((($1::text)::uuid), $2, $3, $4, $5)
-RETURNING id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
+
+WITH l AS (
+    INSERT INTO libraries (category_id, name, description, visibility)
+    VALUES ((($1::text)::uuid), $2, $3, $4)
+    RETURNING id, category_id, name, description, visibility, created_at, updated_at, public_id
+)
+SELECT l.id::text AS id, l.public_id, c.public_id AS category_public_id, c.name AS category_name,
+       c.owner_user_id::text AS owner_user_id, up.handle AS owner_handle,
+       l.name, l.description, l.visibility, l.created_at, l.updated_at
+FROM l
+JOIN categories c ON c.id = l.category_id
+JOIN user_profiles up ON up.user_id = c.owner_user_id
 `
 
 type CreateLibraryParams struct {
-	NamespaceID string `json:"namespace_id"`
-	Slug        string `json:"slug"`
+	CategoryID  string `json:"category_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Visibility  string `json:"visibility"`
 }
 
 type CreateLibraryRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	NamespaceID string             `json:"namespace_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Visibility  string             `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID               string             `json:"id"`
+	PublicID         string             `json:"public_id"`
+	CategoryPublicID string             `json:"category_public_id"`
+	CategoryName     string             `json:"category_name"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	OwnerHandle      string             `json:"owner_handle"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	Visibility       string             `json:"visibility"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+// Every library query returns the same row: the library with its category
+// and owner, so a library is always shown and authorized with its location.
 func (q *Queries) CreateLibrary(ctx context.Context, arg CreateLibraryParams) (CreateLibraryRow, error) {
 	row := q.db.QueryRow(ctx, createLibrary,
-		arg.NamespaceID,
-		arg.Slug,
+		arg.CategoryID,
 		arg.Name,
 		arg.Description,
 		arg.Visibility,
@@ -47,8 +59,11 @@ func (q *Queries) CreateLibrary(ctx context.Context, arg CreateLibraryParams) (C
 	var i CreateLibraryRow
 	err := row.Scan(
 		&i.ID,
-		&i.NamespaceID,
-		&i.Slug,
+		&i.PublicID,
+		&i.CategoryPublicID,
+		&i.CategoryName,
+		&i.OwnerUserID,
+		&i.OwnerHandle,
 		&i.Name,
 		&i.Description,
 		&i.Visibility,
@@ -58,36 +73,40 @@ func (q *Queries) CreateLibrary(ctx context.Context, arg CreateLibraryParams) (C
 	return i, err
 }
 
-const getLibraryBySlug = `-- name: GetLibraryBySlug :one
-SELECT id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
-FROM libraries
-WHERE namespace_id = (($1::text)::uuid)
-  AND slug = $2
+const getLibraryByPublicID = `-- name: GetLibraryByPublicID :one
+SELECT l.id::text AS id, l.public_id, c.public_id AS category_public_id, c.name AS category_name,
+       c.owner_user_id::text AS owner_user_id, up.handle AS owner_handle,
+       l.name, l.description, l.visibility, l.created_at, l.updated_at
+FROM libraries l
+JOIN categories c ON c.id = l.category_id
+JOIN user_profiles up ON up.user_id = c.owner_user_id
+WHERE l.public_id = $1
 `
 
-type GetLibraryBySlugParams struct {
-	NamespaceID string `json:"namespace_id"`
-	Slug        string `json:"slug"`
+type GetLibraryByPublicIDRow struct {
+	ID               string             `json:"id"`
+	PublicID         string             `json:"public_id"`
+	CategoryPublicID string             `json:"category_public_id"`
+	CategoryName     string             `json:"category_name"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	OwnerHandle      string             `json:"owner_handle"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	Visibility       string             `json:"visibility"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
-type GetLibraryBySlugRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	NamespaceID string             `json:"namespace_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Visibility  string             `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) GetLibraryBySlug(ctx context.Context, arg GetLibraryBySlugParams) (GetLibraryBySlugRow, error) {
-	row := q.db.QueryRow(ctx, getLibraryBySlug, arg.NamespaceID, arg.Slug)
-	var i GetLibraryBySlugRow
+func (q *Queries) GetLibraryByPublicID(ctx context.Context, publicID string) (GetLibraryByPublicIDRow, error) {
+	row := q.db.QueryRow(ctx, getLibraryByPublicID, publicID)
+	var i GetLibraryByPublicIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.NamespaceID,
-		&i.Slug,
+		&i.PublicID,
+		&i.CategoryPublicID,
+		&i.CategoryName,
+		&i.OwnerUserID,
+		&i.OwnerHandle,
 		&i.Name,
 		&i.Description,
 		&i.Visibility,
@@ -98,11 +117,14 @@ func (q *Queries) GetLibraryBySlug(ctx context.Context, arg GetLibraryBySlugPara
 }
 
 const listAllPublicLibraries = `-- name: ListAllPublicLibraries :many
-SELECT l.id, n.slug AS namespace_slug, l.slug, l.name, l.description, l.visibility, l.created_at, l.updated_at
+SELECT l.id::text AS id, l.public_id, c.public_id AS category_public_id, c.name AS category_name,
+       c.owner_user_id::text AS owner_user_id, up.handle AS owner_handle,
+       l.name, l.description, l.visibility, l.created_at, l.updated_at
 FROM libraries l
-JOIN namespaces n ON n.id = l.namespace_id
+JOIN categories c ON c.id = l.category_id
+JOIN user_profiles up ON up.user_id = c.owner_user_id
 WHERE l.visibility = 'public'
-ORDER BY l.created_at DESC, l.id ASC
+ORDER BY l.created_at DESC, l.public_id ASC
 LIMIT $2 OFFSET $1
 `
 
@@ -112,17 +134,20 @@ type ListAllPublicLibrariesParams struct {
 }
 
 type ListAllPublicLibrariesRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	NamespaceSlug string             `json:"namespace_slug"`
-	Slug          string             `json:"slug"`
-	Name          string             `json:"name"`
-	Description   string             `json:"description"`
-	Visibility    string             `json:"visibility"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID               string             `json:"id"`
+	PublicID         string             `json:"public_id"`
+	CategoryPublicID string             `json:"category_public_id"`
+	CategoryName     string             `json:"category_name"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	OwnerHandle      string             `json:"owner_handle"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	Visibility       string             `json:"visibility"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
-// Public libraries across every namespace, newest first, for the site-wide
+// Public libraries across every user, newest first, for the site-wide
 // library list. Private libraries never appear here.
 func (q *Queries) ListAllPublicLibraries(ctx context.Context, arg ListAllPublicLibrariesParams) ([]ListAllPublicLibrariesRow, error) {
 	rows, err := q.db.Query(ctx, listAllPublicLibraries, arg.ResultOffset, arg.ResultLimit)
@@ -135,8 +160,11 @@ func (q *Queries) ListAllPublicLibraries(ctx context.Context, arg ListAllPublicL
 		var i ListAllPublicLibrariesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.NamespaceSlug,
-			&i.Slug,
+			&i.PublicID,
+			&i.CategoryPublicID,
+			&i.CategoryName,
+			&i.OwnerUserID,
+			&i.OwnerHandle,
 			&i.Name,
 			&i.Description,
 			&i.Visibility,
@@ -153,44 +181,63 @@ func (q *Queries) ListAllPublicLibraries(ctx context.Context, arg ListAllPublicL
 	return items, nil
 }
 
-const listNamespaceLibraries = `-- name: ListNamespaceLibraries :many
-SELECT id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
-FROM libraries
-WHERE namespace_id = (($1::text)::uuid)
-ORDER BY created_at DESC, slug ASC
-LIMIT $3 OFFSET $2
+const listCategoryLibraries = `-- name: ListCategoryLibraries :many
+SELECT l.id::text AS id, l.public_id, c.public_id AS category_public_id, c.name AS category_name,
+       c.owner_user_id::text AS owner_user_id, up.handle AS owner_handle,
+       l.name, l.description, l.visibility, l.created_at, l.updated_at
+FROM libraries l
+JOIN categories c ON c.id = l.category_id
+JOIN user_profiles up ON up.user_id = c.owner_user_id
+WHERE l.category_id = (($1::text)::uuid)
+  AND ($2::boolean OR l.visibility = 'public')
+ORDER BY l.updated_at DESC, l.public_id ASC
+LIMIT $4 OFFSET $3
 `
 
-type ListNamespaceLibrariesParams struct {
-	NamespaceID  string `json:"namespace_id"`
-	ResultOffset int32  `json:"result_offset"`
-	ResultLimit  int32  `json:"result_limit"`
+type ListCategoryLibrariesParams struct {
+	CategoryID     string `json:"category_id"`
+	IncludePrivate bool   `json:"include_private"`
+	ResultOffset   int32  `json:"result_offset"`
+	ResultLimit    int32  `json:"result_limit"`
 }
 
-type ListNamespaceLibrariesRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	NamespaceID string             `json:"namespace_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Visibility  string             `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+type ListCategoryLibrariesRow struct {
+	ID               string             `json:"id"`
+	PublicID         string             `json:"public_id"`
+	CategoryPublicID string             `json:"category_public_id"`
+	CategoryName     string             `json:"category_name"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	OwnerHandle      string             `json:"owner_handle"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	Visibility       string             `json:"visibility"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) ListNamespaceLibraries(ctx context.Context, arg ListNamespaceLibrariesParams) ([]ListNamespaceLibrariesRow, error) {
-	rows, err := q.db.Query(ctx, listNamespaceLibraries, arg.NamespaceID, arg.ResultOffset, arg.ResultLimit)
+// include_private lists every library (for the owner); otherwise only public
+// ones. Newest update first.
+func (q *Queries) ListCategoryLibraries(ctx context.Context, arg ListCategoryLibrariesParams) ([]ListCategoryLibrariesRow, error) {
+	rows, err := q.db.Query(ctx, listCategoryLibraries,
+		arg.CategoryID,
+		arg.IncludePrivate,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListNamespaceLibrariesRow
+	var items []ListCategoryLibrariesRow
 	for rows.Next() {
-		var i ListNamespaceLibrariesRow
+		var i ListCategoryLibrariesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.NamespaceID,
-			&i.Slug,
+			&i.PublicID,
+			&i.CategoryPublicID,
+			&i.CategoryName,
+			&i.OwnerUserID,
+			&i.OwnerHandle,
 			&i.Name,
 			&i.Description,
 			&i.Visibility,
@@ -207,101 +254,78 @@ func (q *Queries) ListNamespaceLibraries(ctx context.Context, arg ListNamespaceL
 	return items, nil
 }
 
-const listPublicLibraries = `-- name: ListPublicLibraries :many
-SELECT id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
+const lockLibraryCategory = `-- name: LockLibraryCategory :one
+SELECT category_id::text AS category_id
 FROM libraries
-WHERE namespace_id = (($1::text)::uuid)
-  AND visibility = 'public'
-ORDER BY created_at DESC, slug ASC
-LIMIT $3 OFFSET $2
+WHERE id = (($1::text)::uuid)
+FOR UPDATE
 `
 
-type ListPublicLibrariesParams struct {
-	NamespaceID  string `json:"namespace_id"`
-	ResultOffset int32  `json:"result_offset"`
-	ResultLimit  int32  `json:"result_limit"`
-}
-
-type ListPublicLibrariesRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	NamespaceID string             `json:"namespace_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Visibility  string             `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) ListPublicLibraries(ctx context.Context, arg ListPublicLibrariesParams) ([]ListPublicLibrariesRow, error) {
-	rows, err := q.db.Query(ctx, listPublicLibraries, arg.NamespaceID, arg.ResultOffset, arg.ResultLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListPublicLibrariesRow
-	for rows.Next() {
-		var i ListPublicLibrariesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.NamespaceID,
-			&i.Slug,
-			&i.Name,
-			&i.Description,
-			&i.Visibility,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// The library's current category, locked for a move.
+func (q *Queries) LockLibraryCategory(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, lockLibraryCategory, id)
+	var category_id string
+	err := row.Scan(&category_id)
+	return category_id, err
 }
 
 const updateLibrary = `-- name: UpdateLibrary :one
-UPDATE libraries
-SET name = COALESCE($1, name),
-    description = COALESCE($2, description),
-    visibility = COALESCE($3, visibility),
+UPDATE libraries l
+SET name = COALESCE($1, l.name),
+    description = COALESCE($2, l.description),
+    visibility = COALESCE($3, l.visibility),
+    category_id = COALESCE(($4::text)::uuid, l.category_id),
     updated_at = now()
-WHERE id = (($4::text)::uuid)
-RETURNING id, namespace_id::text AS namespace_id, slug, name, description, visibility, created_at, updated_at
+FROM categories c
+JOIN user_profiles up ON up.user_id = c.owner_user_id
+WHERE l.id = (($5::text)::uuid)
+  AND c.id = COALESCE(($4::text)::uuid, l.category_id)
+RETURNING l.id::text AS id, l.public_id, c.public_id AS category_public_id, c.name AS category_name,
+          c.owner_user_id::text AS owner_user_id, up.handle AS owner_handle,
+          l.name, l.description, l.visibility, l.created_at, l.updated_at
 `
 
 type UpdateLibraryParams struct {
 	Name        pgtype.Text `json:"name"`
 	Description pgtype.Text `json:"description"`
 	Visibility  pgtype.Text `json:"visibility"`
+	CategoryID  pgtype.Text `json:"category_id"`
 	ID          string      `json:"id"`
 }
 
 type UpdateLibraryRow struct {
-	ID          pgtype.UUID        `json:"id"`
-	NamespaceID string             `json:"namespace_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Visibility  string             `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID               string             `json:"id"`
+	PublicID         string             `json:"public_id"`
+	CategoryPublicID string             `json:"category_public_id"`
+	CategoryName     string             `json:"category_name"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	OwnerHandle      string             `json:"owner_handle"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	Visibility       string             `json:"visibility"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+// category_id (internal) moves the library; the caller resolved it among the
+// owner's categories. The join reads the category the library ends up in, so
+// the returned location is the new one.
 func (q *Queries) UpdateLibrary(ctx context.Context, arg UpdateLibraryParams) (UpdateLibraryRow, error) {
 	row := q.db.QueryRow(ctx, updateLibrary,
 		arg.Name,
 		arg.Description,
 		arg.Visibility,
+		arg.CategoryID,
 		arg.ID,
 	)
 	var i UpdateLibraryRow
 	err := row.Scan(
 		&i.ID,
-		&i.NamespaceID,
-		&i.Slug,
+		&i.PublicID,
+		&i.CategoryPublicID,
+		&i.CategoryName,
+		&i.OwnerUserID,
+		&i.OwnerHandle,
 		&i.Name,
 		&i.Description,
 		&i.Visibility,

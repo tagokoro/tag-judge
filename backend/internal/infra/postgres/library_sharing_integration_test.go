@@ -37,10 +37,10 @@ func assertAppError(t *testing.T, err error, sentinel error, wantCode, wantMessa
 	}
 }
 
-// seedVersionFixture creates one user (the namespace owner), namespace, library,
+// seedVersionFixture creates one user (the category owner), category, library,
 // and version. A submission URL needs no Problem, Submission, or Outbox, so
 // this fixture deliberately seeds none of them.
-func seedVersionFixture(t *testing.T, ctx context.Context, db *pgxpool.Pool, visibility string) (namespaceID, libraryID, versionID, ownerUserID string) {
+func seedVersionFixture(t *testing.T, ctx context.Context, db *pgxpool.Pool, visibility string) (categoryID, libraryID, versionID, ownerUserID string) {
 	t.Helper()
 	ownerUserID = "00000000-0000-4000-8000-000000000001"
 	if _, err := db.Exec(ctx, `
@@ -49,18 +49,22 @@ VALUES ($1, 'test', 'link-owner', 'Owner', 'link-owner@example.test');`, ownerUs
 		t.Fatalf("seed user: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-INSERT INTO namespaces (owner_user_id, slug, display_name)
-VALUES ($1, 'link-author', 'Link Author');`, ownerUserID); err != nil {
-		t.Fatalf("seed namespace: %v", err)
+INSERT INTO user_profiles (user_id, handle) VALUES ($1, 'link-owner');`, ownerUserID); err != nil {
+		t.Fatalf("seed profile: %v", err)
 	}
-	if err := db.QueryRow(ctx, `SELECT id::text FROM namespaces WHERE slug = 'link-author'`).Scan(&namespaceID); err != nil {
-		t.Fatalf("read namespace: %v", err)
+	if _, err := db.Exec(ctx, `
+INSERT INTO categories (owner_user_id, name)
+VALUES ($1, 'Link Author');`, ownerUserID); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT id::text FROM categories WHERE name = 'Link Author'`).Scan(&categoryID); err != nil {
+		t.Fatalf("read category: %v", err)
 	}
 	library, err := postgres.NewLibraryRepository(db).Create(ctx, repository.CreateLibraryParams{
-		NamespaceID: namespaceID,
-		Slug:        "union-find",
-		Name:        "UnionFind",
-		Visibility:  domain.LibraryVisibility(visibility),
+		OwnerUserID:  ownerUserID,
+		CategoryName: "Link Author",
+		Name:         "UnionFind",
+		Visibility:   domain.LibraryVisibility(visibility),
 	})
 	if err != nil {
 		t.Fatalf("create library: %v", err)
@@ -74,7 +78,7 @@ VALUES ($1, 'link-author', 'Link Author');`, ownerUserID); err != nil {
 	if err != nil {
 		t.Fatalf("create version: %v", err)
 	}
-	return namespaceID, library.ID, version.ID, ownerUserID
+	return categoryID, library.ID, version.ID, ownerUserID
 }
 
 // assertNoExecutionRows proves the submission-URL path wrote no Submission,
@@ -170,9 +174,161 @@ var validSubmissionURLs = []struct{ name, url string }{
 	{"max length 2048", "https://e.com/" + strings.Repeat("a", 2048-len("https://e.com/"))},
 }
 
-// TestNamespaceUniqueConstraints verifies that the PostgreSQL repository maps
-// the unique constraints on namespaces to their API conflict contracts.
-func TestNamespaceUniqueConstraints(t *testing.T) {
+// TestCategoryRepositoryRules verifies how the PostgreSQL repositories keep
+// categories: a library's category is found by name ignoring case or created
+// with it, a handle is required, the per-user limit holds, ids are random
+// 20-hex public ids, visibility follows public libraries, and a move creates
+// the target and removes the category it leaves empty.
+func TestCategoryRepositoryRules(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	const (
+		owner  = "00000000-0000-4000-8000-000000000001"
+		other  = "00000000-0000-4000-8000-000000000002"
+		noName = "00000000-0000-4000-8000-000000000003"
+	)
+	if _, err := db.Exec(ctx, `
+INSERT INTO users (id, provider, provider_user_id, name, email)
+VALUES ('`+owner+`', 'test', 'cat-owner', 'Owner', 'cat-owner@example.test'),
+       ('`+other+`', 'test', 'cat-other', 'Other', 'cat-other@example.test'),
+       ('`+noName+`', 'test', 'cat-none', 'None', 'cat-none@example.test');
+INSERT INTO user_profiles (user_id, handle)
+VALUES ('`+owner+`', 'owner'),
+       ('`+other+`', 'other');
+`); err != nil {
+		t.Fatalf("seed users: %v", err)
+	}
+
+	categories := postgres.NewCategoryRepository(db)
+	libraries := postgres.NewLibraryRepository(db)
+	create := func(ownerUserID, category, name string, visibility domain.LibraryVisibility) (*domain.Library, error) {
+		return libraries.Create(ctx, repository.CreateLibraryParams{
+			OwnerUserID: ownerUserID, CategoryName: category, Name: name, Visibility: visibility,
+		})
+	}
+	countCategories := func(ownerUserID string) int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM categories WHERE owner_user_id = $1`, ownerUserID).Scan(&n); err != nil {
+			t.Fatalf("count categories: %v", err)
+		}
+		return n
+	}
+
+	_, err := create(noName, "グラフ", "Dijkstra", domain.LibraryVisibilityPublic)
+	assertAppError(t, err, apperror.ErrConflict, "HANDLE_REQUIRED", "create a handle before creating a library")
+	if countCategories(noName) != 0 {
+		t.Fatal("a rejected create must not leave a category behind")
+	}
+
+	// The first library creates the category; a second one with the same name
+	// in another letter case reuses it.
+	dijkstra, err := create(owner, "Graph", "Dijkstra", domain.LibraryVisibilityPrivate)
+	if err != nil {
+		t.Fatalf("create private library: %v", err)
+	}
+	if !domain.ValidPublicID(dijkstra.PublicID) || !domain.ValidPublicID(dijkstra.CategoryPublicID) ||
+		dijkstra.CategoryName != "Graph" || dijkstra.OwnerHandle != "owner" || dijkstra.OwnerUserID != owner {
+		t.Fatalf("library = %+v", dijkstra)
+	}
+	bfs, err := create(owner, "graph", "BFS", domain.LibraryVisibilityPublic)
+	if err != nil {
+		t.Fatalf("create public library: %v", err)
+	}
+	if bfs.CategoryPublicID != dijkstra.CategoryPublicID || bfs.CategoryName != "Graph" || countCategories(owner) != 1 {
+		t.Fatalf("bfs = %+v, want it in the existing Graph category", bfs)
+	}
+	if _, err := create(owner, "Graph", "Dijkstra", domain.LibraryVisibilityPrivate); err != nil {
+		t.Fatalf("library names may repeat: %v", err)
+	}
+	if _, err := create(other, "Graph", "Theirs", domain.LibraryVisibilityPublic); err != nil {
+		t.Fatalf("another owner reusing the category name: %v", err)
+	}
+
+	// Visibility follows the category's public libraries.
+	graph, err := categories.FindByPublicID(ctx, dijkstra.CategoryPublicID)
+	if err != nil || !graph.HasPublicLibrary || graph.Name != "Graph" {
+		t.Fatalf("graph = %+v, %v; want it visible through BFS", graph, err)
+	}
+	math, err := create(owner, "数学", "Sieve", domain.LibraryVisibilityPrivate)
+	if err != nil {
+		t.Fatalf("create math library: %v", err)
+	}
+	visible, err := categories.ListByOwner(ctx, repository.ListCategoriesParams{OwnerUserID: owner, Limit: 100})
+	if err != nil || len(visible) != 1 || visible[0].PublicID != graph.PublicID {
+		t.Fatalf("categories visible to others = %+v, %v; want only Graph", visible, err)
+	}
+	all, err := categories.ListByOwner(ctx, repository.ListCategoriesParams{OwnerUserID: owner, IncludeHidden: true, Limit: 100})
+	if err != nil || len(all) != 2 || all[0].PublicID != graph.PublicID {
+		t.Fatalf("owner's categories = %+v, %v; want Graph then 数学", all, err)
+	}
+	listed, err := libraries.ListByCategory(ctx, repository.ListLibrariesParams{CategoryID: graph.ID, Limit: 100})
+	if err != nil || len(listed) != 1 || listed[0].Name != "BFS" {
+		t.Fatalf("public libraries = %+v, %v; want only BFS", listed, err)
+	}
+	listed, err = libraries.ListByCategory(ctx, repository.ListLibrariesParams{CategoryID: graph.ID, IncludePrivate: true, Limit: 100})
+	if err != nil || len(listed) != 3 {
+		t.Fatalf("all libraries = %+v, %v; want 3", listed, err)
+	}
+
+	// Renaming keeps the id; a rename onto another of the owner's names conflicts.
+	description := "graphs and trees"
+	newName := "グラフ"
+	updated, err := categories.Update(ctx, repository.UpdateCategoryParams{ID: graph.ID, Name: &newName, Description: &description})
+	if err != nil || updated.Description != description || updated.Name != "グラフ" || updated.PublicID != graph.PublicID {
+		t.Fatalf("Update = %+v, %v", updated, err)
+	}
+	clash := "数学"
+	_, err = categories.Update(ctx, repository.UpdateCategoryParams{ID: graph.ID, Name: &clash})
+	assertAppError(t, err, apperror.ErrConflict, "CATEGORY_NAME_TAKEN", "you already have a category with this name")
+
+	// Moving the only library out of 数学 into a new category creates that
+	// category, keeps the library's id, and removes the emptied 数学.
+	target := "整数論"
+	moved, err := libraries.Update(ctx, repository.UpdateLibraryParams{ID: math.ID, OwnerUserID: owner, CategoryName: &target})
+	if err != nil || moved.PublicID != math.PublicID || moved.CategoryName != "整数論" || moved.CategoryPublicID == math.CategoryPublicID {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	if _, err := categories.FindByPublicID(ctx, math.CategoryPublicID); !errors.Is(err, apperror.ErrNotFound) {
+		t.Fatalf("emptied category err = %v, want it removed", err)
+	}
+	// Moving into a category that still has other libraries keeps the source.
+	back := "グラフ"
+	if _, err := libraries.Update(ctx, repository.UpdateLibraryParams{ID: dijkstra.ID, OwnerUserID: owner, CategoryName: &target}); err != nil {
+		t.Fatalf("move dijkstra: %v", err)
+	}
+	if _, err := categories.FindByPublicID(ctx, graph.PublicID); err != nil {
+		t.Fatalf("a category with libraries left must stay: %v", err)
+	}
+	// Moving within the same category (by any letter case) changes nothing.
+	same, err := libraries.Update(ctx, repository.UpdateLibraryParams{ID: bfs.ID, OwnerUserID: owner, CategoryName: &back})
+	if err != nil || same.CategoryPublicID != graph.PublicID {
+		t.Fatalf("same-category move = %+v, %v", same, err)
+	}
+
+	// The per-user limit counts categories, not libraries.
+	for i := countCategories(owner); i < domain.MaxCategoriesPerUser; i++ {
+		if _, err := create(owner, fmt.Sprintf("cat-%d", i), "L", domain.LibraryVisibilityPrivate); err != nil {
+			t.Fatalf("category %d: %v", i, err)
+		}
+	}
+	_, err = create(owner, "one-too-many", "L", domain.LibraryVisibilityPrivate)
+	assertAppError(t, err, apperror.ErrConflict, "CATEGORY_LIMIT", "a user can own at most 20 categories")
+	if _, err := create(owner, "グラフ", "Still fits", domain.LibraryVisibilityPrivate); err != nil {
+		t.Fatalf("an existing category is usable at the limit: %v", err)
+	}
+	full := "one-too-many"
+	_, err = libraries.Update(ctx, repository.UpdateLibraryParams{ID: bfs.ID, OwnerUserID: owner, CategoryName: &full})
+	assertAppError(t, err, apperror.ErrConflict, "CATEGORY_LIMIT", "a user can own at most 20 categories")
+}
+
+// TestUserProfileRepositoryConflicts verifies the handle conflicts.
+func TestUserProfileRepositoryConflicts(t *testing.T) {
 	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
@@ -182,34 +338,29 @@ func TestNamespaceUniqueConstraints(t *testing.T) {
 	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
 	if _, err := db.Exec(ctx, `
 INSERT INTO users (id, provider, provider_user_id, name, email)
-VALUES ('00000000-0000-4000-8000-000000000001', 'test', 'ns-owner', 'Owner', 'ns-owner@example.test'),
-       ('00000000-0000-4000-8000-000000000002', 'test', 'ns-admin', 'Admin', 'ns-admin@example.test');
+VALUES ('00000000-0000-4000-8000-000000000001', 'test', 'alice', 'Alice Google', 'alice@example.test'),
+       ('00000000-0000-4000-8000-000000000002', 'test', 'bob', 'Bob Google', 'bob@example.test');
 `); err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
-
-	repo := postgres.NewNamespaceRepository(db)
-	if _, err := repo.Create(ctx, repository.CreateNamespaceParams{
-		OwnerUserID: "00000000-0000-4000-8000-000000000001",
-		Slug:        "seed-author",
-		DisplayName: "Seed Author",
-	}); err != nil {
-		t.Fatalf("first create: %v", err)
+	repo := postgres.NewUserProfileRepository(db)
+	create := func(userID, handle string) error {
+		_, err := repo.Create(ctx, repository.CreateUserProfileParams{UserID: userID, Handle: handle})
+		return err
 	}
+	if err := create("00000000-0000-4000-8000-000000000001", "alice"); err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	assertAppError(t, create("00000000-0000-4000-8000-000000000001", "alice-2"), apperror.ErrConflict, "HANDLE_ALREADY_SET", "you already have a handle")
+	assertAppError(t, create("00000000-0000-4000-8000-000000000002", "alice"), apperror.ErrConflict, "HANDLE_TAKEN", "handle is already taken")
+	assertAppError(t, create("00000000-0000-4000-8000-0000000000ff", "ghost"), apperror.ErrUnauthorized, "UNAUTHORIZED", "authentication required")
 
-	_, err := repo.Create(ctx, repository.CreateNamespaceParams{
-		OwnerUserID: "00000000-0000-4000-8000-000000000001",
-		Slug:        "other-slug",
-		DisplayName: "Other",
-	})
-	assertAppError(t, err, apperror.ErrConflict, "NAMESPACE_ALREADY_EXISTS", "user already has a namespace")
-
-	_, err = repo.Create(ctx, repository.CreateNamespaceParams{
-		OwnerUserID: "00000000-0000-4000-8000-000000000002",
-		Slug:        "seed-author",
-		DisplayName: "Copycat",
-	})
-	assertAppError(t, err, apperror.ErrConflict, "NAMESPACE_SLUG_TAKEN", "namespace slug is already taken")
+	profile, err := repo.FindByHandle(ctx, "alice")
+	if err != nil || profile.UserID != "00000000-0000-4000-8000-000000000001" || profile.Handle != "alice" {
+		t.Fatalf("FindByHandle = %+v, %v", profile, err)
+	}
+	_, err = repo.FindByUserID(ctx, "00000000-0000-4000-8000-000000000002")
+	assertAppError(t, err, apperror.ErrNotFound, "USER_NOT_FOUND", "user not found")
 }
 
 // Uses an isolated schema and the real migrations. Set
@@ -227,16 +378,18 @@ func TestLibraryVersionIsImmutable(t *testing.T) {
 	if _, err := db.Exec(ctx, `
 INSERT INTO users (id, provider, provider_user_id, name, email)
 VALUES ('00000000-0000-4000-8000-000000000001', 'test', 'library', 'Library', 'library@example.test');
-INSERT INTO namespaces (owner_user_id, slug, display_name)
-VALUES ('00000000-0000-4000-8000-000000000001', 'seed-author', 'Seed Author');
-INSERT INTO libraries (namespace_id, slug, name, description, visibility)
-VALUES ((SELECT id FROM namespaces WHERE slug = 'seed-author'), 'union-find', 'UnionFind', '', 'private');
+INSERT INTO user_profiles (user_id, handle)
+VALUES ('00000000-0000-4000-8000-000000000001', 'library');
+INSERT INTO categories (owner_user_id, name)
+VALUES ('00000000-0000-4000-8000-000000000001', 'Seed Author');
+INSERT INTO libraries (category_id, name, description, visibility)
+VALUES ((SELECT id FROM categories WHERE name = 'Seed Author'), 'UnionFind', '', 'private');
 `); err != nil {
 		t.Fatalf("seed library sharing tables: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
 INSERT INTO library_versions (library_id, version_number, source_code, content_sha256, byte_size, created_by)
-VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 1, $1,
+VALUES ((SELECT id FROM libraries WHERE name = 'UnionFind'), 1, $1,
         encode(digest(convert_to($1, 'UTF8'), 'sha256'), 'hex'), octet_length($1),
         '00000000-0000-4000-8000-000000000001');
 `, source); err != nil {
@@ -252,7 +405,7 @@ VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 1, $1,
 	// byte_size must match the stored UTF-8 bytes exactly.
 	if _, err := db.Exec(ctx, `
 INSERT INTO library_versions (library_id, version_number, source_code, content_sha256, byte_size, created_by)
-VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 2,
+VALUES ((SELECT id FROM libraries WHERE name = 'UnionFind'), 2,
         'def same(a, b): return a + b' || chr(10),
         encode(digest(convert_to('def same(a, b): return a + b' || chr(10), 'UTF8'), 'sha256'), 'hex'),
         octet_length('def same(a, b): return a + b' || chr(10)) + 1,
@@ -263,7 +416,7 @@ VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 2,
 	// content_sha256 must equal the hash of the stored source bytes.
 	if _, err := db.Exec(ctx, `
 INSERT INTO library_versions (library_id, version_number, source_code, content_sha256, byte_size, created_by)
-VALUES ((SELECT id FROM libraries WHERE slug = 'union-find'), 2,
+VALUES ((SELECT id FROM libraries WHERE name = 'UnionFind'), 2,
         'def same(a, b): return a + b' || chr(10),
         repeat('0', 64),
         octet_length('def same(a, b): return a + b' || chr(10)),
@@ -332,23 +485,28 @@ func TestCreateLibraryVersionAllocatesConsecutiveNumbersConcurrently(t *testing.
 	if _, err := db.Exec(ctx, `
 INSERT INTO users (id, provider, provider_user_id, name, email)
 VALUES ('00000000-0000-4000-8000-000000000001', 'test', 'version-owner', 'Owner', 'version-owner@example.test');
-INSERT INTO namespaces (owner_user_id, slug, display_name)
-VALUES ('00000000-0000-4000-8000-000000000001', 'version-owner', 'Version Owner');
+INSERT INTO user_profiles (user_id, handle)
+VALUES ('00000000-0000-4000-8000-000000000001', 'version-owner');
+INSERT INTO categories (owner_user_id, name)
+VALUES ('00000000-0000-4000-8000-000000000001', 'Version Owner');
 `); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 
-	var namespaceID string
-	if err := db.QueryRow(ctx, `SELECT id::text FROM namespaces WHERE slug = 'version-owner'`).Scan(&namespaceID); err != nil {
-		t.Fatalf("find namespace: %v", err)
+	var categoryID string
+	if err := db.QueryRow(ctx, `SELECT id::text FROM categories WHERE name = 'Version Owner'`).Scan(&categoryID); err != nil {
+		t.Fatalf("find category: %v", err)
 	}
 
 	library, err := postgres.NewLibraryRepository(db).Create(ctx, repository.CreateLibraryParams{
-		NamespaceID: namespaceID,
-		Slug:        "union-find",
-		Name:        "UnionFind",
-		Visibility:  domain.LibraryVisibilityPrivate,
+		OwnerUserID:  "00000000-0000-4000-8000-000000000001",
+		CategoryName: "version owner",
+		Name:         "UnionFind",
+		Visibility:   domain.LibraryVisibilityPrivate,
 	})
+	if err == nil && library.CategoryName != "Version Owner" {
+		t.Fatalf("category = %q, want the existing one found ignoring case", library.CategoryName)
+	}
 	if err != nil {
 		t.Fatalf("create library: %v", err)
 	}
@@ -601,5 +759,55 @@ func TestLibraryVersionReadsEnforceVisibilityInRepository(t *testing.T) {
 	versions, err = repo.ListSummaries(ctx, repository.ListLibraryVersionsParams{LibraryID: libraryID, Limit: 20, ActorUserID: ownerUserID})
 	if err != nil || len(versions) != 1 {
 		t.Fatalf("owner private versions = %+v, %v; want one", versions, err)
+	}
+}
+
+// TestLibraryUpdatedAtFollowsVersions pins "last updated": a new version bumps
+// the library's updated_at, a submission URL change does not.
+func TestLibraryUpdatedAtFollowsVersions(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, libraryID, _, ownerUserID := seedVersionFixture(t, ctx, db, "public")
+	var publicID string
+	if err := db.QueryRow(ctx, `SELECT public_id FROM libraries WHERE id = $1`, libraryID).Scan(&publicID); err != nil {
+		t.Fatalf("read public id: %v", err)
+	}
+
+	libraries := postgres.NewLibraryRepository(db)
+	updatedAt := func() time.Time {
+		t.Helper()
+		library, err := libraries.FindByPublicID(ctx, publicID)
+		if err != nil {
+			t.Fatalf("FindByPublicID: %v", err)
+		}
+		if library.ID != libraryID {
+			t.Fatalf("library id = %q, want %q", library.ID, libraryID)
+		}
+		return library.UpdatedAt
+	}
+
+	before := updatedAt()
+	versions := postgres.NewLibraryVersionRepository(db)
+	url := "https://judge.example.com/submissions/1"
+	if _, err := versions.SetSubmissionURL(ctx, repository.SetLibraryVersionSubmissionURLParams{
+		LibraryID: libraryID, VersionNumber: 1, ActorUserID: ownerUserID, SubmissionURL: &url,
+	}); err != nil {
+		t.Fatalf("SetSubmissionURL: %v", err)
+	}
+	if got := updatedAt(); !got.Equal(before) {
+		t.Fatalf("a submission URL change moved updated_at from %v to %v", before, got)
+	}
+	if _, err := versions.Create(ctx, repository.CreateLibraryVersionParams{
+		LibraryID: libraryID, SourceCode: "def f():\n    return 2\n", CreatedBy: ownerUserID,
+	}); err != nil {
+		t.Fatalf("Create version: %v", err)
+	}
+	if got := updatedAt(); !got.After(before) {
+		t.Fatalf("a new version left updated_at at %v (was %v)", got, before)
 	}
 }

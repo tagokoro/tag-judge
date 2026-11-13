@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestValidateSubmissionURL is the authoritative gate for self-declared
 // submission URLs. It must accept ANY absolute HTTP(S) URL with a real
@@ -77,4 +80,40 @@ func repeat(b byte, n int) string {
 		s[i] = b
 	}
 	return string(s)
+}
+
+func TestValidPublicID(t *testing.T) {
+	if !ValidPublicID("70da733124b8e860f0fd") {
+		t.Fatal("a 20-character lowercase hex id must be valid")
+	}
+	for _, id := range []string{"", "70DA733124B8E860F0FD", "70da733124b8e860f0f", "70da733124b8e860f0fd0", "70da733124b8e860f0fg", "union-find"} {
+		if ValidPublicID(id) {
+			t.Fatalf("ValidPublicID(%q) = true, want invalid", id)
+		}
+	}
+}
+
+func TestValidHandle(t *testing.T) {
+	for _, handle := range []string{"ab", "seed-author", strings.Repeat("a", 32), "edit"} {
+		if !ValidHandle(handle) {
+			t.Fatalf("ValidHandle(%q) = false, want valid", handle)
+		}
+	}
+	for _, handle := range []string{"a", "A1", "-ab", "a--b", "a_b", strings.Repeat("a", 33)} {
+		if ValidHandle(handle) {
+			t.Fatalf("ValidHandle(%q) = true, want invalid", handle)
+		}
+	}
+}
+
+func TestCategoryVisibleTo(t *testing.T) {
+	const owner = "00000000-0000-4000-8000-000000000001"
+	hidden := Category{OwnerUserID: owner}
+	if !hidden.VisibleTo(owner) || hidden.VisibleTo("00000000-0000-4000-8000-000000000002") || hidden.VisibleTo("") {
+		t.Fatal("a category without a public library must be visible to its owner only")
+	}
+	public := Category{OwnerUserID: owner, HasPublicLibrary: true}
+	if !public.VisibleTo("") {
+		t.Fatal("a category with a public library must be visible to everyone")
+	}
 }
