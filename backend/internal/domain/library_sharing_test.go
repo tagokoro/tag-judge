@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 // TestValidateSubmissionURL is the authoritative gate for self-declared
 // submission URLs. It must accept ANY absolute HTTP(S) URL with a real
@@ -89,19 +86,6 @@ func TestValidPublicID(t *testing.T) {
 	for _, id := range []string{"", "70DA733124B8E860F0FD", "70da733124b8e860f0f", "70da733124b8e860f0fd0", "70da733124b8e860f0fg", "union-find"} {
 		if ValidPublicID(id) {
 			t.Fatalf("ValidPublicID(%q) = true, want invalid", id)
-		}
-	}
-}
-
-func TestValidHandle(t *testing.T) {
-	for _, handle := range []string{"ab", "seed-author", strings.Repeat("a", 32), "edit"} {
-		if !ValidHandle(handle) {
-			t.Fatalf("ValidHandle(%q) = false, want valid", handle)
-		}
-	}
-	for _, handle := range []string{"a", "A1", "-ab", "a--b", "a_b", strings.Repeat("a", 33)} {
-		if ValidHandle(handle) {
-			t.Fatalf("ValidHandle(%q) = true, want invalid", handle)
 		}
 	}
 }

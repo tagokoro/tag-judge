@@ -8,5 +8,5 @@ CREATE TABLE user_profiles (
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT user_profiles_handle_unique UNIQUE (handle),
     CONSTRAINT user_profiles_handle_check CHECK (handle ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
-    CONSTRAINT user_profiles_handle_length_check CHECK (char_length(handle) BETWEEN 2 AND 32)
+    CONSTRAINT user_profiles_handle_length_check CHECK (char_length(handle) BETWEEN 2 AND 16)
 );
