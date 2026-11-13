@@ -685,6 +685,11 @@ code {
   align-items: flex-end;
 }
 
+/* Fields side by side line up at their labels, whether or not each has a hint. */
+.row-fields {
+  align-items: flex-start;
+}
+
 .section > .row,
 .section > .field,
 .section > .kv {

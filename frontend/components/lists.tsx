@@ -6,13 +6,13 @@ import { libraryPath, userPath } from "@/lib/routes";
 import type { Library, Problem } from "@/lib/types";
 import { VisibilityBadge } from "./ui";
 
-/** Libraries as rows. `showNamespace` adds the owner for site-wide lists. */
+/** Libraries as rows. `showCategory` adds the owner and category for site-wide lists. */
 export function LibraryList({
   libraries,
-  showNamespace = false,
+  showCategory = false,
 }: {
   libraries: Library[];
-  showNamespace?: boolean;
+  showCategory?: boolean;
 }) {
   return (
     <ul className="lib-list">
@@ -21,12 +21,11 @@ export function LibraryList({
         const summary = descriptionSummary(library.description);
         return (
           <li key={library.id}>
-            <Link className="lib-row" href={libraryPath(library.namespace_slug, library.slug)}>
+            <Link className="lib-row" href={libraryPath(library.owner, library.id)}>
               <span>
                 <span className="lib-name">{library.name}</span>
                 <span className="lib-slug">
-                  {showNamespace ? `${library.namespace_slug}/` : ""}
-                  {library.slug}
+                  {showCategory ? `@${library.owner} / ${library.category.name}` : library.category.name}
                 </span>
               </span>
               <VisibilityBadge visibility={library.visibility} />

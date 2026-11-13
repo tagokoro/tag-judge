@@ -5,43 +5,26 @@ import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { CodeEditor } from "@/components/CodeEditor";
-import { OwnerOnly } from "@/components/OwnerOnly";
+import { LibraryEditFrame } from "@/components/LibraryEditFrame";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useLatestVersion } from "@/components/useLatestVersion";
-import { Breadcrumbs, Button, Card, ErrorNote, LoadState } from "@/components/ui";
-import { HOME_PATH, libraryPath, namespacePath } from "@/lib/routes";
+import { Button, Card, ErrorNote, LoadState } from "@/components/ui";
+import type { Library } from "@/lib/types";
 
 const SOURCE_TEMPLATE = "def add(a, b):\n    return a + b\n";
 
-export default function EditCodePage({
-  params,
-}: {
-  params: Promise<{ namespace: string; library: string }>;
-}) {
-  const { namespace: namespaceSlug, library: librarySlug } = use(params);
-  const backHref = libraryPath(namespaceSlug, librarySlug);
-
+export default function EditCodePage({ params }: { params: Promise<{ handle: string; id: string }> }) {
+  const { handle, id } = use(params);
   return (
-    <div className="page">
-      <Breadcrumbs
-        items={[
-          { label: "Libraries", href: HOME_PATH },
-          { label: namespaceSlug, href: namespacePath(namespaceSlug) },
-          { label: librarySlug, href: backHref },
-          { label: "コードを更新" },
-        ]}
-      />
-      <h1>コードを更新</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug}>
-        <EditCodeLoader namespaceSlug={namespaceSlug} librarySlug={librarySlug} backHref={backHref} />
-      </OwnerOnly>
-    </div>
+    <LibraryEditFrame handle={handle} libraryId={id} title="コードを更新" crumb="コードを更新">
+      {(library, backHref) => <EditCodeLoader library={library} backHref={backHref} />}
+    </LibraryEditFrame>
   );
 }
 
 /** Starts the editor from the current code, or from a template when there is none. */
-function EditCodeLoader(props: { namespaceSlug: string; librarySlug: string; backHref: string }) {
-  const latest = useLatestVersion(props.namespaceSlug, props.librarySlug);
+function EditCodeLoader(props: { library: Library; backHref: string }) {
+  const latest = useLatestVersion(props.library.id);
   if (latest.data) {
     return <EditCodeForm {...props} initialSource={latest.data.source_code} />;
   }
@@ -52,13 +35,11 @@ function EditCodeLoader(props: { namespaceSlug: string; librarySlug: string; bac
 }
 
 function EditCodeForm({
-  namespaceSlug,
-  librarySlug,
+  library,
   backHref,
   initialSource,
 }: {
-  namespaceSlug: string;
-  librarySlug: string;
+  library: Library;
   backHref: string;
   initialSource: string;
 }) {
@@ -69,7 +50,7 @@ function EditCodeForm({
 
   return (
     <Card
-      title={librarySlug}
+      title={library.name}
       owner
       note="Python のソース 1 ファイル（100,000 バイトまで）を保存します。保存すると提出 URL は空になるので、必要なら登録し直してください。"
     >
@@ -82,7 +63,7 @@ function EditCodeForm({
           variant="primary"
           onClick={() =>
             run(async (signal) => {
-              await client.withSignal(signal).createVersion(namespaceSlug, librarySlug, source);
+              await client.withSignal(signal).createVersion(library.id, source);
               router.push(backHref);
             })
           }

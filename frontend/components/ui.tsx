@@ -49,7 +49,7 @@ export function LoadState({
   );
 }
 
-/** A page section. `owner` marks tools only the namespace owner can use. */
+/** A page section. `owner` marks tools only the category owner can use. */
 export function Card({
   title,
   note,

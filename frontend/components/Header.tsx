@@ -103,7 +103,7 @@ function NavLinks({ pathname }: { pathname: string }) {
 }
 
 const MY_ITEMS = [
-  { href: ME_PATH, label: "自分のライブラリ" },
+  { href: ME_PATH, label: "自分のページ" },
   { href: MY_SUBMISSIONS_PATH, label: "自分の提出" },
   { href: MY_PROBLEMS_PATH, label: "自分の問題" },
 ];

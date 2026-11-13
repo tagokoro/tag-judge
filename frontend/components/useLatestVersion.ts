@@ -14,12 +14,8 @@ export interface LatestVersion {
 }
 
 /** The number of the library's latest version, or null when it has none. */
-export async function fetchLatestVersionNumber(
-  api: JudgeClient,
-  namespaceSlug: string,
-  librarySlug: string,
-): Promise<number | null> {
-  const [latest] = await api.listVersions(namespaceSlug, librarySlug, 1);
+export async function fetchLatestVersionNumber(api: JudgeClient, libraryId: string): Promise<number | null> {
+  const [latest] = await api.listVersions(libraryId, 1);
   return latest?.version_number ?? null;
 }
 
@@ -28,20 +24,19 @@ export async function fetchLatestVersionNumber(
  * one-row version list (newest first) only tells which one is the latest.
  */
 export function useLatestVersion(
-  namespaceSlug: string,
-  librarySlug: string,
+  libraryId: string,
   /** The latest code the server already fetched (null: none). */
   initial?: { data: LibraryVersion | null },
 ): LatestVersion {
   const latestNumber = useResource(
-    `lib:${namespaceSlug}/${librarySlug}:latest`,
-    (api) => fetchLatestVersionNumber(api, namespaceSlug, librarySlug),
+    `lib:${libraryId}:latest`,
+    (api) => fetchLatestVersionNumber(api, libraryId),
     initial && { data: initial.data?.version_number ?? null },
   );
   const latest = latestNumber.data;
   const version = useResource(
-    latest === null ? null : `ver:${namespaceSlug}/${librarySlug}/${latest}`,
-    (api) => api.getVersion(namespaceSlug, librarySlug, latest ?? 0),
+    latest === null ? null : `ver:${libraryId}/${latest}`,
+    (api) => api.getVersion(libraryId, latest ?? 0),
     initial?.data ? { data: initial.data } : undefined,
   );
   return {
