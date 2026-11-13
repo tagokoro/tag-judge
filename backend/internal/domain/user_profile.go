@@ -19,8 +19,8 @@ type UserProfile struct {
 	UpdatedAt time.Time
 }
 
-// ValidHandle validates a user-chosen handle: 2-32 lowercase letters and
+// ValidHandle validates a user-chosen handle: 2-16 lowercase letters and
 // digits joined by single hyphens.
 func ValidHandle(handle string) bool {
-	return len(handle) >= 2 && len(handle) <= 32 && handlePattern.MatchString(handle)
+	return len(handle) >= 2 && len(handle) <= 16 && handlePattern.MatchString(handle)
 }
