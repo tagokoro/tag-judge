@@ -25,7 +25,7 @@ func (u *UserProfileUsecase) CreateMine(ctx context.Context, actor auth.Actor, h
 		return nil, err
 	}
 	if !domain.ValidHandle(handle) {
-		return nil, apperror.InvalidInput("INVALID_HANDLE", "handle must be 2-32 lowercase letters, digits, or single hyphens")
+		return nil, apperror.InvalidInput("INVALID_HANDLE", "handle must be 2-16 lowercase letters, digits, or single hyphens")
 	}
 	return u.profiles.Create(ctx, repository.CreateUserProfileParams{
 		UserID: actor.UserID,

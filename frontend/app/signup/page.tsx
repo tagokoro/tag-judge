@@ -44,10 +44,11 @@ function SignupForm() {
       title="ハンドルを決める"
       note="ハンドルは TagJudge でのあなたの名前です。ページの URL（/users/ハンドル）や、作成者・提出者の表示に使われます。公開され、あとから変更できません。"
     >
-      <Field label="ハンドル" hint="2〜32 文字の英小文字・数字・ハイフン（例：tagokoro、my-name）">
+      <Field label="ハンドル" hint="2〜16 文字の英小文字・数字・ハイフン（例：tagokoro、my-name）">
         <input
           value={handle}
           onChange={(event) => setHandle(event.target.value)}
+          maxLength={16}
           spellCheck={false}
           autoCapitalize="none"
           autoComplete="off"
@@ -68,7 +69,7 @@ function SignupForm() {
                   return;
                 }
                 if (isApiRequestError(caught) && caught.code === "INVALID_HANDLE") {
-                  setError("ハンドルは 2〜32 文字の英小文字・数字・ハイフンで入力してください（ハイフンは先頭・末尾・連続には使えません）。");
+                  setError("ハンドルは 2〜16 文字の英小文字・数字・ハイフンで入力してください（ハイフンは先頭・末尾・連続には使えません）。");
                   return;
                 }
                 throw caught;
