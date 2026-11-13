@@ -22,12 +22,19 @@ func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{queries: sqlc.New(db)}
 }
 
+// UpsertGoogleUser signs the user in, writing only when their Google name or
+// email changed. A first login racing another first login of the same user
+// can find no row (see the query), and a second try sees the committed one.
 func (r *AuthRepository) UpsertGoogleUser(ctx context.Context, user repository.GoogleUser) (repository.GoogleLogin, error) {
-	row, err := r.queries.UpsertGoogleUser(ctx, sqlc.UpsertGoogleUserParams{
+	params := sqlc.UpsertGoogleUserParams{
 		ProviderUserID: user.ProviderUserID,
 		Name:           user.Name,
 		Email:          user.Email,
-	})
+	}
+	row, err := r.queries.UpsertGoogleUser(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = r.queries.UpsertGoogleUser(ctx, params)
+	}
 	if err != nil {
 		return repository.GoogleLogin{}, err
 	}
@@ -37,7 +44,7 @@ func (r *AuthRepository) UpsertGoogleUser(ctx context.Context, user repository.G
 			UserID: row.UserID,
 			Role:   domain.UserRole(row.Role),
 		},
-		HasProfile: row.HasProfile,
+		HasHandle: row.HasHandle,
 	}, nil
 }
 
