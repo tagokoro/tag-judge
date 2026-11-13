@@ -49,7 +49,7 @@ export function LoadState({
   );
 }
 
-/** A page section. `owner` marks tools only the namespace owner can use. */
+/** A page section. `owner` marks tools only the category owner can use. */
 export function Card({
   title,
   note,
@@ -144,6 +144,19 @@ export function ErrorNote({ error }: { error: string | null }) {
     <p className="error" role="alert">
       {error}
     </p>
+  );
+}
+
+/**
+ * The initial of a display name in a light blue circle: the avatar until
+ * uploads exist. Decorative, since the name is always shown beside it.
+ */
+export function Avatar({ name, large = false }: { name: string; large?: boolean }) {
+  const initial = Array.from(name.trim())[0]?.toUpperCase() ?? "?";
+  return (
+    <span className={large ? "user-avatar avatar-lg" : "user-avatar"} aria-hidden="true">
+      {initial}
+    </span>
   );
 }
 

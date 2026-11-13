@@ -1,22 +1,29 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { NamespaceView } from "@/components/NamespaceView";
-import { getNamespace, serverClient } from "@/lib/serverApi";
+import { CategoryView } from "@/components/CategoryView";
+import { getCategory, orNull, serverClient } from "@/lib/serverApi";
+import { DEV_AUTH_AVAILABLE } from "@/lib/session";
 
-type Params = Promise<{ namespace: string }>;
+type Params = Promise<{ handle: string; id: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  const namespace = await getNamespace((await params).namespace);
-  return { title: namespace ? `${namespace.display_name} (@${namespace.slug})` : "Namespace が見つかりません" };
+  const { handle, id } = await params;
+  const category = await getCategory(id);
+  return { title: category && category.owner === handle ? `${category.name} (@${handle})` : "カテゴリが見つかりません" };
 }
 
-export default async function NamespacePage({ params }: { params: Params }) {
-  const { namespace: namespaceSlug } = await params;
-  const namespace = await getNamespace(namespaceSlug);
-  if (!namespace) {
+export default async function CategoryPage({ params }: { params: Params }) {
+  const { handle, id } = await params;
+  const api = await serverClient();
+  const [category, libraries] = await Promise.all([getCategory(id), orNull(api.listLibraries(id))]);
+  if (!category || category.owner !== handle) {
+    // A category without a public library may still be visible to a
+    // dev-header owner, which the server cannot see; let the browser try.
+    // Production has no dev auth.
+    if (!category && DEV_AUTH_AVAILABLE) {
+      return <CategoryView handle={handle} categoryId={id} />;
+    }
     notFound();
   }
-  const libraries = await (await serverClient()).listLibraries(namespaceSlug);
-
-  return <NamespaceView namespaceSlug={namespaceSlug} initial={{ namespace, libraries }} />;
+  return <CategoryView handle={handle} categoryId={id} initial={{ category, libraries: libraries ?? [] }} />;
 }

@@ -2,68 +2,81 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { CategoryField } from "@/components/CategoryField";
 import { LoginRequired } from "@/components/LoginRequired";
 import { MarkdownField } from "@/components/MarkdownField";
 import { useAsyncAction } from "@/components/useAsyncAction";
+import { useMe } from "@/components/useMe";
 import { useResource } from "@/components/useResource";
 import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
-import { isApiRequestError } from "@/lib/api";
-import { libraryPath, ME_PATH, namespacePath } from "@/lib/routes";
-import type { Visibility } from "@/lib/types";
+import { categoryPath, libraryPath, SIGNUP_PATH, userPath } from "@/lib/routes";
+import type { Category, Visibility } from "@/lib/types";
 
-/** Creates a library in the signed-in user's own namespace. */
-export default function NewLibraryPage() {
+/**
+ * Creates a library. Its category is picked or typed in the form and created
+ * on the fly when new; `?category={id}` starts the form in that category.
+ */
+export default function NewLibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const requested = use(searchParams).category;
   const { actor } = useAuth();
-  const mine = useResource(actor ? "me/namespace" : null, (api) => api.getMyNamespace());
+  const me = useMe();
+  const categories = useResource(actor ? "me/categories" : null, (api) => api.listMyCategories());
 
   if (!actor) {
     return <LoginRequired title="Library を作成" />;
   }
-  if (isApiRequestError(mine.error) && mine.error.status === 404) {
-    return (
-      <div className="page">
-        <h1>Library を作成</h1>
-        <p className="empty">
-          Library を置く Namespace がまだありません。<Link href={ME_PATH}>先に Namespace を作成してください。</Link>
-        </p>
-      </div>
+  const handle = me.data?.handle;
+  let body;
+  if (me.data && !handle) {
+    body = (
+      <p className="empty">
+        Library を作るには、先に <Link href={SIGNUP_PATH}>ユーザー登録</Link> をしてください。
+      </p>
+    );
+  } else if (handle && categories.data) {
+    const initial = categories.data.find((category) => category.id === requested)?.name ?? "";
+    body = <NewLibraryForm handle={handle} categories={categories.data} initialCategory={initial} />;
+  } else {
+    body = (
+      <LoadState loading={me.loading || categories.loading} error={me.error ?? categories.error} notFound="" />
     );
   }
   return (
     <div className="page">
       <h1>Library を作成</h1>
-      {mine.data ? (
-        <NewLibraryForm namespaceSlug={mine.data.slug} />
-      ) : (
-        <LoadState loading={mine.loading} error={mine.error} notFound="" />
-      )}
+      {body}
     </div>
   );
 }
 
-function NewLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
+function NewLibraryForm({
+  handle,
+  categories,
+  initialCategory,
+}: {
+  handle: string;
+  categories: Category[];
+  initialCategory: string;
+}) {
   const { client } = useAuth();
   const router = useRouter();
   const { busy, error, run } = useAsyncAction();
-  const [slug, setSlug] = useState("");
+  const [category, setCategory] = useState(initialCategory);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("private");
+  const startedIn = categories.find((item) => item.name === initialCategory);
 
   return (
-    <Card title={`@${namespaceSlug} に作成`} owner>
-      <div className="row">
-        <Field label="slug" hint="Namespace 内で一意 / 2〜48 文字">
-          <input
-            value={slug}
-            onChange={(event) => setSlug(event.target.value)}
-            spellCheck={false}
-            placeholder="union-find"
-          />
-        </Field>
-        <Field label="名前" hint="1〜80 文字">
+    <Card title="新しい Library" owner>
+      <div className="row row-fields">
+        <Field label="名前" hint="1〜80 文字（日本語も使えます）">
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="UnionFind" />
         </Field>
         <Field label="Visibility">
@@ -73,6 +86,9 @@ function NewLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
           </select>
         </Field>
       </div>
+      {/* On its own row: its hint grows when the name is new, which would
+          misalign inputs that share a bottom-aligned row. */}
+      <CategoryField value={category} onChange={setCategory} categories={categories} />
       <MarkdownField
         label="説明"
         hint="Markdown と TeX の数式（$a^2$、$$\\sum_{i} a_i$$）が使えます。2000 文字まで。"
@@ -84,20 +100,17 @@ function NewLibraryForm({ namespaceSlug }: { namespaceSlug: string }) {
           variant="primary"
           onClick={() =>
             run(async (signal) => {
-              const created = await client.withSignal(signal).createLibrary(namespaceSlug, {
-                slug: slug.trim(),
-                name,
-                description,
-                visibility,
-              });
-              router.push(libraryPath(namespaceSlug, created.slug));
+              const created = await client
+                .withSignal(signal)
+                .createLibrary({ name, category, description, visibility });
+              router.push(libraryPath(handle, created.id));
             })
           }
           disabled={busy}
         >
           作成
         </Button>
-        <Link className="btn btn-ghost" href={namespacePath(namespaceSlug)}>
+        <Link className="btn btn-ghost" href={startedIn ? categoryPath(handle, startedIn.id) : userPath(handle)}>
           キャンセル
         </Link>
       </div>

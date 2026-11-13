@@ -1,22 +1,20 @@
 "use client";
 
-import { useNamespaceOwner } from "./OwnerOnly";
+import { useIsOwner, useUserLibrary } from "./OwnerOnly";
 import { RichText } from "./RichText";
 import { SourceSections } from "./SourceSections";
 import { useLatestVersion } from "./useLatestVersion";
-import { useResource } from "./useResource";
-import type { Library, LibraryVersion, Namespace } from "@/lib/types";
+import type { Library, LibraryVersion } from "@/lib/types";
 import { Breadcrumbs, Card, EditLink, LoadState, VisibilityBadge } from "./ui";
 import {
-  HOME_PATH,
   libraryCodeEditPath,
   libraryEditPath,
-  namespacePath,
+  categoryPath,
   submissionUrlEditPath,
+  userPath,
 } from "@/lib/routes";
 
 export interface LibraryViewData {
-  namespace: Namespace;
   library: Library;
   /** The latest code, or null when the library has none. */
   latest: LibraryVersion | null;
@@ -27,40 +25,36 @@ export interface LibraryViewData {
  * visitor's cookies; without it (dev header auth) everything loads here.
  */
 export function LibraryView({
-  namespaceSlug,
-  librarySlug,
+  handle,
+  libraryId,
   initial,
 }: {
-  namespaceSlug: string;
-  librarySlug: string;
+  handle: string;
+  libraryId: string;
   initial?: LibraryViewData;
 }) {
-  const { owner } = useNamespaceOwner(namespaceSlug, initial && { data: initial.namespace });
-  const library = useResource(
-    `lib:${namespaceSlug}/${librarySlug}`,
-    (api) => api.getLibrary(namespaceSlug, librarySlug),
-    initial && { data: initial.library },
-  );
-  const latest = useLatestVersion(namespaceSlug, librarySlug, initial && { data: initial.latest });
+  const library = useUserLibrary(handle, libraryId, initial && { data: initial.library });
+  const owner = useIsOwner(library.data);
+  const latest = useLatestVersion(libraryId, initial && { data: initial.latest });
 
   return (
     <div className="page">
-      <Breadcrumbs
-        items={[
-          { label: "Libraries", href: HOME_PATH },
-          { label: namespaceSlug, href: namespacePath(namespaceSlug) },
-          { label: librarySlug },
-        ]}
-      />
       {library.data ? (
         <>
+          <Breadcrumbs
+            items={[
+              { label: `@${handle}`, href: userPath(handle) },
+              { label: library.data.category.name, href: categoryPath(handle, library.data.category.id) },
+              { label: library.data.name },
+            ]}
+          />
           <div className="page-title">
             <h1>{library.data.name}</h1>
             <VisibilityBadge visibility={library.data.visibility} />
           </div>
           <Card
             title="Description"
-            action={owner ? <EditLink href={libraryEditPath(namespaceSlug, librarySlug)} what="Description" /> : null}
+            action={owner ? <EditLink href={libraryEditPath(handle, libraryId)} what="Description" /> : null}
           >
             {library.data.description ? (
               <RichText source={library.data.description} />
@@ -83,13 +77,13 @@ export function LibraryView({
         latest.data ? (
           <SourceSections
             version={latest.data}
-            editCodeHref={owner ? libraryCodeEditPath(namespaceSlug, librarySlug) : undefined}
-            editUrlHref={owner ? submissionUrlEditPath(namespaceSlug, librarySlug) : undefined}
+            editCodeHref={owner ? libraryCodeEditPath(handle, libraryId) : undefined}
+            editUrlHref={owner ? submissionUrlEditPath(handle, libraryId) : undefined}
           />
         ) : latest.empty ? (
           <Card
             title="Code"
-            action={owner ? <EditLink href={libraryCodeEditPath(namespaceSlug, librarySlug)} what="Code" /> : null}
+            action={owner ? <EditLink href={libraryCodeEditPath(handle, libraryId)} what="Code" /> : null}
           >
             <p className="empty">
               {owner ? "まだコードがありません。「編集」から登録してください。" : "まだコードがありません。"}

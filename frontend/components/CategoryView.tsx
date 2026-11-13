@@ -2,71 +2,86 @@
 
 import Link from "next/link";
 import { LibraryList } from "./lists";
-import { useNamespaceOwner } from "./OwnerOnly";
+import { useIsOwner, useUserCategory } from "./OwnerOnly";
+import { RichText } from "./RichText";
 import { useResource } from "./useResource";
-import { Breadcrumbs, Card, LoadState } from "./ui";
-import { HOME_PATH, NEW_LIBRARY_PATH } from "@/lib/routes";
-import type { Library, Namespace } from "@/lib/types";
+import { Breadcrumbs, Card, EditLink, LoadState } from "./ui";
+import { categoryEditPath, newLibraryPath, userPath } from "@/lib/routes";
+import type { Library, Category } from "@/lib/types";
 
 /**
- * The namespace page body. `initial` is what the server already fetched with
- * the visitor's cookies; the list is fetched here again only for a dev-header
- * actor, who may own private libraries the server cannot see.
+ * The category page body. `initial` is what the server already fetched with
+ * the visitor's cookies; without it (a category only a dev-header owner can
+ * see) everything loads here.
  */
-export function NamespaceView({
-  namespaceSlug,
+export function CategoryView({
+  handle,
+  categoryId,
   initial,
 }: {
-  namespaceSlug: string;
-  initial: { namespace: Namespace; libraries: Library[] };
+  handle: string;
+  categoryId: string;
+  initial?: { category: Category; libraries: Library[] };
 }) {
-  const { namespace, owner } = useNamespaceOwner(namespaceSlug, { data: initial.namespace });
+  const category = useUserCategory(handle, categoryId, initial && { data: initial.category });
+  const owner = useIsOwner(category.data);
   const libraries = useResource(
-    `ns:${namespaceSlug}:libraries`,
-    (api) => api.listLibraries(namespaceSlug),
-    { data: initial.libraries },
+    category.data ? `category:${categoryId}:libraries` : null,
+    (api) => api.listLibraries(categoryId),
+    initial && { data: initial.libraries },
   );
 
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Libraries", href: HOME_PATH }, { label: namespaceSlug }]} />
-      {namespace.data ? (
-        <div className="page-title">
-          <h1>{namespace.data.display_name}</h1>
-          <span className="page-sub">@{namespace.data.slug}</span>
-          {owner ? (
-            <div className="page-actions">
-              <Link className="btn btn-primary" href={NEW_LIBRARY_PATH}>
-                Library を作成
-              </Link>
-            </div>
+      <Breadcrumbs
+        items={[{ label: `@${handle}`, href: userPath(handle) }, { label: category.data?.name ?? "カテゴリ" }]}
+      />
+      {category.data ? (
+        <>
+          <div className="page-title">
+            <h1>{category.data.name}</h1>
+            <span className="page-sub">@{handle}</span>
+          </div>
+          {category.data.description || owner ? (
+            <Card
+              title="Description"
+              action={owner ? <EditLink href={categoryEditPath(handle, categoryId)} what="カテゴリ" /> : null}
+            >
+              {category.data.description ? (
+                <RichText source={category.data.description} />
+              ) : (
+                <p className="empty">説明はまだありません。「編集」から書けます。</p>
+              )}
+            </Card>
           ) : null}
-        </div>
-      ) : (
-        <LoadState
-          loading={namespace.loading}
-          error={namespace.error}
-          notFound="この Namespace は見つかりません。"
-        />
-      )}
-
-      {namespace.data ? (
-        <Card title="Library">
-          {libraries.data ? (
-            libraries.data.length === 0 ? (
-              <p className="empty">
-                {owner
-                  ? "まだ Library がありません。「Library を作成」から最初の Library を作ってください。"
-                  : "public な Library はまだありません。"}
-              </p>
+          <Card
+            title="Libraries"
+            action={
+              owner ? (
+                <Link className="btn btn-primary" href={newLibraryPath(categoryId)}>
+                  Library を作成
+                </Link>
+              ) : null
+            }
+          >
+            {libraries.data ? (
+              libraries.data.length === 0 ? (
+                <p className="empty">
+                  {owner
+                    ? "まだ Library がありません。「Library を作成」から最初の Library を作ってください。"
+                    : "public な Library はまだありません。"}
+                </p>
+              ) : (
+                <LibraryList libraries={libraries.data} />
+              )
             ) : (
-              <LibraryList libraries={libraries.data} />
-            )
-          ) : (
-            <LoadState loading={libraries.loading} error={libraries.error} notFound="" />
-          )}
-        </Card>
-      ) : null}
+              <LoadState loading={libraries.loading} error={libraries.error} notFound="" />
+            )}
+          </Card>
+        </>
+      ) : (
+        <LoadState loading={category.loading} error={category.error} notFound="このカテゴリは見つかりません。" />
+      )}
     </div>
   );
 }

@@ -5,34 +5,42 @@ Next.js（App Router）+ TypeScript で実装したライブラリ共有 MVP の
 単一 HTML や Go による静的配信は使わず、Go API（`:8080`）と Next.js（`:3000`）は別プロセスです。
 
 API 契約は `backend/docs/openapi.yaml`、要件は
-`docs/library-sharing.md` に従います。
+`docs/library-sharing.md` と `docs/user-profile.md` に従います。
 
 ## ページ構成
 
 すべてのページの上部に共通ヘッダーがあります。左にライブラリ一覧・問題一覧・提出一覧へのリンク、右にログイン
-ボタン（ログイン中はユーザー名）を置きます。ユーザー名をクリックすると、自分のライブラリ・自分の提出・
-自分の問題とログアウトのメニューが開きます。dev 認証のメニューは `next dev` のときだけ表示されます。
+ボタン（ログイン中はユーザー名）を置きます。ユーザー名をクリックすると、自分のページ・
+自分の提出・自分の問題とログアウトのメニューが開きます。dev 認証のメニューは `next dev` のときだけ表示されます。
 
 | パス | 内容 | 主な API（すべて同一オリジンの `/api/v1/*`） |
 | --- | --- | --- |
-| `/` | ライブラリ一覧（全 Namespace の公開 Library） | `GET /libraries` |
+| `/` | ライブラリ一覧（全ユーザーの公開 Library） | `GET /libraries` |
 | `/problems` | 問題一覧（公開の問題） | `GET /problems` |
 | `/submissions` | 提出一覧（公開の問題への最近の提出。ソースは出さない） | `GET /submissions/recent` |
-| `/me` | 自分のライブラリ。Namespace があればそのページへ移動し、無ければ作成フォーム | `GET /me/namespace`、`POST /namespaces` |
+| `/me` | 自分のページ。ハンドルがあれば `/users/[handle]` へ、無ければ `/signup` へ移動 | `GET /me` |
 | `/me/submissions` | 自分の提出 | `GET /submissions` |
 | `/me/problems` | 自分が作った問題（非公開を含む） | `GET /me/problems` |
-| `/n/[namespace]` | Namespace の Library 一覧（閲覧のみ） | `GET /namespaces/{ns}`、`GET .../libraries` |
-| `/n/[namespace]/[library]` | Library の説明と、最新のコード・提出 URL（閲覧のみ） | `GET .../libraries/{lib}`、`GET .../versions`、`GET .../versions/{n}` |
-| `/libraries/new` | Library の作成（自分の Namespace に作る） | `GET /me/namespace`、`POST .../libraries` |
-| `/n/[namespace]/[library]/edit` | Library の設定（名前・説明・公開範囲） | `PATCH .../libraries/{lib}` |
-| `/n/[namespace]/[library]/code/edit` | コードの更新（最新のコードを編集して保存） | `POST .../versions` |
-| `/n/[namespace]/[library]/submission-url/edit` | 最新のコードの提出 URL の設定・削除 | `PUT` / `DELETE .../versions/{n}/submission-url` |
+| `/signup` | ユーザー登録（ハンドルを入力。ログイン直後にハンドルが無ければここへ移動） | `GET /me`、`POST /me/profile` |
+| `/settings/profile` | ハンドルの表示（ハンドルが無ければ `/signup` へ移動） | `GET /me` |
+| `/users/[handle]` | ユーザーのページ（プロフィールとカテゴリの一覧） | `GET /users/{h}`、`GET /users/{h}/categories` |
+| `/users/[handle]/categories/[id]` | カテゴリの説明と Library 一覧（閲覧のみ） | `GET /categories/{id}`、`GET .../libraries` |
+| `/users/[handle]/categories/[id]/edit` | カテゴリの名前・説明の編集 | `PATCH /categories/{id}` |
+| `/users/[handle]/libraries/[id]` | Library の説明と、最新のコード・提出 URL（閲覧のみ） | `GET /libraries/{id}`、`GET .../versions`、`GET .../versions/{n}` |
+| `/libraries/new` | Library の作成。カテゴリは候補から選ぶか新しい名前を入力（新しければ自動で作る。`?category={id}` で初期値） | `GET /me/categories`、`POST /me/libraries` |
+| `/users/[handle]/libraries/[id]/edit` | Library の設定（名前・説明・公開範囲・カテゴリ） | `PATCH /libraries/{id}` |
+| `/users/[handle]/libraries/[id]/code/edit` | コードの更新（最新のコードを編集して保存） | `POST .../versions` |
+| `/users/[handle]/libraries/[id]/submission-url/edit` | 最新のコードの提出 URL の設定・削除 | `PUT` / `DELETE .../versions/{n}/submission-url` |
 
-- Namespace のページは `/n/` の下に置き、Namespace の slug が `/me` などのアプリのパスや `/api` と衝突しないようにしています。
+- ユーザーのページは `/users/` の下に置き、ハンドルが `/me` などのアプリのパスや `/api` と衝突しないようにしています。
+- カテゴリと Library は、サーバーが付けるランダムな ID（20 桁の 16 進数）で URL を作ります。名前は自由に付けられ、
+  変えても URL は変わりません。Library の URL にはカテゴリを入れないので、別のカテゴリに移しても URL は変わりません。
+- カテゴリを管理する画面はありません。Library を作るときや移すときに名前を書けば作られ、Library が 1 つもなくなれば自動で消えます。
+- URL のハンドルと実際の所有者が違うページは 404 です。
 - 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
   Description・Code・Verification の各カードの見出しの右にある「編集」ボタンから、それぞれの編集ページへ移ります
   （Description の「編集」は名前・説明・公開範囲の設定ページです）。
-- 編集ボタンと編集ページのフォームは、Namespace の `owner_user_id` と現在の actor が一致するときだけ表示します。
+- 編集ボタンと編集ページのフォームは、カテゴリ・Library の `owner`（ハンドル）と現在の actor のハンドルが一致するときだけ表示します。
   表示は補助で、認可は API が行います（所有者以外は 403、private は 404）。
 - 提出 URL は 1 件だけで、Library 所有者の**自己申告**です。URL の取得・内容解析・
   判定は行わず、検証済み（AC など）バッジやステータス・スコアも表示しません。設定しても
@@ -65,15 +73,17 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 ## データの読み込みと actor の切り替え
 
 - **public なページはサーバーで描画します**（Server Component）。`/`、`/problems`、`/submissions`、
-  `/n/[namespace]`、`/n/[namespace]/[library]` は `lib/serverApi.ts` で Go API から直接データを取得し、
+  `/users/[handle]`、`/users/[handle]/categories/[id]`、`/users/[handle]/libraries/[id]` は
+  `lib/serverApi.ts` で Go API から直接データを取得し、
   中身の入った HTML とページごとのタイトルを返します。
   - 取得には訪問者の cookie を付けるので、ログイン中の所有者には private の Library も最初から表示されます。
   - Go API の場所は `lib/apiOrigin.ts`（`API_SERVER_ORIGIN`）で、rewrite と共通です。
   - dev 認証のヘッダーはブラウザにしかないため、dev 認証が有効なときはブラウザ側で取り直します。
-    開発ビルドでは、サーバーで 404 だった Library もブラウザ側で取り直します（dev ユーザーが所有者の場合があるため）。
+    開発ビルドでは、サーバーで 404 だったカテゴリ・Library もブラウザ側で取り直します（dev ユーザーが所有者の場合があるため）。
+  - dev ユーザーのハンドルは、dev ヘッダー付きの `GET /me` で取得します。
   - 所有者向けのボタン、編集ページ、自分の一覧はブラウザ側で描画します。
-- **見つからないページは 404 です**（`app/not-found.tsx`）。存在しない Namespace・Library、
-  他人の private Library、所有者以外が開いた編集ページは、すべて同じ「ページが見つかりません」になり、
+- **見つからないページは 404 です**（`app/not-found.tsx`）。存在しないユーザー・カテゴリ・Library、
+  他人の private Library、public な Library のない他人のカテゴリ、所有者以外が開いた編集ページは、すべて同じ「ページが見つかりません」になり、
   何が存在するかを区別できません。描画中のエラーは `app/error.tsx` で受け止めます。
   - 編集ページは所有者の判定をブラウザで行うため、画面は 404 でも HTTP ステータスは 200 です。
 - ログイン状態は `components/AuthProvider.tsx` がルートレイアウトで 1 つだけ持ちます。誰が actor かの判定
@@ -121,18 +131,21 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
   dev ヘッダーのオプトイン、JSON ボディ、`ApiRequestError`、`204`（logout）、
   `probeCookieSession` が dev ヘッダーを送らないこと、提出 URL の PUT / DELETE の
   パス・メソッド・ボディ、
-  既存の Problems / Namespace / Library / Version 契約、slug の URL エンコード、
+  既存の Problems / Category / Library / Version 契約、ID の URL エンコード、
   `withSignal` による `AbortSignal` の伝播。
 - `lib/submissionUrl.test.mjs` — 提出 URL の形式検証（絶対 HTTP(S)・ホスト・2048 バイト・
   制御文字・IDN/IPv6）。
 - `lib/session.test.mjs` — cookie セッションが dev 認証より優先されること、dev ヘッダーはオプトイン時だけ
-  送ること、actor ごとの識別子、所有者判定（大文字小文字を区別しない）。
-- `lib/routes.test.mjs` — ページパスの組み立て（`/n/` 配下・slug のエンコード）と編集ページのパス。
+  送ること、actor ごとの識別子、dev ユーザーのハンドル、所有者判定（ハンドルで比較）。
+- `lib/routes.test.mjs` — ページパスの組み立て（`/users/` 配下・ID で引くパス・エンコード）、編集ページ・設定ページ・
+  Library 作成ページのパス。
 
 ## 手動 E2E の目安
 
 `DEV_HEADER_AUTH=true` のローカルで、seed（author `...0001` / admin `...0002`）を使います。
-ヘッダーの dev 認証を有効化 → ユーザーメニューの「自分のライブラリ」で Namespace 作成 → private Library 作成 → seed ユーザーを切り替えて
+seed ユーザーにはハンドル `seed-author` / `seed-admin` があります。
+ヘッダーの dev 認証を有効化 → 新しいカテゴリ名で private Library を作成（カテゴリも作られ、他のユーザーからは見えない）
+→ Library の設定で別の新しいカテゴリに移す（URL が変わらず、元のカテゴリが消えること）→ seed ユーザーを切り替えて
 404 になることを確認 → 戻して public 化 → コードを登録 → 提出 URL を設定 → 別ユーザーでは編集フォームが
 出ないこと、ログアウト状態でも public のコードと URL が読めることを確認します。
 

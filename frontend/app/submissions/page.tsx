@@ -22,7 +22,7 @@ export default async function SubmissionsPage() {
             submissions={submissions.map((submission) => ({
               ...submission,
               problem: submission.problem_title,
-              submitter: submission.submitter_namespace_slug,
+              submitter: submission.submitter,
             }))}
           />
         </div>

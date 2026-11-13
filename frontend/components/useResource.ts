@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JudgeClient } from "@/lib/api";
-import { devHeadersOf } from "@/lib/session";
+import { canUseServerData } from "@/lib/session";
 import { useAuth } from "./AuthProvider";
 
 interface Loaded<T> {
@@ -30,16 +30,17 @@ export interface Resource<T> {
  * fetches as anonymous and then again as the signed-in user.
  *
  * `initial` is data a Server Component already fetched with the visitor's
- * cookies. It is used as is, without a request, unless dev header auth is on
- * (the server never sees dev headers, so its answer may be for another actor)
- * or `reload` was called.
+ * cookies. It is used as is, without a request, only while the actor is the
+ * one the server rendered for: not with dev header auth (the server never sees
+ * dev headers), not after a logout or login on this page, and not after
+ * `reload`. Otherwise it is fetched again for the current actor.
  */
 export function useResource<T>(
   key: string | null,
   load: (api: JudgeClient) => Promise<T>,
   initial?: { data: T },
 ): Resource<T> {
-  const { client, identity, state } = useAuth();
+  const { client, identity, serverIdentity, state } = useAuth();
   const [tick, setTick] = useState(0);
   const [loaded, setLoaded] = useState<Loaded<T> | null>(null);
 
@@ -49,7 +50,7 @@ export function useResource<T>(
     loadRef.current = load;
   });
 
-  const useInitial = initial !== undefined && tick === 0 && devHeadersOf(state) === null;
+  const useInitial = initial !== undefined && tick === 0 && canUseServerData(state, serverIdentity);
   const fullKey =
     key === null || useInitial || !state.cookieChecked ? null : `${identity}\n${key}\n${tick}`;
 

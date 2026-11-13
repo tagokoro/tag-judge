@@ -8,6 +8,17 @@ export type Role = "user" | "author" | "admin";
 export interface Me {
   user_id: string;
   role: Role;
+  /** The user's only name. Null until they register at /signup. */
+  handle: string | null;
+}
+
+/** A user's public profile (GET /users/{handle}). */
+export interface UserProfile {
+  handle: string;
+}
+
+export interface CreateProfileInput {
+  handle: string;
 }
 
 export interface DevHeaders {
@@ -15,24 +26,33 @@ export interface DevHeaders {
   "X-User-Role": string;
 }
 
-export interface Namespace {
+/**
+ * Categories and libraries are found by `id`: 20 random hex characters the
+ * server assigns. A category is created with the first library filed under its
+ * name and removed when its last library moves out.
+ */
+export interface Category {
   id: string;
-  slug: string;
-  display_name: string;
-  owner_user_id: string;
+  /** The owner's handle. */
+  owner: string;
+  /** Free text, unique per owner. */
+  name: string;
+  description: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface CreateNamespaceInput {
-  slug: string;
-  display_name: string;
+export interface UpdateCategoryInput {
+  name?: string;
+  description?: string;
 }
 
 export interface Library {
   id: string;
-  namespace_slug: string;
-  slug: string;
+  /** The owner's handle. */
+  owner: string;
+  category: { id: string; name: string };
+  /** Free text; may repeat. */
   name: string;
   description: string;
   visibility: Visibility;
@@ -41,7 +61,8 @@ export interface Library {
 }
 
 export interface CreateLibraryInput {
-  slug: string;
+  /** The category's name: the caller's category by that name, created when missing. */
+  category: string;
   name: string;
   description: string;
   visibility: Visibility;
@@ -51,6 +72,8 @@ export interface UpdateLibraryInput {
   name?: string;
   description?: string;
   visibility?: Visibility;
+  /** Moves the library to the owner's category by that name, created when missing. */
+  category?: string;
 }
 
 /**
@@ -87,7 +110,8 @@ export interface Problem {
   time_limit_ms: number;
   memory_limit_kb: number;
   visibility: string;
-  created_by: string;
+  /** The creator's handle, or null when they have none. */
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,7 +140,8 @@ export interface PublicSubmission {
   score: number;
   created_at: string;
   judged_at: string | null;
-  submitter_namespace_slug: string | null;
+  /** The submitter's handle, or null when they have none. */
+  submitter: string | null;
 }
 
 /** PUT body for setting a version's submission URL: one absolute HTTP(S) URL. */

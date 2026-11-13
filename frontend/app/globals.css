@@ -382,11 +382,12 @@ code {
 .user-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: var(--tap);
-  padding: 4px 12px 4px 6px;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--paper);
   color: var(--ink);
   font: inherit;
@@ -413,6 +414,26 @@ code {
   color: var(--deep);
   font-weight: 700;
   font-size: 0.8rem;
+}
+
+.user-button .user-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: 0.95rem;
+}
+
+.user-menu-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.user-menu-handle {
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .user-role {
@@ -664,6 +685,11 @@ code {
   align-items: flex-end;
 }
 
+/* Fields side by side line up at their labels, whether or not each has a hint. */
+.row-fields {
+  align-items: flex-start;
+}
+
 .section > .row,
 .section > .field,
 .section > .kv {
@@ -880,6 +906,37 @@ textarea.code-input {
 .badge-private {
   background: var(--rose-bg);
   color: var(--rose);
+}
+
+/* ---------- Profile ---------- */
+
+.profile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.avatar-lg {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  font-size: 1.9rem;
+}
+
+.profile-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-name h1 {
+  overflow-wrap: anywhere;
+}
+
+.profile-head .page-actions {
+  align-self: flex-start;
 }
 
 /* ---------- Library list ---------- */

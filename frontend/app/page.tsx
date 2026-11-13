@@ -18,7 +18,7 @@ export default async function LibrariesPage() {
         <p className="empty">public な Library はまだありません。</p>
       ) : (
         <div className="panel">
-          <LibraryList libraries={libraries} showNamespace />
+          <LibraryList libraries={libraries} showCategory />
         </div>
       )}
     </div>
