@@ -27,51 +27,90 @@ func ContentSHA256(source string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-type NamespaceRepository struct {
-	db      *pgxpool.Pool
+// CategoryRepository reads and edits categories. LibraryRepository creates
+// and removes them, inside the transactions that file libraries.
+type CategoryRepository struct {
 	queries *sqlc.Queries
 }
 
-func NewNamespaceRepository(db *pgxpool.Pool) *NamespaceRepository {
-	return &NamespaceRepository{db: db, queries: sqlc.New(db)}
+func NewCategoryRepository(db *pgxpool.Pool) *CategoryRepository {
+	return &CategoryRepository{queries: sqlc.New(db)}
 }
 
-func (r *NamespaceRepository) Create(ctx context.Context, params repository.CreateNamespaceParams) (*domain.Namespace, error) {
-	row, err := r.queries.CreateNamespace(ctx, sqlc.CreateNamespaceParams{
-		OwnerUserID: params.OwnerUserID,
-		Slug:        params.Slug,
-		DisplayName: params.DisplayName,
+func (r *CategoryRepository) FindByPublicID(ctx context.Context, publicID string) (*domain.Category, error) {
+	row, err := r.queries.GetCategoryByPublicID(ctx, publicID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, categoryNotFound()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return categoryFromRow(row), nil
+}
+
+func (r *CategoryRepository) ListByOwner(ctx context.Context, params repository.ListCategoriesParams) ([]domain.Category, error) {
+	rows, err := r.queries.ListCategoriesByOwner(ctx, sqlc.ListCategoriesByOwnerParams{
+		OwnerUserID:   params.OwnerUserID,
+		IncludeHidden: params.IncludeHidden,
+		ResultLimit:   int32(params.Limit),
+		ResultOffset:  int32(params.Offset),
 	})
 	if err != nil {
-		if isUniqueConstraintError(err, "namespaces_owner_user_unique") {
-			return nil, apperror.Conflict("NAMESPACE_ALREADY_EXISTS", "user already has a namespace")
-		}
-		if isUniqueConstraintError(err, "namespaces_slug_unique") {
-			return nil, apperror.Conflict("NAMESPACE_SLUG_TAKEN", "namespace slug is already taken")
-		}
 		return nil, err
 	}
-	return newNamespace(row.ID, row.OwnerUserID, row.Slug, row.DisplayName, row.CreatedAt, row.UpdatedAt), nil
+	categories := make([]domain.Category, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, *categoryFromRow(sqlc.GetCategoryByPublicIDRow(row)))
+	}
+	return categories, nil
 }
 
-func (r *NamespaceRepository) FindByOwner(ctx context.Context, ownerUserID string) (*domain.Namespace, error) {
-	row, err := r.queries.GetNamespaceByOwner(ctx, ownerUserID)
-	return namespaceFromQuery(ctx, row.ID, row.OwnerUserID, row.Slug, row.DisplayName, row.CreatedAt, row.UpdatedAt, err)
-}
-
-func (r *NamespaceRepository) FindBySlug(ctx context.Context, slug string) (*domain.Namespace, error) {
-	row, err := r.queries.GetNamespaceBySlug(ctx, slug)
-	return namespaceFromQuery(ctx, row.ID, row.OwnerUserID, row.Slug, row.DisplayName, row.CreatedAt, row.UpdatedAt, err)
-}
-
-func namespaceFromQuery(ctx context.Context, id pgtype.UUID, ownerUserID, slug, displayName string, createdAt, updatedAt pgtype.Timestamptz, err error) (*domain.Namespace, error) {
+// Update leaves OwnerHandle and HasPublicLibrary empty; the caller already
+// resolved the category and copies them over.
+func (r *CategoryRepository) Update(ctx context.Context, params repository.UpdateCategoryParams) (*domain.Category, error) {
+	row, err := r.queries.UpdateCategory(ctx, sqlc.UpdateCategoryParams{
+		ID:          params.ID,
+		Name:        nullableText(params.Name),
+		Description: nullableText(params.Description),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("NAMESPACE_NOT_FOUND", "namespace not found")
+		return nil, categoryNotFound()
 	}
 	if err != nil {
-		return nil, err
+		return nil, categoryWriteError(err)
 	}
-	return newNamespace(id, ownerUserID, slug, displayName, createdAt, updatedAt), nil
+	return newCategory(row.ID, row.PublicID, row.OwnerUserID, row.Name, row.Description, row.CreatedAt, row.UpdatedAt), nil
+}
+
+// categoryWriteError maps the per-owner name index to its conflict.
+func categoryWriteError(err error) error {
+	if isUniqueConstraintError(err, "categories_owner_name_unique") {
+		return apperror.Conflict("CATEGORY_NAME_TAKEN", "you already have a category with this name")
+	}
+	return err
+}
+
+func categoryNotFound() error {
+	return apperror.NotFound("CATEGORY_NOT_FOUND", "category not found")
+}
+
+func categoryFromRow(row sqlc.GetCategoryByPublicIDRow) *domain.Category {
+	category := newCategory(row.ID, row.PublicID, row.OwnerUserID, row.Name, row.Description, row.CreatedAt, row.UpdatedAt)
+	category.OwnerHandle = row.OwnerHandle
+	category.HasPublicLibrary = row.HasPublicLibrary
+	return category
+}
+
+func newCategory(id, publicID, ownerUserID, name, description string, createdAt, updatedAt pgtype.Timestamptz) *domain.Category {
+	return &domain.Category{
+		ID:          id,
+		PublicID:    publicID,
+		OwnerUserID: ownerUserID,
+		Name:        name,
+		Description: description,
+		CreatedAt:   createdAt.Time,
+		UpdatedAt:   updatedAt.Time,
+	}
 }
 
 // isUniqueConstraintError reports whether err is the unique violation for the
@@ -84,14 +123,6 @@ func isUniqueConstraintError(err error, constraintName string) bool {
 	return pgErr.Code == "23505" && pgErr.ConstraintName == constraintName
 }
 
-func formatUUID(value pgtype.UUID) string {
-	if !value.Valid {
-		return ""
-	}
-	b := value.Bytes
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
 type LibraryRepository struct {
 	db      *pgxpool.Pool
 	queries *sqlc.Queries
@@ -102,71 +133,145 @@ func NewLibraryRepository(db *pgxpool.Pool) *LibraryRepository {
 }
 
 func (r *LibraryRepository) Create(ctx context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
-	row, err := r.queries.CreateLibrary(ctx, sqlc.CreateLibraryParams{
-		NamespaceID: params.NamespaceID,
-		Slug:        params.Slug,
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin library transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := r.queries.WithTx(tx)
+
+	categoryID, err := resolveCategory(ctx, queries, params.OwnerUserID, params.CategoryName)
+	if err != nil {
+		return nil, err
+	}
+	row, err := queries.CreateLibrary(ctx, sqlc.CreateLibraryParams{
+		CategoryID:  categoryID,
 		Name:        params.Name,
 		Description: params.Description,
 		Visibility:  string(params.Visibility),
 	})
 	if err != nil {
-		if isUniqueConstraintError(err, "libraries_namespace_slug_unique") {
-			return nil, apperror.Conflict("LIBRARY_SLUG_TAKEN", "library slug is already taken")
-		}
 		return nil, err
 	}
-	library := newLibrary(row.ID, row.NamespaceID, row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt)
-	return &library, nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit library transaction: %w", err)
+	}
+	return libraryFromRow(sqlc.GetLibraryByPublicIDRow(row)), nil
 }
 
+// Update changes the library and, with CategoryName, moves it in the same
+// transaction: the target category is found or created, and the category it
+// leaves is removed once empty. Locks go profile first, then library, the same
+// order Create takes.
 func (r *LibraryRepository) Update(ctx context.Context, params repository.UpdateLibraryParams) (*domain.Library, error) {
-	row, err := r.queries.UpdateLibrary(ctx, sqlc.UpdateLibraryParams{
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin library transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := r.queries.WithTx(tx)
+
+	target := pgtype.Text{}
+	var previous string
+	if params.CategoryName != nil {
+		categoryID, err := resolveCategory(ctx, queries, params.OwnerUserID, *params.CategoryName)
+		if err != nil {
+			return nil, err
+		}
+		target = pgtype.Text{String: categoryID, Valid: true}
+		previous, err = queries.LockLibraryCategory(ctx, params.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, libraryNotFound()
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	row, err := queries.UpdateLibrary(ctx, sqlc.UpdateLibraryParams{
 		ID:          params.ID,
 		Name:        nullableText(params.Name),
 		Description: nullableText(params.Description),
 		Visibility:  nullableText(params.Visibility),
+		CategoryID:  target,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+		return nil, libraryNotFound()
 	}
 	if err != nil {
 		return nil, err
 	}
-	library := newLibrary(row.ID, row.NamespaceID, row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt)
-	return &library, nil
+	if target.Valid && previous != target.String {
+		if err := queries.DeleteEmptyCategory(ctx, previous); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit library transaction: %w", err)
+	}
+	return libraryFromRow(sqlc.GetLibraryByPublicIDRow(row)), nil
 }
 
-func (r *LibraryRepository) FindBySlug(ctx context.Context, namespaceID, slug string) (*domain.Library, error) {
-	row, err := r.queries.GetLibraryBySlug(ctx, sqlc.GetLibraryBySlugParams{
-		NamespaceID: namespaceID,
-		Slug:        slug,
-	})
+// resolveCategory finds the owner's category by name (ignoring letter case)
+// or creates it, inside the caller's transaction. Locking the owner's profile
+// first serializes this per user, so two writers cannot both create the same
+// category or pass the limit together.
+func resolveCategory(ctx context.Context, queries *sqlc.Queries, ownerUserID, name string) (string, error) {
+	if _, err := queries.LockUserProfileForCategory(ctx, ownerUserID); errors.Is(err, pgx.ErrNoRows) {
+		return "", apperror.Conflict("HANDLE_REQUIRED", "create a handle before creating a library")
+	} else if err != nil {
+		return "", err
+	}
+	id, err := queries.FindCategoryIDByName(ctx, sqlc.FindCategoryIDByNameParams{OwnerUserID: ownerUserID, Name: name})
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	count, err := queries.CountCategoriesByOwner(ctx, ownerUserID)
+	if err != nil {
+		return "", err
+	}
+	if count >= domain.MaxCategoriesPerUser {
+		return "", apperror.Conflict("CATEGORY_LIMIT", fmt.Sprintf("a user can own at most %d categories", domain.MaxCategoriesPerUser))
+	}
+	id, err = queries.CreateCategory(ctx, sqlc.CreateCategoryParams{OwnerUserID: ownerUserID, Name: name})
+	if err != nil {
+		return "", categoryWriteError(err)
+	}
+	return id, nil
+}
+
+func libraryNotFound() error {
+	return apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+}
+
+func (r *LibraryRepository) FindByPublicID(ctx context.Context, publicID string) (*domain.Library, error) {
+	row, err := r.queries.GetLibraryByPublicID(ctx, publicID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+		return nil, libraryNotFound()
 	}
 	if err != nil {
 		return nil, err
 	}
-	library := newLibrary(row.ID, row.NamespaceID, row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt)
-	return &library, nil
+	return libraryFromRow(row), nil
 }
 
-func (r *LibraryRepository) ListPublic(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error) {
-	rows, err := r.queries.ListPublicLibraries(ctx, sqlc.ListPublicLibrariesParams{
-		NamespaceID:  namespaceID,
-		ResultLimit:  int32(limit),
-		ResultOffset: int32(offset),
+func (r *LibraryRepository) ListByCategory(ctx context.Context, params repository.ListLibrariesParams) ([]domain.Library, error) {
+	rows, err := r.queries.ListCategoryLibraries(ctx, sqlc.ListCategoryLibrariesParams{
+		CategoryID:     params.CategoryID,
+		IncludePrivate: params.IncludePrivate,
+		ResultLimit:    int32(params.Limit),
+		ResultOffset:   int32(params.Offset),
 	})
-	return librariesFromRows(rows, err)
-}
-
-func (r *LibraryRepository) ListAll(ctx context.Context, namespaceID string, limit, offset int) ([]domain.Library, error) {
-	rows, err := r.queries.ListNamespaceLibraries(ctx, sqlc.ListNamespaceLibrariesParams{
-		NamespaceID:  namespaceID,
-		ResultLimit:  int32(limit),
-		ResultOffset: int32(offset),
-	})
-	return namespaceLibrariesFromRows(rows, err)
+	if err != nil {
+		return nil, err
+	}
+	libraries := make([]domain.Library, 0, len(rows))
+	for _, row := range rows {
+		libraries = append(libraries, *libraryFromRow(sqlc.GetLibraryByPublicIDRow(row)))
+	}
+	return libraries, nil
 }
 
 func (r *LibraryRepository) ListAllPublic(ctx context.Context, limit, offset int) ([]domain.Library, error) {
@@ -179,31 +284,7 @@ func (r *LibraryRepository) ListAllPublic(ctx context.Context, limit, offset int
 	}
 	libraries := make([]domain.Library, 0, len(rows))
 	for _, row := range rows {
-		library := newLibrary(row.ID, "", row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt)
-		library.NamespaceSlug = row.NamespaceSlug
-		libraries = append(libraries, library)
-	}
-	return libraries, nil
-}
-
-func librariesFromRows(rows []sqlc.ListPublicLibrariesRow, err error) ([]domain.Library, error) {
-	if err != nil {
-		return nil, err
-	}
-	libraries := make([]domain.Library, 0, len(rows))
-	for _, row := range rows {
-		libraries = append(libraries, newLibrary(row.ID, row.NamespaceID, row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt))
-	}
-	return libraries, nil
-}
-
-func namespaceLibrariesFromRows(rows []sqlc.ListNamespaceLibrariesRow, err error) ([]domain.Library, error) {
-	if err != nil {
-		return nil, err
-	}
-	libraries := make([]domain.Library, 0, len(rows))
-	for _, row := range rows {
-		libraries = append(libraries, newLibrary(row.ID, row.NamespaceID, row.Slug, row.Name, row.Description, row.Visibility, row.CreatedAt, row.UpdatedAt))
+		libraries = append(libraries, *libraryFromRow(sqlc.GetLibraryByPublicIDRow(row)))
 	}
 	return libraries, nil
 }
@@ -216,16 +297,21 @@ func nullableText(value *string) pgtype.Text {
 	return text
 }
 
-func newLibrary(id pgtype.UUID, namespaceID, slug, name, description, visibility string, createdAt, updatedAt pgtype.Timestamptz) domain.Library {
-	return domain.Library{
-		ID:          formatUUID(id),
-		NamespaceID: namespaceID,
-		Slug:        slug,
-		Name:        name,
-		Description: description,
-		Visibility:  domain.LibraryVisibility(visibility),
-		CreatedAt:   createdAt.Time,
-		UpdatedAt:   updatedAt.Time,
+// libraryFromRow maps the shared library row. Every library query selects the
+// same columns, so their generated row structs convert to this one.
+func libraryFromRow(row sqlc.GetLibraryByPublicIDRow) *domain.Library {
+	return &domain.Library{
+		ID:               row.ID,
+		PublicID:         row.PublicID,
+		CategoryPublicID: row.CategoryPublicID,
+		CategoryName:     row.CategoryName,
+		OwnerUserID:      row.OwnerUserID,
+		OwnerHandle:      row.OwnerHandle,
+		Name:             row.Name,
+		Description:      row.Description,
+		Visibility:       domain.LibraryVisibility(row.Visibility),
+		CreatedAt:        row.CreatedAt.Time,
+		UpdatedAt:        row.UpdatedAt.Time,
 	}
 }
 
@@ -241,14 +327,15 @@ func NewLibraryVersionRepository(db *pgxpool.Pool) *LibraryVersionRepository {
 func (r *LibraryVersionRepository) Create(ctx context.Context, params repository.CreateLibraryVersionParams) (*domain.LibraryVersion, error) {
 	// The lock and the MAX-based insert are two statements in one transaction.
 	// Keeping them separate makes the numbering read start with a fresh
-	// snapshot after a concurrent creator releases the row lock.
+	// snapshot after a concurrent creator releases the row lock. The lock is
+	// an UPDATE that also bumps the library's updated_at.
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin library version transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := r.queries.WithTx(tx).LockLibraryByVersion(ctx, params.LibraryID); errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	if _, err := r.queries.WithTx(tx).TouchLibraryForVersion(ctx, params.LibraryID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, libraryNotFound()
 	} else if err != nil {
 		return nil, err
 	}
@@ -362,21 +449,4 @@ func optionalTime(value pgtype.Timestamptz) *time.Time {
 	}
 	t := value.Time
 	return &t
-}
-
-func newNamespace(id pgtype.UUID,
-	ownerUserID string,
-	slug string,
-	displayName string,
-	createdAt pgtype.Timestamptz,
-	updatedAt pgtype.Timestamptz,
-) *domain.Namespace {
-	return &domain.Namespace{
-		ID:          formatUUID(id),
-		OwnerUserID: ownerUserID,
-		Slug:        slug,
-		DisplayName: displayName,
-		CreatedAt:   createdAt.Time,
-		UpdatedAt:   updatedAt.Time,
-	}
 }

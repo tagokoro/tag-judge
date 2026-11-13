@@ -1,11 +1,12 @@
 -- The version number is allocated inside SQL, never in Go. The lock is taken
 -- in its own statement so that the later MAX(version_number) read starts with
--- a fresh snapshot after waiting on a concurrent creator.
--- name: LockLibraryByVersion :one
-SELECT id
-FROM libraries
+-- a fresh snapshot after waiting on a concurrent creator. Taking it with an
+-- UPDATE also marks the library as updated by the new version.
+-- name: TouchLibraryForVersion :one
+UPDATE libraries
+SET updated_at = now()
 WHERE id = ((sqlc.arg(library_id)::text)::uuid)
-FOR UPDATE;
+RETURNING id;
 
 -- name: InsertLibraryVersion :one
 INSERT INTO library_versions (
@@ -40,7 +41,7 @@ RETURNING
     submission_url_updated_at;
 
 -- Read authorization is enforced IN THE SAME STATEMENT as the data fetch: the
--- join to the current library/namespace lets the WHERE clause gate every row
+-- join to the current library/category lets the WHERE clause gate every row
 -- on the library's CURRENT visibility and the actor's user id. A private row
 -- is returned only to its owner (no admin/role bypass); an anonymous actor
 -- (empty user id) and any non-owner see nothing. Because visibility is read in
@@ -52,10 +53,10 @@ SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number, 
        lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
-JOIN namespaces n ON n.id = l.namespace_id
+JOIN categories c ON c.id = l.category_id
 WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
   AND lv.version_number = sqlc.arg(version_number)
-  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text));
+  AND (l.visibility = 'public' OR lower(c.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text));
 
 -- name: ListLibraryVersionSummaries :many
 SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
@@ -63,9 +64,9 @@ SELECT lv.id::text AS id, lv.library_id::text AS library_id, lv.version_number,
        lv.submission_url, lv.submission_url_updated_at
 FROM library_versions lv
 JOIN libraries l ON l.id = lv.library_id
-JOIN namespaces n ON n.id = l.namespace_id
+JOIN categories c ON c.id = l.category_id
 WHERE lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
-  AND (l.visibility = 'public' OR lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text))
+  AND (l.visibility = 'public' OR lower(c.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text))
 ORDER BY lv.version_number DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
 
@@ -78,11 +79,11 @@ UPDATE library_versions lv
 SET submission_url = sqlc.narg(submission_url),
     submission_url_updated_at = CASE WHEN sqlc.narg(submission_url)::text IS NULL THEN NULL ELSE now() END
 FROM libraries l
-JOIN namespaces n ON n.id = l.namespace_id
+JOIN categories c ON c.id = l.category_id
 WHERE l.id = lv.library_id
   AND lv.library_id = ((sqlc.arg(library_id)::text)::uuid)
   AND lv.version_number = sqlc.arg(version_number)
-  AND lower(n.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text)
+  AND lower(c.owner_user_id::text) = lower(sqlc.arg(actor_user_id)::text)
 RETURNING
     lv.id::text AS id,
     lv.library_id::text AS library_id,

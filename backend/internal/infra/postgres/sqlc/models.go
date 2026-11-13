@@ -12,6 +12,16 @@ type AdmissionControlLock struct {
 	ID int32 `json:"id"`
 }
 
+type Category struct {
+	ID          pgtype.UUID        `json:"id"`
+	PublicID    string             `json:"public_id"`
+	OwnerUserID pgtype.UUID        `json:"owner_user_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type CodeRun struct {
 	ID              int64              `json:"id"`
 	UserID          pgtype.UUID        `json:"user_id"`
@@ -66,13 +76,13 @@ type GroupMember struct {
 
 type Library struct {
 	ID          pgtype.UUID        `json:"id"`
-	NamespaceID pgtype.UUID        `json:"namespace_id"`
-	Slug        string             `json:"slug"`
+	CategoryID  pgtype.UUID        `json:"category_id"`
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
 	Visibility  string             `json:"visibility"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	PublicID    string             `json:"public_id"`
 }
 
 type LibraryVersion struct {
@@ -86,15 +96,6 @@ type LibraryVersion struct {
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	SubmissionUrl          pgtype.Text        `json:"submission_url"`
 	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
-}
-
-type Namespace struct {
-	ID          pgtype.UUID        `json:"id"`
-	OwnerUserID pgtype.UUID        `json:"owner_user_id"`
-	Slug        string             `json:"slug"`
-	DisplayName string             `json:"display_name"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Problem struct {

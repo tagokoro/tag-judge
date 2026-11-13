@@ -16,65 +16,62 @@ const (
 )
 
 type LibraryUsecase struct {
-	namespaces repository.NamespaceRepository
+	categories repository.CategoryRepository
 	libraries  repository.LibraryRepository
 }
 
-func NewLibraryUsecase(namespaces repository.NamespaceRepository, libraries repository.LibraryRepository) *LibraryUsecase {
-	return &LibraryUsecase{namespaces: namespaces, libraries: libraries}
+func NewLibraryUsecase(categories repository.CategoryRepository, libraries repository.LibraryRepository) *LibraryUsecase {
+	return &LibraryUsecase{categories: categories, libraries: libraries}
 }
 
+// CreateLibraryInput names the category to file the library under; the
+// owner's category by that name is used or created.
 type CreateLibraryInput struct {
-	Slug        string
 	Name        string
 	Description string
 	Visibility  string
+	Category    string
 }
 
+// UpdateLibraryInput uses nil for fields the PATCH does not touch. Category
+// moves the library to the owner's category by that name, creating it when
+// needed.
 type UpdateLibraryInput struct {
 	Name        *string
 	Description *string
 	Visibility  *string
+	Category    *string
 }
 
-// libraryContext resolves the namespace behind a namespace slug so every
-// library route shares one lookup and one not-found contract.
-type libraryContext struct {
-	namespace domain.Namespace
-}
-
-func (u *LibraryUsecase) resolveNamespace(ctx context.Context, namespaceSlug string) (*libraryContext, error) {
-	namespace, err := u.namespaces.FindBySlug(ctx, namespaceSlug)
-	if err != nil {
-		return nil, err
+// findCategory resolves a category public id. A malformed id cannot exist,
+// so it shares the not-found contract with a missing category.
+func (u *LibraryUsecase) findCategory(ctx context.Context, publicID string) (*domain.Category, error) {
+	if !domain.ValidPublicID(publicID) {
+		return nil, categoryNotFound()
 	}
-	return &libraryContext{namespace: *namespace}, nil
+	return u.categories.FindByPublicID(ctx, publicID)
 }
 
-// readable reports whether actor may see library. private libraries hide from
-// everyone except the namespace owner, including admins.
-func readable(library domain.Library, ownerUserID string, actor auth.Actor) bool {
-	return library.Visibility != domain.LibraryVisibilityPrivate || actor.UserID == ownerUserID
+func (u *LibraryUsecase) findLibrary(ctx context.Context, publicID string) (*domain.Library, error) {
+	if !domain.ValidPublicID(publicID) {
+		return nil, libraryNotFound()
+	}
+	return u.libraries.FindByPublicID(ctx, publicID)
 }
 
-func (u *LibraryUsecase) Create(ctx context.Context, actor auth.Actor, namespaceSlug string, input CreateLibraryInput) (*domain.Library, error) {
+// Create files a new library under the actor's category named in the input,
+// creating the category when the actor has none by that name.
+func (u *LibraryUsecase) Create(ctx context.Context, actor auth.Actor, input CreateLibraryInput) (*domain.Library, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
-	resolved, err := u.resolveNamespace(ctx, namespaceSlug)
+	name, err := normalizeLibraryName(input.Name)
 	if err != nil {
 		return nil, err
 	}
-	if resolved.namespace.OwnerUserID != actor.UserID {
-		return nil, apperror.Forbidden("LIBRARY_FORBIDDEN", "library owner required")
-	}
-
-	name := strings.TrimSpace(input.Name)
-	if !domain.ValidLibrarySlug(input.Slug) {
-		return nil, apperror.InvalidInput("INVALID_SLUG", "slug must be 2-48 lowercase letters, digits, or single hyphens")
-	}
-	if name == "" || len([]rune(name)) > maxLibraryNameLength {
-		return nil, apperror.InvalidInput("INVALID_NAME", "name must be 1-80 characters")
+	category, err := normalizeLibraryCategory(input.Category)
+	if err != nil {
+		return nil, err
 	}
 	if len([]rune(input.Description)) > maxLibraryDescriptionLength {
 		return nil, apperror.InvalidInput("INVALID_DESCRIPTION", "description must be at most 2000 characters")
@@ -84,83 +81,69 @@ func (u *LibraryUsecase) Create(ctx context.Context, actor auth.Actor, namespace
 		return nil, apperror.InvalidInput("INVALID_VISIBILITY", "visibility must be public or private")
 	}
 
-	library, err := u.libraries.Create(ctx, repository.CreateLibraryParams{
-		NamespaceID: resolved.namespace.ID,
-		Slug:        input.Slug,
-		Name:        name,
-		Description: input.Description,
-		Visibility:  visibility,
+	return u.libraries.Create(ctx, repository.CreateLibraryParams{
+		OwnerUserID:  actor.UserID,
+		CategoryName: category,
+		Name:         name,
+		Description:  input.Description,
+		Visibility:   visibility,
 	})
-	if err != nil {
-		return nil, err
-	}
-	library.NamespaceSlug = resolved.namespace.Slug
-	return library, nil
 }
 
-func (u *LibraryUsecase) Get(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string) (*domain.Library, error) {
-	resolved, err := u.resolveNamespace(ctx, namespaceSlug)
+func (u *LibraryUsecase) Get(ctx context.Context, actor auth.Actor, libraryID string) (*domain.Library, error) {
+	library, err := u.findLibrary(ctx, libraryID)
 	if err != nil {
 		return nil, err
 	}
-	library, err := u.libraries.FindBySlug(ctx, resolved.namespace.ID, librarySlug)
-	if err != nil {
-		return nil, err
+	if !library.ReadableBy(actor.UserID) {
+		return nil, libraryNotFound()
 	}
-	if !readable(*library, resolved.namespace.OwnerUserID, actor) {
-		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
-	}
-	library.NamespaceSlug = resolved.namespace.Slug
 	return library, nil
 }
 
 // AuthorizeOwner is the write gate for every owner-only operation. A public
 // library read by a stranger becomes Forbidden; a private library hidden from
 // a stranger stays indistinguishable from a missing one.
-func (u *LibraryUsecase) AuthorizeOwner(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string) (*domain.Library, error) {
+func (u *LibraryUsecase) AuthorizeOwner(ctx context.Context, actor auth.Actor, libraryID string) (*domain.Library, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
-	resolved, err := u.resolveNamespace(ctx, namespaceSlug)
+	library, err := u.findLibrary(ctx, libraryID)
 	if err != nil {
 		return nil, err
 	}
-	library, err := u.libraries.FindBySlug(ctx, resolved.namespace.ID, librarySlug)
-	if err != nil {
-		return nil, err
-	}
-	if resolved.namespace.OwnerUserID != actor.UserID {
-		if library.Visibility == domain.LibraryVisibilityPrivate {
-			return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
+	if library.OwnerUserID != actor.UserID {
+		if !library.ReadableBy(actor.UserID) {
+			return nil, libraryNotFound()
 		}
 		return nil, apperror.Forbidden("LIBRARY_FORBIDDEN", "library owner required")
 	}
-	library.NamespaceSlug = resolved.namespace.Slug
 	return library, nil
 }
 
-func (u *LibraryUsecase) List(ctx context.Context, actor auth.Actor, namespaceSlug string, limit int, limitProvided bool, offset int) ([]domain.Library, error) {
-	resolved, err := u.resolveNamespace(ctx, namespaceSlug)
+// List lists a category's libraries the actor may see. A category hidden
+// from the actor is a 404, like on its own route.
+func (u *LibraryUsecase) List(ctx context.Context, actor auth.Actor, categoryID string, limit int, limitProvided bool, offset int) ([]domain.Library, error) {
+	category, err := u.findCategory(ctx, categoryID)
 	if err != nil {
 		return nil, err
+	}
+	if !category.VisibleTo(actor.UserID) {
+		return nil, categoryNotFound()
 	}
 	limit, offset, err = validatePaging(limit, limitProvided, offset)
 	if err != nil {
 		return nil, err
 	}
-	var libraries []domain.Library
-	if actor.UserID == resolved.namespace.OwnerUserID && actor.UserID != "" {
-		libraries, err = u.libraries.ListAll(ctx, resolved.namespace.ID, limit, offset)
-	} else {
-		libraries, err = u.libraries.ListPublic(ctx, resolved.namespace.ID, limit, offset)
-	}
-	for i := range libraries {
-		libraries[i].NamespaceSlug = resolved.namespace.Slug
-	}
-	return libraries, err
+	return u.libraries.ListByCategory(ctx, repository.ListLibrariesParams{
+		CategoryID:     category.ID,
+		IncludePrivate: actor.UserID != "" && actor.UserID == category.OwnerUserID,
+		Limit:          limit,
+		Offset:         offset,
+	})
 }
 
-// ListAllPublic lists public libraries across every namespace. Anyone may call
+// ListAllPublic lists public libraries across every category. Anyone may call
 // it; private libraries are never included.
 func (u *LibraryUsecase) ListAllPublic(ctx context.Context, limit int, limitProvided bool, offset int) ([]domain.Library, error) {
 	limit, offset, err := validatePaging(limit, limitProvided, offset)
@@ -170,19 +153,29 @@ func (u *LibraryUsecase) ListAllPublic(ctx context.Context, limit int, limitProv
 	return u.libraries.ListAllPublic(ctx, limit, offset)
 }
 
-func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, input UpdateLibraryInput) (*domain.Library, error) {
+// Update changes the library and, with Category, moves it to the owner's
+// category by that name (created when needed; the category it leaves is
+// removed once empty).
+func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, libraryID string, input UpdateLibraryInput) (*domain.Library, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
-	if input.Name == nil && input.Description == nil && input.Visibility == nil {
+	if input.Name == nil && input.Description == nil && input.Visibility == nil && input.Category == nil {
 		return nil, apperror.InvalidInput("EMPTY_UPDATE", "at least one field is required")
 	}
 	if input.Name != nil {
-		name := strings.TrimSpace(*input.Name)
-		if name == "" || len([]rune(name)) > maxLibraryNameLength {
-			return nil, apperror.InvalidInput("INVALID_NAME", "name must be 1-80 characters")
+		name, err := normalizeLibraryName(*input.Name)
+		if err != nil {
+			return nil, err
 		}
 		input.Name = &name
+	}
+	if input.Category != nil {
+		category, err := normalizeLibraryCategory(*input.Category)
+		if err != nil {
+			return nil, err
+		}
+		input.Category = &category
 	}
 	if input.Visibility != nil && !domain.LibraryVisibility(*input.Visibility).Valid() {
 		return nil, apperror.InvalidInput("INVALID_VISIBILITY", "visibility must be public or private")
@@ -191,20 +184,38 @@ func (u *LibraryUsecase) Update(ctx context.Context, actor auth.Actor, namespace
 		return nil, apperror.InvalidInput("INVALID_DESCRIPTION", "description must be at most 2000 characters")
 	}
 
-	library, err := u.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
+	library, err := u.AuthorizeOwner(ctx, actor, libraryID)
 	if err != nil {
 		return nil, err
 	}
-
-	updated, err := u.libraries.Update(ctx, repository.UpdateLibraryParams{
-		ID:          library.ID,
-		Name:        input.Name,
-		Description: input.Description,
-		Visibility:  input.Visibility,
+	return u.libraries.Update(ctx, repository.UpdateLibraryParams{
+		ID:           library.ID,
+		OwnerUserID:  library.OwnerUserID,
+		Name:         input.Name,
+		Description:  input.Description,
+		Visibility:   input.Visibility,
+		CategoryName: input.Category,
 	})
-	if err != nil {
-		return nil, err
+}
+
+func normalizeLibraryName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" || len([]rune(name)) > maxLibraryNameLength {
+		return "", apperror.InvalidInput("INVALID_NAME", "name must be 1-80 characters")
 	}
-	updated.NamespaceSlug = library.NamespaceSlug
-	return updated, nil
+	return name, nil
+}
+
+// normalizeLibraryCategory checks the category name a library is filed under
+// with the category name rule, reporting it against the category field.
+func normalizeLibraryCategory(raw string) (string, error) {
+	name, err := normalizeCategoryName(raw)
+	if err != nil {
+		return "", apperror.InvalidInput("INVALID_CATEGORY", "category must be 1-64 characters")
+	}
+	return name, nil
+}
+
+func libraryNotFound() error {
+	return apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
 }

@@ -16,6 +16,18 @@ import (
 const authorUserID = "00000000-0000-4000-8000-000000000001"
 const adminUserID = "00000000-0000-4000-8000-000000000002"
 
+// Public ids as the API sees them, and the internal ids behind them.
+const (
+	nsID         = "aaaaaaaaaaaaaaaaaaaa"
+	otherNsID    = "cccccccccccccccccccc"
+	libID        = "bbbbbbbbbbbbbbbbbbbb"
+	nsInternal   = "11111111-1111-4111-8111-111111111111"
+	otherNsInt   = "44444444-4444-4444-8444-444444444444"
+	libInternal  = "22222222-2222-4222-8222-222222222222"
+	adminNsID    = "dddddddddddddddddddd"
+	adminNsInter = "55555555-5555-4555-8555-555555555555"
+)
+
 func authorActor() auth.Actor {
 	return auth.Actor{UserID: authorUserID, Role: domain.UserRoleAuthor}
 }
@@ -24,48 +36,86 @@ func adminActor() auth.Actor {
 	return auth.Actor{UserID: adminUserID, Role: domain.UserRoleAdmin}
 }
 
-type fakeNamespaceRepository struct {
-	createParams repository.CreateNamespaceParams
-	createErr    error
+type fakeCategoryRepository struct {
+	// byID overrides what FindByPublicID returns for a public id.
+	byID map[string]*domain.Category
 
-	byOwner    *domain.Namespace
-	byOwnerErr error
-
-	bySlug    *domain.Namespace
-	bySlugErr error
+	listParams   *repository.ListCategoriesParams
+	updateParams *repository.UpdateCategoryParams
 }
 
-func (r *fakeNamespaceRepository) Create(_ context.Context, params repository.CreateNamespaceParams) (*domain.Namespace, error) {
-	r.createParams = params
+// FindByPublicID knows three categories unless byID overrides them: the
+// author's nsID (with a public library) and otherNsID, and the admin's
+// adminNsID.
+func (r *fakeCategoryRepository) FindByPublicID(_ context.Context, publicID string) (*domain.Category, error) {
+	if category, ok := r.byID[publicID]; ok {
+		return category, nil
+	}
+	switch publicID {
+	case nsID:
+		return &domain.Category{ID: nsInternal, PublicID: nsID, OwnerUserID: authorUserID, OwnerHandle: "seed-author", Name: "グラフ", HasPublicLibrary: true}, nil
+	case otherNsID:
+		return &domain.Category{ID: otherNsInt, PublicID: otherNsID, OwnerUserID: authorUserID, OwnerHandle: "seed-author", Name: "数学"}, nil
+	case adminNsID:
+		return &domain.Category{ID: adminNsInter, PublicID: adminNsID, OwnerUserID: adminUserID, OwnerHandle: "seed-admin", Name: "Admin", HasPublicLibrary: true}, nil
+	}
+	return nil, apperror.NotFound("CATEGORY_NOT_FOUND", "category not found")
+}
+
+func (r *fakeCategoryRepository) ListByOwner(_ context.Context, params repository.ListCategoriesParams) ([]domain.Category, error) {
+	r.listParams = &params
+	return []domain.Category{{ID: nsInternal, PublicID: nsID, OwnerUserID: params.OwnerUserID, Name: "グラフ"}}, nil
+}
+
+func (r *fakeCategoryRepository) Update(_ context.Context, params repository.UpdateCategoryParams) (*domain.Category, error) {
+	r.updateParams = &params
+	category := &domain.Category{ID: params.ID, PublicID: nsID, OwnerUserID: authorUserID, Name: "グラフ"}
+	if params.Name != nil {
+		category.Name = *params.Name
+	}
+	if params.Description != nil {
+		category.Description = *params.Description
+	}
+	return category, nil
+}
+
+// hiddenCategory is the author's nsID without a public library.
+func hiddenCategory() map[string]*domain.Category {
+	return map[string]*domain.Category{
+		nsID: {ID: nsInternal, PublicID: nsID, OwnerUserID: authorUserID, OwnerHandle: "seed-author", Name: "グラフ"},
+	}
+}
+
+type fakeUserProfileRepository struct {
+	createParams *repository.CreateUserProfileParams
+	createErr    error
+	profile      *domain.UserProfile
+}
+
+func (r *fakeUserProfileRepository) Create(_ context.Context, params repository.CreateUserProfileParams) (*domain.UserProfile, error) {
+	r.createParams = &params
 	if r.createErr != nil {
 		return nil, r.createErr
 	}
-	return &domain.Namespace{
-		ID:          "11111111-1111-4111-8111-111111111111",
-		OwnerUserID: params.OwnerUserID,
-		Slug:        params.Slug,
-		DisplayName: params.DisplayName,
-	}, nil
+	return &domain.UserProfile{UserID: params.UserID, Handle: params.Handle}, nil
 }
 
-func (r *fakeNamespaceRepository) FindByOwner(_ context.Context, ownerUserID string) (*domain.Namespace, error) {
-	if r.byOwnerErr != nil {
-		return nil, r.byOwnerErr
+func (r *fakeUserProfileRepository) FindByUserID(_ context.Context, userID string) (*domain.UserProfile, error) {
+	if r.profile == nil || r.profile.UserID != userID {
+		return nil, apperror.NotFound("USER_NOT_FOUND", "user not found")
 	}
-	if r.byOwner != nil {
-		return r.byOwner, nil
-	}
-	return &domain.Namespace{ID: "11111111-1111-4111-8111-111111111111", OwnerUserID: ownerUserID, Slug: "seed-author", DisplayName: "Seed Author"}, nil
+	return r.profile, nil
 }
 
-func (r *fakeNamespaceRepository) FindBySlug(_ context.Context, slug string) (*domain.Namespace, error) {
-	if r.bySlugErr != nil {
-		return nil, r.bySlugErr
+func (r *fakeUserProfileRepository) FindByHandle(_ context.Context, handle string) (*domain.UserProfile, error) {
+	if r.profile == nil || r.profile.Handle != handle {
+		return nil, apperror.NotFound("USER_NOT_FOUND", "user not found")
 	}
-	if r.bySlug != nil {
-		return r.bySlug, nil
-	}
-	return &domain.Namespace{ID: "11111111-1111-4111-8111-111111111111", OwnerUserID: authorUserID, Slug: slug, DisplayName: "Seed Author"}, nil
+	return r.profile, nil
+}
+
+func authorProfiles() *fakeUserProfileRepository {
+	return &fakeUserProfileRepository{profile: &domain.UserProfile{UserID: authorUserID, Handle: "seed-author"}}
 }
 
 func assertAppError(t *testing.T, err error, wantSentinel error, wantCode, wantMessage string) {
@@ -85,105 +135,140 @@ func assertAppError(t *testing.T, err error, wantSentinel error, wantCode, wantM
 	}
 }
 
-type sentinelKind struct {
-	name string
-	err  error
-}
-
-func TestCreateNamespaceTrimsDisplayName(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{}
-	usecase := usecase.NewNamespaceUsecase(namespaces)
-	namespace, err := usecase.Create(context.Background(), authorActor(), "seed-author", "  Seed Author  ")
+func TestCreateMyProfile(t *testing.T) {
+	profiles := &fakeUserProfileRepository{}
+	use := usecase.NewUserProfileUsecase(profiles)
+	profile, err := use.CreateMine(context.Background(), authorActor(), "seed-author")
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("CreateMine: %v", err)
 	}
-	if namespaces.createParams.DisplayName != "Seed Author" {
-		t.Fatalf("display name stored as %q, want trimmed value", namespaces.createParams.DisplayName)
+	if *profiles.createParams != (repository.CreateUserProfileParams{UserID: authorUserID, Handle: "seed-author"}) {
+		t.Fatalf("params = %+v", profiles.createParams)
 	}
-	if namespaces.createParams.OwnerUserID != authorUserID || namespaces.createParams.Slug != "seed-author" {
-		t.Fatalf("params = %+v", namespaces.createParams)
-	}
-	if namespace == nil || namespace.Slug != "seed-author" {
-		t.Fatalf("namespace = %+v", namespace)
+	if profile.Handle != "seed-author" {
+		t.Fatalf("profile = %+v", profile)
 	}
 }
 
-func TestCreateNamespaceRejectsSecondNamespace(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{
-		createErr: apperror.Conflict("NAMESPACE_ALREADY_EXISTS", "user already has a namespace"),
+func TestCreateMyProfileRejectsInput(t *testing.T) {
+	profiles := &fakeUserProfileRepository{}
+	use := usecase.NewUserProfileUsecase(profiles)
+	for _, handle := range []string{"A", "-ab", "a--b", "a", strings.Repeat("a", 33), "", "seed_author", "Seed"} {
+		_, err := use.CreateMine(context.Background(), authorActor(), handle)
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_HANDLE", "handle must be 2-32 lowercase letters, digits, or single hyphens")
 	}
-	use := usecase.NewNamespaceUsecase(namespaces)
-	_, err := use.Create(context.Background(), authorActor(), "seed-author", "Seed Author")
-	assertAppError(t, err, apperror.ErrConflict, "NAMESPACE_ALREADY_EXISTS", "user already has a namespace")
-
-	namespaces = &fakeNamespaceRepository{
-		createErr: apperror.Conflict("NAMESPACE_SLUG_TAKEN", "namespace slug is already taken"),
-	}
-	use = usecase.NewNamespaceUsecase(namespaces)
-	_, err = use.Create(context.Background(), authorActor(), "seed-author", "Seed Author")
-	assertAppError(t, err, apperror.ErrConflict, "NAMESPACE_SLUG_TAKEN", "namespace slug is already taken")
-}
-
-func TestCreateNamespaceRejectsSlug(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{}
-	use := usecase.NewNamespaceUsecase(namespaces)
-	for _, slug := range []string{"A", "-ab", "a--b", "a", strings.Repeat("a", 33), "", "seed_author", "seed--author"} {
-		_, err := use.Create(context.Background(), authorActor(), slug, "Seed Author")
-		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_SLUG", "slug must be 2-32 lowercase letters, digits, or single hyphens")
-	}
-	if namespaces.createParams.Slug != "" {
-		t.Fatalf("repository Create called for invalid slugs: %+v", namespaces.createParams)
-	}
-}
-
-func TestCreateNamespaceRejectsDisplayName(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{}
-	use := usecase.NewNamespaceUsecase(namespaces)
-	_, err := use.Create(context.Background(), authorActor(), "seed-author", "   ")
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_DISPLAY_NAME", "display_name must be 1-64 characters")
-	_, err = use.Create(context.Background(), authorActor(), "seed-author", strings.Repeat("x", 65))
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_DISPLAY_NAME", "display_name must be 1-64 characters")
-	if namespaces.createParams.DisplayName != "" {
-		t.Fatal("repository must not be called")
-	}
-}
-
-func TestCreateNamespaceRequiresAuth(t *testing.T) {
-	use := usecase.NewNamespaceUsecase(&fakeNamespaceRepository{})
-	_, err := use.Create(context.Background(), auth.Actor{}, "seed-author", "Seed Author")
+	_, err := use.CreateMine(context.Background(), auth.Actor{}, "seed-author")
 	assertAppError(t, err, apperror.ErrUnauthorized, "UNAUTHORIZED", "authentication required")
-}
-
-func TestGetMyNamespaceNotFound(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{
-		byOwnerErr: apperror.NotFound("NAMESPACE_NOT_FOUND", "namespace not found"),
+	if profiles.createParams != nil {
+		t.Fatalf("repository Create called for invalid input: %+v", profiles.createParams)
 	}
-	use := usecase.NewNamespaceUsecase(namespaces)
-	_, err := use.GetMine(context.Background(), authorActor())
-	assertAppError(t, err, apperror.ErrNotFound, "NAMESPACE_NOT_FOUND", "namespace not found")
 }
 
-func TestGetMyNamespaceReturnsMine(t *testing.T) {
-	namespaces := &fakeNamespaceRepository{}
-	use := usecase.NewNamespaceUsecase(namespaces)
-	namespace, err := use.GetMine(context.Background(), authorActor())
+func TestFindMyProfileWithoutHandle(t *testing.T) {
+	use := usecase.NewUserProfileUsecase(&fakeUserProfileRepository{})
+	profile, err := use.FindMine(context.Background(), authorActor())
+	if err != nil || profile != nil {
+		t.Fatalf("FindMine = %+v, %v; want nil, nil", profile, err)
+	}
+}
+
+func TestListMyCategoriesIncludesHidden(t *testing.T) {
+	categories := &fakeCategoryRepository{}
+	use := usecase.NewCategoryUsecase(categories, authorProfiles())
+	if _, err := use.ListMine(context.Background(), authorActor()); err != nil {
+		t.Fatalf("ListMine: %v", err)
+	}
+	want := repository.ListCategoriesParams{OwnerUserID: authorUserID, IncludeHidden: true, Limit: domain.MaxCategoriesPerUser}
+	if *categories.listParams != want {
+		t.Fatalf("params = %+v, want %+v", categories.listParams, want)
+	}
+}
+
+func TestListCategoriesByHandleHidesFromOthers(t *testing.T) {
+	cases := []struct {
+		name          string
+		actor         auth.Actor
+		includeHidden bool
+	}{
+		{name: "owner", actor: authorActor(), includeHidden: true},
+		{name: "other user", actor: adminActor(), includeHidden: false},
+		{name: "anonymous", actor: auth.Actor{}, includeHidden: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			categories := &fakeCategoryRepository{}
+			use := usecase.NewCategoryUsecase(categories, authorProfiles())
+			if _, err := use.ListByHandle(context.Background(), c.actor, "seed-author", 0, false, 0); err != nil {
+				t.Fatalf("ListByHandle: %v", err)
+			}
+			want := repository.ListCategoriesParams{OwnerUserID: authorUserID, IncludeHidden: c.includeHidden, Limit: 20}
+			if *categories.listParams != want {
+				t.Fatalf("params = %+v, want %+v", categories.listParams, want)
+			}
+		})
+	}
+}
+
+func TestListCategoriesByUnknownHandle(t *testing.T) {
+	use := usecase.NewCategoryUsecase(&fakeCategoryRepository{}, authorProfiles())
+	_, err := use.ListByHandle(context.Background(), authorActor(), "nobody", 0, false, 0)
+	assertAppError(t, err, apperror.ErrNotFound, "USER_NOT_FOUND", "user not found")
+}
+
+func TestGetCategory(t *testing.T) {
+	use := usecase.NewCategoryUsecase(&fakeCategoryRepository{}, authorProfiles())
+	category, err := use.Get(context.Background(), auth.Actor{}, nsID)
 	if err != nil {
-		t.Fatalf("GetMine: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if namespace.OwnerUserID != authorUserID {
-		t.Fatalf("namespace = %+v", namespace)
+	if category.OwnerHandle != "seed-author" || category.Name != "グラフ" {
+		t.Fatalf("category = %+v", category)
+	}
+	for _, id := range []string{"missing", "eeeeeeeeeeeeeeeeeeee", "AAAAAAAAAAAAAAAAAAAA"} {
+		_, err := use.Get(context.Background(), authorActor(), id)
+		assertAppError(t, err, apperror.ErrNotFound, "CATEGORY_NOT_FOUND", "category not found")
 	}
 }
 
-func TestGetNamespaceBySlugPublic(t *testing.T) {
-	use := usecase.NewNamespaceUsecase(&fakeNamespaceRepository{})
-	namespace, err := use.GetBySlug(context.Background(), "seed-author")
+func TestGetHiddenCategoryOnlyForOwner(t *testing.T) {
+	use := usecase.NewCategoryUsecase(&fakeCategoryRepository{byID: hiddenCategory()}, authorProfiles())
+	if _, err := use.Get(context.Background(), authorActor(), nsID); err != nil {
+		t.Fatalf("owner Get: %v", err)
+	}
+	for _, actor := range []auth.Actor{adminActor(), {}} {
+		_, err := use.Get(context.Background(), actor, nsID)
+		assertAppError(t, err, apperror.ErrNotFound, "CATEGORY_NOT_FOUND", "category not found")
+	}
+}
+
+func TestUpdateCategoryByOwner(t *testing.T) {
+	categories := &fakeCategoryRepository{}
+	use := usecase.NewCategoryUsecase(categories, authorProfiles())
+	name := "  グラフ理論  "
+	category, err := use.Update(context.Background(), authorActor(), nsID, usecase.UpdateCategoryInput{Name: &name})
 	if err != nil {
-		t.Fatalf("GetBySlug: %v", err)
+		t.Fatalf("Update: %v", err)
 	}
-	if namespace.Slug != "seed-author" {
-		t.Fatalf("namespace = %+v", namespace)
+	if categories.updateParams.ID != nsInternal || *categories.updateParams.Name != "グラフ理論" || categories.updateParams.Description != nil {
+		t.Fatalf("params = %+v", categories.updateParams)
 	}
+	if category.OwnerHandle != "seed-author" || category.Name != "グラフ理論" {
+		t.Fatalf("category = %+v", category)
+	}
+}
+
+func TestUpdateCategoryRejects(t *testing.T) {
+	use := usecase.NewCategoryUsecase(&fakeCategoryRepository{}, authorProfiles())
+	_, err := use.Update(context.Background(), authorActor(), nsID, usecase.UpdateCategoryInput{})
+	assertAppError(t, err, apperror.ErrInvalidInput, "EMPTY_UPDATE", "at least one field is required")
+
+	name := "グラフ"
+	_, err = use.Update(context.Background(), adminActor(), nsID, usecase.UpdateCategoryInput{Name: &name})
+	assertAppError(t, err, apperror.ErrForbidden, "CATEGORY_FORBIDDEN", "category owner required")
+
+	use = usecase.NewCategoryUsecase(&fakeCategoryRepository{byID: hiddenCategory()}, authorProfiles())
+	_, err = use.Update(context.Background(), adminActor(), nsID, usecase.UpdateCategoryInput{Name: &name})
+	assertAppError(t, err, apperror.ErrNotFound, "CATEGORY_NOT_FOUND", "category not found")
 }
 
 type fakeLibraryRepository struct {
@@ -192,14 +277,9 @@ type fakeLibraryRepository struct {
 	createErr           error
 	createCalls         int
 	updateParams        repository.UpdateLibraryParams
-	updateErr           error
 	updateCalls         int
-	bySlug              *domain.Library
-	findErr             error
-	listPublic          []domain.Library
-	listAll             []domain.Library
-	listPublicName      string
-	listAllName         string
+	library             *domain.Library
+	listParams          *repository.ListLibrariesParams
 }
 
 func (r *fakeLibraryRepository) Create(_ context.Context, params repository.CreateLibraryParams) (*domain.Library, error) {
@@ -209,265 +289,245 @@ func (r *fakeLibraryRepository) Create(_ context.Context, params repository.Crea
 		return nil, r.createErr
 	}
 	return &domain.Library{
-		ID:          "22222222-2222-4222-8222-222222222222",
-		NamespaceID: "11111111-1111-4111-8111-111111111111",
-		Slug:        params.Slug,
-		Name:        params.Name,
-		Description: params.Description,
-		Visibility:  params.Visibility,
+		ID: libInternal, PublicID: libID, CategoryPublicID: nsID, CategoryName: params.CategoryName,
+		OwnerUserID: params.OwnerUserID, OwnerHandle: "seed-author",
+		Name: params.Name, Description: params.Description, Visibility: params.Visibility,
 	}, nil
 }
 
 func (r *fakeLibraryRepository) Update(_ context.Context, params repository.UpdateLibraryParams) (*domain.Library, error) {
 	r.updateCalls++
 	r.updateParams = params
-	if r.updateErr != nil {
-		return nil, r.updateErr
-	}
-	return &domain.Library{
-		ID: "22222222-2222-4222-8222-222222222222", NamespaceSlug: "seed-author", Slug: "union-find",
-	}, nil
+	library := *r.library
+	return &library, nil
 }
 
-func (r *fakeLibraryRepository) FindBySlug(_ context.Context, namespaceID, slug string) (*domain.Library, error) {
-	if r.findErr != nil {
-		return nil, r.findErr
+func (r *fakeLibraryRepository) FindByPublicID(_ context.Context, publicID string) (*domain.Library, error) {
+	if r.library == nil || publicID != r.library.PublicID {
+		return nil, apperror.NotFound("LIBRARY_NOT_FOUND", "library not found")
 	}
-	if r.bySlug != nil {
-		return r.bySlug, nil
-	}
-	return &domain.Library{
-		ID: "22222222-2222-4222-8222-222222222222", NamespaceID: namespaceID, NamespaceSlug: "seed-author", Slug: slug,
-	}, nil
+	library := *r.library
+	return &library, nil
 }
 
-func (r *fakeLibraryRepository) ListPublic(_ context.Context, namespaceID string, _, _ int) ([]domain.Library, error) {
-	r.listPublicName = namespaceID
-	return r.listPublic, nil
-}
-
-func (r *fakeLibraryRepository) ListAll(_ context.Context, namespaceID string, _, _ int) ([]domain.Library, error) {
-	r.listAllName = namespaceID
-	return r.listAll, nil
+func (r *fakeLibraryRepository) ListByCategory(_ context.Context, params repository.ListLibrariesParams) ([]domain.Library, error) {
+	r.listParams = &params
+	return nil, nil
 }
 
 func (r *fakeLibraryRepository) ListAllPublic(_ context.Context, limit, offset int) ([]domain.Library, error) {
 	r.listAllPublicParams = &[2]int{limit, offset}
-	return r.listPublic, nil
+	return nil, nil
 }
 
-func libraryFixture(visibility domain.LibraryVisibility) (*fakeNamespaceRepository, *fakeLibraryRepository) {
-	namespaces := &fakeNamespaceRepository{}
+// libraryFixture is the author's library libID in category nsID.
+func libraryFixture(visibility domain.LibraryVisibility) (*fakeCategoryRepository, *fakeLibraryRepository) {
+	categories := &fakeCategoryRepository{}
 	libraries := &fakeLibraryRepository{
-		bySlug: &domain.Library{
-			ID:            "22222222-2222-4222-8222-222222222222",
-			NamespaceID:   "11111111-1111-4111-8111-111111111111",
-			NamespaceSlug: "seed-author",
-			Slug:          "union-find",
-			Name:          "UnionFind",
-			Visibility:    visibility,
+		library: &domain.Library{
+			ID: libInternal, PublicID: libID, CategoryPublicID: nsID, CategoryName: "グラフ",
+			OwnerUserID: authorUserID, OwnerHandle: "seed-author", Name: "UnionFind", Visibility: visibility,
 		},
 	}
-	return namespaces, libraries
+	return categories, libraries
 }
 
-func TestGetPrivateLibraryHidesFromAdmin(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Get(context.Background(), adminActor(), "seed-author", "union-find")
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
-
-	_, err = use.Get(context.Background(), adminActor(), "seed-author", "union-find")
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
-}
-
-func TestGetPrivateLibraryVisibleToOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	library, err := use.Get(context.Background(), authorActor(), "seed-author", "union-find")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+func TestGetPrivateLibraryHidesFromOthers(t *testing.T) {
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	for _, actor := range []auth.Actor{adminActor(), {}} {
+		_, err := use.Get(context.Background(), actor, libID)
+		assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
 	}
-	if library.Visibility != domain.LibraryVisibilityPrivate {
-		t.Fatalf("library = %+v", library)
+	library, err := use.Get(context.Background(), authorActor(), libID)
+	if err != nil || library.Visibility != domain.LibraryVisibilityPrivate {
+		t.Fatalf("owner Get = %+v, %v", library, err)
 	}
 }
 
 func TestGetPublicLibraryVisibleToAnyone(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	library, err := use.Get(context.Background(), auth.Actor{}, "seed-author", "union-find")
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	library, err := use.Get(context.Background(), auth.Actor{}, libID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if library.Visibility != domain.LibraryVisibilityPublic {
+	if library.OwnerHandle != "seed-author" || library.CategoryPublicID != nsID {
+		t.Fatalf("library = %+v", library)
+	}
+	for _, id := range []string{"union-find", "BBBBBBBBBBBBBBBBBBBB", "eeeeeeeeeeeeeeeeeeee"} {
+		_, err := use.Get(context.Background(), auth.Actor{}, id)
+		assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
+	}
+}
+
+func TestListLibrariesScopesByActor(t *testing.T) {
+	cases := []struct {
+		name           string
+		actor          auth.Actor
+		includePrivate bool
+	}{
+		{name: "owner", actor: authorActor(), includePrivate: true},
+		{name: "other user", actor: adminActor(), includePrivate: false},
+		{name: "anonymous", actor: auth.Actor{}, includePrivate: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+			use := usecase.NewLibraryUsecase(categories, libraries)
+			if _, err := use.List(context.Background(), c.actor, nsID, 20, true, 0); err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			want := repository.ListLibrariesParams{CategoryID: nsInternal, IncludePrivate: c.includePrivate, Limit: 20}
+			if *libraries.listParams != want {
+				t.Fatalf("params = %+v, want %+v", libraries.listParams, want)
+			}
+		})
+	}
+}
+
+func TestHiddenCategoryLibrariesAreNotFoundForOthers(t *testing.T) {
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	categories.byID = hiddenCategory()
+	use := usecase.NewLibraryUsecase(categories, libraries)
+
+	_, err := use.List(context.Background(), adminActor(), nsID, 20, true, 0)
+	assertAppError(t, err, apperror.ErrNotFound, "CATEGORY_NOT_FOUND", "category not found")
+	if _, err := use.List(context.Background(), authorActor(), nsID, 20, true, 0); err != nil {
+		t.Fatalf("owner List: %v", err)
+	}
+}
+
+func TestCreateLibrary(t *testing.T) {
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	library, err := use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{
+		Name: " Union Find（素集合） ", Category: "  グラフ  ", Visibility: "private",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	want := repository.CreateLibraryParams{
+		OwnerUserID: authorUserID, CategoryName: "グラフ", Name: "Union Find（素集合）", Visibility: domain.LibraryVisibilityPrivate,
+	}
+	if libraries.createParams != want {
+		t.Fatalf("params = %+v, want %+v", libraries.createParams, want)
+	}
+	if library.PublicID != libID {
 		t.Fatalf("library = %+v", library)
 	}
 }
 
-func TestListHidesPrivateFromOthers(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	result, err := use.List(context.Background(), adminActor(), "seed-author", 20, true, 0)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	_ = result
-	if libraries.listPublicName == "" {
-		t.Fatal("ListPublic must be called for non-owners")
-	}
-	if libraries.listAllName != "" {
-		t.Fatal("ListAll must not be called for non-owners")
-	}
-}
-
-func TestListShowsAllToOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	if _, err := use.List(context.Background(), authorActor(), "seed-author", 20, true, 0); err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if libraries.listAllName == "" {
-		t.Fatal("ListAll must be called for the owner")
-	}
-}
-
-func TestUpdatePublicLibraryRequiresOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	visibility := "public"
-	_, err := use.Update(context.Background(), adminActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{
-		Visibility: &visibility,
-	})
-	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
-	if libraries.updateCalls != 0 {
-		t.Fatal("repository Update must not be called")
-	}
-
-	_, err = use.Update(context.Background(), authorActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{
-		Visibility: &visibility,
-	})
-	if err != nil {
-		t.Fatalf("owner Update: %v", err)
-	}
-	if libraries.updateParams.Visibility == nil || *libraries.updateParams.Visibility != "public" {
-		t.Fatalf("params = %+v", libraries.updateParams)
-	}
-}
-
-func TestUpdatePrivateLibraryHidesFromOthers(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	name := "Renamed"
-	_, err := use.Update(context.Background(), adminActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{Name: &name})
-	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
-	if libraries.updateCalls != 0 {
-		t.Fatal("repository Update must not be called")
+func TestCreateLibraryPassesRepositoryConflicts(t *testing.T) {
+	for _, conflict := range []error{
+		apperror.Conflict("HANDLE_REQUIRED", "create a handle before creating a library"),
+		apperror.Conflict("CATEGORY_LIMIT", "a user can own at most 20 categories"),
+	} {
+		categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+		libraries.createErr = conflict
+		use := usecase.NewLibraryUsecase(categories, libraries)
+		_, err := use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{Name: "X", Category: "グラフ", Visibility: "private"})
+		if !errors.Is(err, conflict) {
+			t.Fatalf("err = %v, want %v", err, conflict)
+		}
 	}
 }
 
 func TestCreateLibraryValidatesContract(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "a--b", Name: "UnionFind", Visibility: "private",
-	})
-	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_SLUG", "slug must be 2-48 lowercase letters, digits, or single hyphens")
-
-	_, err = use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "union-find", Name: "   ", Visibility: "private",
-	})
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	_, err := use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{Name: "   ", Category: "グラフ", Visibility: "private"})
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_NAME", "name must be 1-80 characters")
-
-	_, err = use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "union-find", Name: "UnionFind", Description: strings.Repeat("d", 2001), Visibility: "private",
+	for _, category := range []string{"", "   ", strings.Repeat("あ", 65)} {
+		_, err = use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{Name: "UnionFind", Category: category, Visibility: "private"})
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_CATEGORY", "category must be 1-64 characters")
+	}
+	_, err = use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{
+		Name: "UnionFind", Category: "グラフ", Description: strings.Repeat("d", 2001), Visibility: "private",
 	})
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_DESCRIPTION", "description must be at most 2000 characters")
-
-	_, err = use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "union-find", Name: "UnionFind", Visibility: "group",
-	})
+	_, err = use.Create(context.Background(), authorActor(), usecase.CreateLibraryInput{Name: "UnionFind", Category: "グラフ", Visibility: "group"})
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_VISIBILITY", "visibility must be public or private")
-
+	_, err = use.Create(context.Background(), auth.Actor{}, usecase.CreateLibraryInput{Name: "UnionFind", Category: "グラフ", Visibility: "private"})
+	assertAppError(t, err, apperror.ErrUnauthorized, "UNAUTHORIZED", "authentication required")
 	if libraries.createCalls != 0 {
 		t.Fatal("repository Create must not be called for invalid input")
 	}
 }
 
-func TestCreateLibraryStoresTrimmedName(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "union-find", Name: " UnionFind ", Description: "", Visibility: "private",
-	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+func TestUpdateLibraryRequiresOwner(t *testing.T) {
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	visibility := "private"
+	_, err := use.Update(context.Background(), adminActor(), libID, usecase.UpdateLibraryInput{Visibility: &visibility})
+	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
+
+	_, librariesPrivate := libraryFixture(domain.LibraryVisibilityPrivate)
+	use = usecase.NewLibraryUsecase(categories, librariesPrivate)
+	_, err = use.Update(context.Background(), adminActor(), libID, usecase.UpdateLibraryInput{Visibility: &visibility})
+	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
+	if libraries.updateCalls != 0 || librariesPrivate.updateCalls != 0 {
+		t.Fatal("repository Update must not be called for non-owners")
 	}
-	if libraries.createParams.Name != "UnionFind" || libraries.createParams.Visibility != domain.LibraryVisibilityPrivate {
-		t.Fatalf("params = %+v", libraries.createParams)
+
+	use = usecase.NewLibraryUsecase(categories, libraries)
+	if _, err := use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{Visibility: &visibility}); err != nil {
+		t.Fatalf("owner Update: %v", err)
+	}
+	if libraries.updateParams.ID != libInternal || *libraries.updateParams.Visibility != "private" || libraries.updateParams.CategoryName != nil {
+		t.Fatalf("params = %+v", libraries.updateParams)
+	}
+}
+
+func TestMoveLibrary(t *testing.T) {
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	target := " 数学 "
+	if _, err := use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{Category: &target}); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if libraries.updateParams.CategoryName == nil || *libraries.updateParams.CategoryName != "数学" || libraries.updateParams.OwnerUserID != authorUserID {
+		t.Fatalf("params = %+v, want the trimmed category name and the owner", libraries.updateParams)
+	}
+
+	libraries.updateCalls = 0
+	empty := ""
+	_, err := use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{Category: &empty})
+	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_CATEGORY", "category must be 1-64 characters")
+	_, err = use.Update(context.Background(), adminActor(), libID, usecase.UpdateLibraryInput{Category: &target})
+	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
+	if libraries.updateCalls != 0 {
+		t.Fatal("rejected moves must not reach the repository")
 	}
 }
 
 func TestUpdateLibraryValidation(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Update(context.Background(), authorActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{})
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
+	_, err := use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{})
 	assertAppError(t, err, apperror.ErrInvalidInput, "EMPTY_UPDATE", "at least one field is required")
-
-	_, err = use.Update(context.Background(), authorActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{
-		Name: ptr(""),
-	})
+	_, err = use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{Name: ptr("")})
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_NAME", "name must be 1-80 characters")
-
-	_, err = use.Update(context.Background(), authorActor(), "seed-author", "union-find", usecase.UpdateLibraryInput{
-		Visibility: ptr("unlisted"),
-	})
+	_, err = use.Update(context.Background(), authorActor(), libID, usecase.UpdateLibraryInput{Visibility: ptr("unlisted")})
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_VISIBILITY", "visibility must be public or private")
-
 	if libraries.updateCalls != 0 {
 		t.Fatal("repository Update must not be called for invalid input")
 	}
 }
 
-func TestCreateLibrarySlugTakenError(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
-	libraries.createErr = apperror.Conflict("LIBRARY_SLUG_TAKEN", "library slug is already taken")
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Create(context.Background(), authorActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "union-find", Name: "UnionFind", Visibility: "private",
-	})
-	assertAppError(t, err, apperror.ErrConflict, "LIBRARY_SLUG_TAKEN", "library slug is already taken")
-}
-
-func TestCreateLibraryForbidsNonOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
-	_, err := use.Create(context.Background(), adminActor(), "seed-author", usecase.CreateLibraryInput{
-		Slug: "their-lib", Name: "Their", Visibility: "public",
-	})
-	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
-	if libraries.createCalls != 0 {
-		t.Fatal("repository Create must not be called for non-owners")
-	}
-}
-
 func TestAuthorizeOwner(t *testing.T) {
-	namespaces, librariesPublic := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, librariesPublic)
-	library, err := use.AuthorizeOwner(context.Background(), authorActor(), "seed-author", "union-find")
-	if err != nil {
-		t.Fatalf("AuthorizeOwner: %v", err)
+	categories, librariesPublic := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, librariesPublic)
+	library, err := use.AuthorizeOwner(context.Background(), authorActor(), libID)
+	if err != nil || library.ID != libInternal {
+		t.Fatalf("AuthorizeOwner = %+v, %v", library, err)
 	}
-	if library.Slug != "union-find" {
-		t.Fatalf("library = %+v", library)
-	}
-
-	_, err = use.AuthorizeOwner(context.Background(), adminActor(), "seed-author", "union-find")
+	_, err = use.AuthorizeOwner(context.Background(), adminActor(), libID)
 	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
 
 	_, librariesPrivate := libraryFixture(domain.LibraryVisibilityPrivate)
-	use = usecase.NewLibraryUsecase(namespaces, librariesPrivate)
-	_, err = use.AuthorizeOwner(context.Background(), adminActor(), "seed-author", "union-find")
+	use = usecase.NewLibraryUsecase(categories, librariesPrivate)
+	_, err = use.AuthorizeOwner(context.Background(), adminActor(), libID)
 	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
 }
 
@@ -531,11 +591,11 @@ func (r *fakeLibraryVersionRepository) SetSubmissionURL(_ context.Context, param
 }
 
 func TestCreateLibraryVersionPassesSourceToRepository(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
 	source := "def add(a, b):\n    return a + b\n"
-	version, err := use.Create(context.Background(), authorActor(), "seed-author", "union-find", source)
+	version, err := use.Create(context.Background(), authorActor(), libID, source)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -551,18 +611,18 @@ func TestCreateLibraryVersionPassesSourceToRepository(t *testing.T) {
 }
 
 func TestCreateLibraryVersionRejectsMutationByNonOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	_, err := use.Create(context.Background(), adminActor(), "seed-author", "union-find", "def x():\n    pass\n")
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	_, err := use.Create(context.Background(), adminActor(), libID, "def x():\n    pass\n")
 	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
 	if versions.createCalls != 0 {
 		t.Fatal("repository Create must not be called")
 	}
 
 	_, librariesPrivate := libraryFixture(domain.LibraryVisibilityPrivate)
-	use = usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, librariesPrivate), versions)
-	_, err = use.Create(context.Background(), adminActor(), "seed-author", "union-find", "def x():\n    pass\n")
+	use = usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, librariesPrivate), versions)
+	_, err = use.Create(context.Background(), adminActor(), libID, "def x():\n    pass\n")
 	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
 	if versions.createCalls != 0 {
 		t.Fatal("repository Create must not be called")
@@ -570,12 +630,12 @@ func TestCreateLibraryVersionRejectsMutationByNonOwner(t *testing.T) {
 }
 
 func TestCreateLibraryVersionRejectsInvalidSource(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPrivate)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
 	const wantMessage = "source_code must be 1-100000 bytes, non-blank, and must not contain NUL"
 	for _, source := range []string{"   ", "a\x00b", strings.Repeat("x", 100001)} {
-		_, err := use.Create(context.Background(), authorActor(), "seed-author", "union-find", source)
+		_, err := use.Create(context.Background(), authorActor(), libID, source)
 		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_SOURCE_CODE", wantMessage)
 	}
 	if versions.createCalls != 0 {
@@ -584,14 +644,14 @@ func TestCreateLibraryVersionRejectsInvalidSource(t *testing.T) {
 }
 
 func TestGetLibraryVersion(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{
 		byNumber: map[int]*domain.LibraryVersion{
 			1: {ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, SourceCode: "def add(a, b):\n    return a + b\n"},
 		},
 	}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	version, err := use.Get(context.Background(), auth.Actor{}, "seed-author", "union-find", 1)
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	version, err := use.Get(context.Background(), auth.Actor{}, libID, 1)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -601,12 +661,12 @@ func TestGetLibraryVersion(t *testing.T) {
 }
 
 func TestListLibraryVersionSummaries(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{
 		summaries: []domain.LibraryVersion{{VersionNumber: 1}},
 	}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	versionsList, err := use.List(context.Background(), auth.Actor{}, "seed-author", "union-find", 5, true, 2)
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	versionsList, err := use.List(context.Background(), auth.Actor{}, libID, 5, true, 2)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -625,12 +685,12 @@ func TestListLibraryVersionSummaries(t *testing.T) {
 // TOCTOU window. Before the fix, these fetches carried no actor id.
 func TestGetLibraryVersionThreadsActorIntoFetch(t *testing.T) {
 	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
-		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 		versions := &fakeLibraryVersionRepository{
 			byNumber: map[int]*domain.LibraryVersion{1: {VersionNumber: 1, SourceCode: "x=1\n"}},
 		}
-		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-		if _, err := use.Get(context.Background(), actor, "seed-author", "union-find", 1); err != nil {
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+		if _, err := use.Get(context.Background(), actor, libID, 1); err != nil {
 			t.Fatalf("Get as %q: %v", actor.UserID, err)
 		}
 		if versions.findActorID != actor.UserID {
@@ -641,10 +701,10 @@ func TestGetLibraryVersionThreadsActorIntoFetch(t *testing.T) {
 
 func TestListLibraryVersionSummariesThreadsActorIntoFetch(t *testing.T) {
 	for _, actor := range []auth.Actor{auth.Actor{}, authorActor(), adminActor()} {
-		namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+		categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 		versions := &fakeLibraryVersionRepository{summaries: []domain.LibraryVersion{{VersionNumber: 1}}}
-		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-		if _, err := use.List(context.Background(), actor, "seed-author", "union-find", 5, true, 0); err != nil {
+		use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+		if _, err := use.List(context.Background(), actor, libID, 5, true, 0); err != nil {
 			t.Fatalf("List as %q: %v", actor.UserID, err)
 		}
 		if versions.listParams.ActorUserID != actor.UserID {
@@ -654,10 +714,10 @@ func TestListLibraryVersionSummariesThreadsActorIntoFetch(t *testing.T) {
 }
 
 func TestSetSubmissionURLNormalizesAndPassesOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	version, err := use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1, "  HTTPS://atcoder.jp/submissions/1  ")
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	version, err := use.SetSubmissionURL(context.Background(), authorActor(), libID, 1, "  HTTPS://atcoder.jp/submissions/1  ")
 	if err != nil {
 		t.Fatalf("SetSubmissionURL: %v", err)
 	}
@@ -668,7 +728,7 @@ func TestSetSubmissionURLNormalizesAndPassesOwner(t *testing.T) {
 		t.Fatalf("set params = %+v", versions.setParams)
 	}
 
-	if err := use.ClearSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1); err != nil {
+	if err := use.ClearSubmissionURL(context.Background(), authorActor(), libID, 1); err != nil {
 		t.Fatalf("ClearSubmissionURL: %v", err)
 	}
 	if len(versions.setParams) != 2 || versions.setParams[1].SubmissionURL != nil {
@@ -677,17 +737,17 @@ func TestSetSubmissionURLNormalizesAndPassesOwner(t *testing.T) {
 }
 
 func TestSetSubmissionURLRequiresOwner(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	_, err := use.SetSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1, "https://example.com/x")
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	_, err := use.SetSubmissionURL(context.Background(), adminActor(), libID, 1, "https://example.com/x")
 	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
-	err = use.ClearSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1)
+	err = use.ClearSubmissionURL(context.Background(), adminActor(), libID, 1)
 	assertAppError(t, err, apperror.ErrForbidden, "LIBRARY_FORBIDDEN", "library owner required")
 
 	_, librariesPrivate := libraryFixture(domain.LibraryVisibilityPrivate)
-	use = usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, librariesPrivate), versions)
-	_, err = use.SetSubmissionURL(context.Background(), adminActor(), "seed-author", "union-find", 1, "https://example.com/x")
+	use = usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, librariesPrivate), versions)
+	_, err = use.SetSubmissionURL(context.Background(), adminActor(), libID, 1, "https://example.com/x")
 	assertAppError(t, err, apperror.ErrNotFound, "LIBRARY_NOT_FOUND", "library not found")
 	if len(versions.setParams) != 0 {
 		t.Fatalf("repository must not be called for non-owners, got %+v", versions.setParams)
@@ -695,17 +755,17 @@ func TestSetSubmissionURLRequiresOwner(t *testing.T) {
 }
 
 func TestSetSubmissionURLValidatesInput(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
 	versions := &fakeLibraryVersionRepository{}
-	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(namespaces, libraries), versions)
-	_, err := use.SetSubmissionURL(context.Background(), auth.Actor{}, "seed-author", "union-find", 1, "https://example.com/x")
+	use := usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)
+	_, err := use.SetSubmissionURL(context.Background(), auth.Actor{}, libID, 1, "https://example.com/x")
 	if !errors.Is(err, apperror.ErrUnauthorized) {
 		t.Fatalf("anonymous set err = %v, want unauthorized", err)
 	}
-	_, err = use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 0, "https://example.com/x")
+	_, err = use.SetSubmissionURL(context.Background(), authorActor(), libID, 0, "https://example.com/x")
 	assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_VERSION_NUMBER", "version_number must be a positive integer")
 	for _, raw := range []string{"", "ftp://example.com/x", "https://?x", "https://exa mple.com"} {
-		_, err = use.SetSubmissionURL(context.Background(), authorActor(), "seed-author", "union-find", 1, raw)
+		_, err = use.SetSubmissionURL(context.Background(), authorActor(), libID, 1, raw)
 		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_SUBMISSION_URL", "submission_url must be an absolute HTTP(S) URL with a host, at most 2048 bytes, and no control characters")
 	}
 	if len(versions.setParams) != 0 {
@@ -714,8 +774,8 @@ func TestSetSubmissionURLValidatesInput(t *testing.T) {
 }
 
 func TestListAllPublicLibrariesNeedsNoActor(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
 
 	if _, err := use.ListAllPublic(context.Background(), 0, false, 0); err != nil {
 		t.Fatalf("ListAllPublic: %v", err)
@@ -726,8 +786,8 @@ func TestListAllPublicLibrariesNeedsNoActor(t *testing.T) {
 }
 
 func TestListAllPublicLibrariesRejectsBadPaging(t *testing.T) {
-	namespaces, libraries := libraryFixture(domain.LibraryVisibilityPublic)
-	use := usecase.NewLibraryUsecase(namespaces, libraries)
+	categories, libraries := libraryFixture(domain.LibraryVisibilityPublic)
+	use := usecase.NewLibraryUsecase(categories, libraries)
 
 	for _, c := range []struct {
 		limit         int
