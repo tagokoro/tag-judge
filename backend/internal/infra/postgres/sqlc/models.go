@@ -176,3 +176,10 @@ type User struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
+
+type UserProfile struct {
+	UserID    pgtype.UUID        `json:"user_id"`
+	Handle    string             `json:"handle"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}

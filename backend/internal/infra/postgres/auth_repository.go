@@ -22,19 +22,22 @@ func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{queries: sqlc.New(db)}
 }
 
-func (r *AuthRepository) UpsertGoogleUser(ctx context.Context, user repository.GoogleUser) (auth.Actor, error) {
+func (r *AuthRepository) UpsertGoogleUser(ctx context.Context, user repository.GoogleUser) (repository.GoogleLogin, error) {
 	row, err := r.queries.UpsertGoogleUser(ctx, sqlc.UpsertGoogleUserParams{
 		ProviderUserID: user.ProviderUserID,
 		Name:           user.Name,
 		Email:          user.Email,
 	})
 	if err != nil {
-		return auth.Actor{}, err
+		return repository.GoogleLogin{}, err
 	}
 
-	return auth.Actor{
-		UserID: row.UserID,
-		Role:   domain.UserRole(row.Role),
+	return repository.GoogleLogin{
+		Actor: auth.Actor{
+			UserID: row.UserID,
+			Role:   domain.UserRole(row.Role),
+		},
+		HasProfile: row.HasProfile,
 	}, nil
 }
 

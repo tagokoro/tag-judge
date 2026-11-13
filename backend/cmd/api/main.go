@@ -48,6 +48,7 @@ func run() error {
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
+	userProfileRepo := postgres.NewUserProfileRepository(db)
 	namespaceRepo := postgres.NewNamespaceRepository(db)
 	libraryRepo := postgres.NewLibraryRepository(db)
 	libraryVersionRepo := postgres.NewLibraryVersionRepository(db)
@@ -82,6 +83,7 @@ func run() error {
 	go codeRunPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
+	userProfileUsecase := usecase.NewUserProfileUsecase(userProfileRepo)
 	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
 	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
 	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
@@ -91,9 +93,10 @@ func run() error {
 	codeRunHandler := handler.NewCodeRunHandler(codeRunUsecase)
 	submissionHandler := handler.NewSubmissionHandler(submissionUsecase)
 	groupHandler := handler.NewGroupHandler(groupUsecase)
-	meHandler := handler.NewMeHandler()
+	meHandler := handler.NewMeHandler(userProfileUsecase)
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
 	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
+	userProfileHandler := handler.NewUserProfileHandler(userProfileUsecase)
 	namespaceHandler := handler.NewNamespaceHandler(namespaceUsecase)
 	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
 	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
@@ -109,6 +112,7 @@ func run() error {
 			Me:              meHandler,
 			AuthHTTP:        authHandler,
 			Auth:            authMiddleware,
+			Profiles:        userProfileHandler,
 			Namespaces:      namespaceHandler,
 			Libraries:       libraryHandler,
 			LibraryVersions: libraryVersionHandler,

@@ -28,6 +28,7 @@ type Problem struct {
 	Visibility          ProblemVisibility
 	CurrentTestCasesKey string
 	CreatedBy           string
+	CreatedByHandle     string // empty when the creator has no handle
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

@@ -93,8 +93,8 @@ func TestCreateProblemRoute(t *testing.T) {
 	if body.Data.ID != 42 || body.Data.TimeLimitMS != 1000 || body.Data.MemoryLimitKB != 262144 {
 		t.Fatalf("unexpected response: %+v", body.Data)
 	}
-	if body.Data.CreatedBy != "00000000-0000-4000-8000-000000000001" {
-		t.Fatalf("created_by = %q", body.Data.CreatedBy)
+	if body.Data.CreatedBy != "seed-author" {
+		t.Fatalf("created_by = %q, want the creator's handle", body.Data.CreatedBy)
 	}
 }
 
@@ -246,8 +246,9 @@ func TestMeRoute(t *testing.T) {
 
 	var body struct {
 		Data struct {
-			UserID string `json:"user_id"`
-			Role   string `json:"role"`
+			UserID string  `json:"user_id"`
+			Role   string  `json:"role"`
+			Handle *string `json:"handle"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -258,6 +259,24 @@ func TestMeRoute(t *testing.T) {
 	}
 	if body.Data.Role != "author" {
 		t.Fatalf("role = %q, want author", body.Data.Role)
+	}
+	if body.Data.Handle == nil || *body.Data.Handle != "seed-author" {
+		t.Fatalf("handle = %v", body.Data.Handle)
+	}
+}
+
+func TestMeRouteWithoutHandle(t *testing.T) {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	options.profiles.profile = nil
+	router := newTestRouterWithHandlers(options)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"handle":null`) {
+		t.Fatalf("GET /me = %d %s", res.Code, res.Body.String())
 	}
 }
 
@@ -711,6 +730,7 @@ type testRouterOptions struct {
 	groups      repository.GroupRepository
 	submissions repository.SubmissionRepository
 	namespaces  repository.NamespaceRepository
+	profiles    *routerUserProfileRepository
 	libraries   *fakeLibraryRouterRepository
 	versions    *fakeLibraryVersionRouterRepository
 }
@@ -721,6 +741,7 @@ func newTestRouterOptions(groups repository.GroupRepository, submissions reposit
 		groups:      groups,
 		submissions: submissions,
 		namespaces:  newRouterNamespaceRepository(),
+		profiles:    newRouterUserProfileRepository(),
 		libraries:   libraries,
 		versions:    newFakeLibraryVersionRouterRepository(),
 	}
@@ -750,7 +771,8 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 			admission,
 			255,
 		)),
-		Me:         handler.NewMeHandler(),
+		Me:         handler.NewMeHandler(usecase.NewUserProfileUsecase(options.profiles)),
+		Profiles:   handler.NewUserProfileHandler(usecase.NewUserProfileUsecase(options.profiles)),
 		AuthHTTP:   handler.NewAuthHandler(authUsecase, false, "/"),
 		Auth:       appmiddleware.NewAuthMiddleware(authRepo, true),
 		Namespaces: handler.NewNamespaceHandler(usecase.NewNamespaceUsecase(options.namespaces)),
@@ -776,7 +798,7 @@ func (r *fakeProblemRepository) ListPublic(_ context.Context, _ repository.ListP
 }
 
 func (r *fakeProblemRepository) ListByCreator(_ context.Context, params repository.ListProblemsByCreatorParams) ([]domain.Problem, error) {
-	return []domain.Problem{{ID: 7, Title: "Mine", Visibility: domain.ProblemVisibilityPrivate, CreatedBy: params.CreatedBy}}, nil
+	return []domain.Problem{{ID: 7, Title: "Mine", Visibility: domain.ProblemVisibilityPrivate, CreatedBy: params.CreatedBy, CreatedByHandle: "seed-author"}}, nil
 }
 
 func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
@@ -853,7 +875,7 @@ func (r *fakeSubmissionRepository) ListCaseResults(_ context.Context, _ int64) (
 }
 
 func (r *fakeSubmissionRepository) ListRecentPublic(_ context.Context, _ repository.ListRecentSubmissionsParams) ([]domain.PublicSubmission, error) {
-	return []domain.PublicSubmission{{ID: 9, ProblemID: 1, ProblemTitle: "A + B", Language: "python", Status: "ac", SubmitterNamespaceSlug: "seed-author"}}, nil
+	return []domain.PublicSubmission{{ID: 9, ProblemID: 1, ProblemTitle: "A + B", Language: "python", Status: "ac", SubmitterHandle: "seed-author"}}, nil
 }
 
 func (r *fakeSubmissionRepository) ListByUserID(_ context.Context, _ repository.ListSubmissionsParams) ([]domain.Submission, error) {
@@ -944,8 +966,8 @@ func (r *routerGroupRepository) AddMember(_ context.Context, params repository.A
 
 type fakeAuthRepository struct{}
 
-func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, _ repository.GoogleUser) (auth.Actor, error) {
-	return auth.Actor{}, nil
+func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, _ repository.GoogleUser) (repository.GoogleLogin, error) {
+	return repository.GoogleLogin{}, nil
 }
 
 func (r *fakeAuthRepository) CreateSession(_ context.Context, _ repository.CreateSessionParams) error {
@@ -965,13 +987,14 @@ func (r *fakeAuthRepository) RevokeSessionByTokenHash(_ context.Context, _ strin
 
 func (r *fakeProblemRepository) Create(_ context.Context, params repository.CreateProblemParams) (*domain.Problem, error) {
 	return &domain.Problem{
-		ID:            42,
-		Title:         params.Title,
-		Statement:     params.Statement,
-		TimeLimitMS:   params.TimeLimitMS,
-		MemoryLimitKB: params.MemoryLimitKB,
-		Visibility:    params.Visibility,
-		CreatedBy:     params.CreatedBy,
+		ID:              42,
+		Title:           params.Title,
+		Statement:       params.Statement,
+		TimeLimitMS:     params.TimeLimitMS,
+		MemoryLimitKB:   params.MemoryLimitKB,
+		Visibility:      params.Visibility,
+		CreatedBy:       params.CreatedBy,
+		CreatedByHandle: "seed-author",
 	}, nil
 }
 
@@ -1811,7 +1834,86 @@ func TestSiteWideListRoutes(t *testing.T) {
 	if res := get("/api/v1/me/problems", false); res.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous GET /me/problems = %d, want 401", res.Code)
 	}
-	if res := get("/api/v1/me/problems", true); res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"created_by":"`+routerUserID+`"`) {
+	res = get("/api/v1/me/problems", true)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"created_by":"seed-author"`) || strings.Contains(res.Body.String(), routerUserID) {
 		t.Fatalf("GET /me/problems = %d %s", res.Code, res.Body.String())
 	}
+}
+
+func TestProfileRoutesRequireAuth(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/me/profile", bytes.NewBufferString(`{"handle":"seed-author"}`))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("POST /me/profile status = %d, want %d", res.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestCreateMyProfileRoute(t *testing.T) {
+	options := newTestRouterOptions(newRouterGroupRepository(), &fakeSubmissionRepository{})
+	router := newTestRouterWithHandlers(options)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/me/profile", bytes.NewBufferString(`{"handle":"alice"}`))
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req, "user")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if res.Body.String() != `{"data":{"handle":"alice"}}`+"\n" {
+		t.Fatalf("body = %s", res.Body.String())
+	}
+	if options.profiles.createParams.UserID != routerUserID {
+		t.Fatalf("params = %+v", options.profiles.createParams)
+	}
+}
+
+func TestGetUserProfileRoute(t *testing.T) {
+	router := newTestRouter()
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v1/users/seed-author", nil))
+	if res.Code != http.StatusOK || res.Body.String() != `{"data":{"handle":"seed-author"}}`+"\n" {
+		t.Fatalf("GET /users/seed-author = %d %s", res.Code, res.Body.String())
+	}
+
+	res = httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v1/users/nobody", nil))
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("unknown handle status = %d, want 404", res.Code)
+	}
+	assertErrorCode(t, res, "USER_NOT_FOUND")
+}
+
+type routerUserProfileRepository struct {
+	createParams repository.CreateUserProfileParams
+	profile      *domain.UserProfile
+}
+
+// newRouterUserProfileRepository knows the router user as "seed-author".
+func newRouterUserProfileRepository() *routerUserProfileRepository {
+	return &routerUserProfileRepository{
+		profile: &domain.UserProfile{UserID: routerUserID, Handle: "seed-author"},
+	}
+}
+
+func (r *routerUserProfileRepository) Create(_ context.Context, params repository.CreateUserProfileParams) (*domain.UserProfile, error) {
+	r.createParams = params
+	return &domain.UserProfile{UserID: params.UserID, Handle: params.Handle}, nil
+}
+
+func (r *routerUserProfileRepository) FindByUserID(_ context.Context, userID string) (*domain.UserProfile, error) {
+	if r.profile == nil || r.profile.UserID != userID {
+		return nil, apperror.NotFound("USER_NOT_FOUND", "user not found")
+	}
+	return r.profile, nil
+}
+
+func (r *routerUserProfileRepository) FindByHandle(_ context.Context, handle string) (*domain.UserProfile, error) {
+	if r.profile == nil || r.profile.Handle != handle {
+		return nil, apperror.NotFound("USER_NOT_FOUND", "user not found")
+	}
+	return r.profile, nil
 }

@@ -134,30 +134,30 @@ func (h *SubmissionHandler) ListRecent(w http.ResponseWriter, r *http.Request) {
 }
 
 // publicSubmissionResponse has no source key and no user id; the submitter is
-// identified only by their namespace slug (null when they have none).
+// identified only by their handle (null when they have none).
 type publicSubmissionResponse struct {
-	ID                     int64      `json:"id"`
-	ProblemID              int64      `json:"problem_id"`
-	ProblemTitle           string     `json:"problem_title"`
-	Language               string     `json:"language"`
-	Status                 string     `json:"status"`
-	Score                  int        `json:"score"`
-	CreatedAt              time.Time  `json:"created_at"`
-	JudgedAt               *time.Time `json:"judged_at"`
-	SubmitterNamespaceSlug *string    `json:"submitter_namespace_slug"`
+	ID           int64      `json:"id"`
+	ProblemID    int64      `json:"problem_id"`
+	ProblemTitle string     `json:"problem_title"`
+	Language     string     `json:"language"`
+	Status       string     `json:"status"`
+	Score        int        `json:"score"`
+	CreatedAt    time.Time  `json:"created_at"`
+	JudgedAt     *time.Time `json:"judged_at"`
+	Submitter    *string    `json:"submitter"`
 }
 
 func newPublicSubmissionResponse(submission domain.PublicSubmission) publicSubmissionResponse {
 	return publicSubmissionResponse{
-		ID:                     submission.ID,
-		ProblemID:              submission.ProblemID,
-		ProblemTitle:           submission.ProblemTitle,
-		Language:               string(submission.Language),
-		Status:                 string(submission.Status),
-		Score:                  submission.Score,
-		CreatedAt:              submission.CreatedAt,
-		JudgedAt:               submission.JudgedAt,
-		SubmitterNamespaceSlug: optionalString(submission.SubmitterNamespaceSlug),
+		ID:           submission.ID,
+		ProblemID:    submission.ProblemID,
+		ProblemTitle: submission.ProblemTitle,
+		Language:     string(submission.Language),
+		Status:       string(submission.Status),
+		Score:        submission.Score,
+		CreatedAt:    submission.CreatedAt,
+		JudgedAt:     submission.JudgedAt,
+		Submitter:    optionalString(submission.SubmitterHandle),
 	}
 }
 

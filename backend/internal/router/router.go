@@ -18,6 +18,7 @@ type Handlers struct {
 	Me              *handler.MeHandler
 	AuthHTTP        *handler.AuthHandler
 	Auth            *appmiddleware.AuthMiddleware
+	Profiles        *handler.UserProfileHandler
 	Namespaces      *handler.NamespaceHandler
 	Libraries       *handler.LibraryHandler
 	LibraryVersions *handler.LibraryVersionHandler
@@ -61,7 +62,9 @@ func New(handlers Handlers) http.Handler {
 	r.Post("/api/v1/auth/logout", handlers.AuthHTTP.Logout)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces", handlers.Namespaces.Create)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/namespace", handlers.Namespaces.GetMine)
+	r.With(handlers.Auth.RequireAuth).Post("/api/v1/me/profile", handlers.Profiles.CreateMine)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me/problems", handlers.Problems.ListMine)
+	r.Get("/api/v1/users/{handle}", handlers.Profiles.GetByHandle)
 	r.Get("/api/v1/libraries", handlers.Libraries.ListAllPublic)
 	r.Get("/api/v1/namespaces/{namespace_slug}", handlers.Namespaces.GetBySlug)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/namespaces/{namespace_slug}/libraries", handlers.Libraries.Create)

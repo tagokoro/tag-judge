@@ -1,0 +1,26 @@
+package domain
+
+import (
+	"regexp"
+	"time"
+)
+
+// handlePattern is the handle contract: lowercase letters and digits joined by
+// single hyphens.
+var handlePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// UserProfile is the public side of a user. The handle is their only name: it
+// identifies them in URLs and API responses and is what pages show. The Google
+// account name and email stay in users and are never part of a profile.
+type UserProfile struct {
+	UserID    string
+	Handle    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ValidHandle validates a user-chosen handle: 2-16 lowercase letters and
+// digits joined by single hyphens.
+func ValidHandle(handle string) bool {
+	return len(handle) >= 2 && len(handle) <= 16 && handlePattern.MatchString(handle)
+}

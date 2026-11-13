@@ -214,6 +214,8 @@ type updateProblemRequest struct {
 	Visibility    *string `json:"visibility"`
 }
 
+// problemResponse names the creator by handle (null when they have none); the
+// creator's user id is never returned.
 type problemResponse struct {
 	ID            int64     `json:"id"`
 	Title         string    `json:"title"`
@@ -221,7 +223,7 @@ type problemResponse struct {
 	TimeLimitMS   int       `json:"time_limit_ms"`
 	MemoryLimitKB int       `json:"memory_limit_kb"`
 	Visibility    string    `json:"visibility"`
-	CreatedBy     string    `json:"created_by"`
+	CreatedBy     *string   `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -234,7 +236,7 @@ func newProblemResponse(problem domain.Problem) problemResponse {
 		TimeLimitMS:   problem.TimeLimitMS,
 		MemoryLimitKB: problem.MemoryLimitKB,
 		Visibility:    string(problem.Visibility),
-		CreatedBy:     problem.CreatedBy,
+		CreatedBy:     optionalString(problem.CreatedByHandle),
 		CreatedAt:     problem.CreatedAt,
 		UpdatedAt:     problem.UpdatedAt,
 	}
