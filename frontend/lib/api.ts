@@ -9,19 +9,19 @@
 
 import type {
   CreateLibraryInput,
-  CreateNamespaceInput,
   CreateProfileInput,
   DevHeaders,
   Library,
   LibraryVersion,
   LibraryVersionSummary,
   Me,
-  Namespace,
+  Category,
   Problem,
   PublicSubmission,
   SetSubmissionUrlInput,
   Submission,
   UpdateLibraryInput,
+  UpdateCategoryInput,
   UserProfile,
 } from "./types";
 
@@ -40,6 +40,14 @@ function makeApiRequestError(status: number, code: string, message: string): Api
     status,
     code,
   }) as ApiRequestError;
+}
+
+/**
+ * The 404 a page answers with when a resource exists but the URL names another
+ * owner: there is only one correct URL, so any other is "not found".
+ */
+export function notFoundError(): ApiRequestError {
+  return makeApiRequestError(404, "NOT_FOUND", "not found");
 }
 
 export function isApiRequestError(value: unknown): value is ApiRequestError {
@@ -140,27 +148,27 @@ function list(path: string, limit = LIST_LIMIT): string {
   return `${path}?limit=${limit}`;
 }
 
+// Categories and libraries are addressed by their id alone.
 export interface JudgeClient {
   getMe(): Promise<Me>;
   logout(): Promise<void>;
   /** Registers the caller's handle, once. */
   createProfile(input: CreateProfileInput): Promise<UserProfile>;
   getUser(handle: string): Promise<UserProfile>;
-  getMyNamespace(): Promise<Namespace>;
-  getNamespace(namespaceSlug: string): Promise<Namespace>;
-  createNamespace(input: CreateNamespaceInput): Promise<Namespace>;
-  listLibraries(namespaceSlug: string): Promise<Library[]>;
-  getLibrary(namespaceSlug: string, librarySlug: string): Promise<Library>;
-  createLibrary(namespaceSlug: string, input: CreateLibraryInput): Promise<Library>;
-  updateLibrary(
-    namespaceSlug: string,
-    librarySlug: string,
-    patch: UpdateLibraryInput,
-  ): Promise<Library>;
+  /** Every category the caller owns, including ones others cannot see. */
+  listMyCategories(): Promise<Category[]>;
+  listCategories(handle: string): Promise<Category[]>;
+  getCategory(categoryId: string): Promise<Category>;
+  updateCategory(categoryId: string, patch: UpdateCategoryInput): Promise<Category>;
+  listLibraries(categoryId: string): Promise<Library[]>;
+  /** Files a new library under the caller's category named in the input. */
+  createLibrary(input: CreateLibraryInput): Promise<Library>;
+  getLibrary(libraryId: string): Promise<Library>;
+  updateLibrary(libraryId: string, patch: UpdateLibraryInput): Promise<Library>;
   /** Newest first. `limit` defaults to the usual list size; pass 1 for just the latest. */
-  listVersions(namespaceSlug: string, librarySlug: string, limit?: number): Promise<LibraryVersionSummary[]>;
-  getVersion(namespaceSlug: string, librarySlug: string, version: number): Promise<LibraryVersion>;
-  createVersion(namespaceSlug: string, librarySlug: string, sourceCode: string): Promise<LibraryVersion>;
+  listVersions(libraryId: string, limit?: number): Promise<LibraryVersionSummary[]>;
+  getVersion(libraryId: string, version: number): Promise<LibraryVersion>;
+  createVersion(libraryId: string, sourceCode: string): Promise<LibraryVersion>;
   // Site-wide lists.
   listPublicLibraries(): Promise<Library[]>;
   listProblems(): Promise<Problem[]>;
@@ -169,13 +177,8 @@ export interface JudgeClient {
   listMySubmissions(): Promise<Submission[]>;
   // The owner sets or clears a version's submission URL. Reads come with the
   // version.
-  setSubmissionUrl(
-    namespaceSlug: string,
-    librarySlug: string,
-    version: number,
-    input: SetSubmissionUrlInput,
-  ): Promise<LibraryVersion>;
-  clearSubmissionUrl(namespaceSlug: string, librarySlug: string, version: number): Promise<void>;
+  setSubmissionUrl(libraryId: string, version: number, input: SetSubmissionUrlInput): Promise<LibraryVersion>;
+  clearSubmissionUrl(libraryId: string, version: number): Promise<void>;
   /** Return a client whose requests carry `signal` so they can be aborted. */
   withSignal(signal: AbortSignal | undefined): JudgeClient;
 }
@@ -195,38 +198,28 @@ export function createJudgeClient(
     return apiRequest<T>(path, merged, getDevHeaders(), fetchImpl ?? fetch);
   }
 
-  const libraryBase = (namespaceSlug: string, librarySlug: string) =>
-    `/namespaces/${segment(namespaceSlug)}/libraries/${segment(librarySlug)}`;
+  const categoryBase = (categoryId: string) => `/categories/${segment(categoryId)}`;
+  const libraryBase = (libraryId: string) => `/libraries/${segment(libraryId)}`;
 
   return {
     getMe: () => call<Me>("/me"),
     logout: () => call<void>("/auth/logout", { method: "POST" }),
     createProfile: (input) => call<UserProfile>("/me/profile", { method: "POST", json: input }),
     getUser: (handle) => call<UserProfile>(`/users/${segment(handle)}`),
-    getMyNamespace: () => call<Namespace>("/me/namespace"),
-    getNamespace: (namespaceSlug) => call<Namespace>(`/namespaces/${segment(namespaceSlug)}`),
-    createNamespace: (input) =>
-      call<Namespace>("/namespaces", { method: "POST", json: input }),
-    listLibraries: (namespaceSlug) =>
-      call<Library[]>(list(`/namespaces/${segment(namespaceSlug)}/libraries`)),
-    getLibrary: (namespaceSlug, librarySlug) =>
-      call<Library>(libraryBase(namespaceSlug, librarySlug)),
-    createLibrary: (namespaceSlug, input) =>
-      call<Library>(`/namespaces/${segment(namespaceSlug)}/libraries`, {
-        method: "POST",
-        json: input,
-      }),
-    updateLibrary: (namespaceSlug, librarySlug, patch) =>
-      call<Library>(libraryBase(namespaceSlug, librarySlug), {
-        method: "PATCH",
-        json: patch,
-      }),
-    listVersions: (namespaceSlug, librarySlug, limit) =>
-      call<LibraryVersionSummary[]>(list(`${libraryBase(namespaceSlug, librarySlug)}/versions`, limit)),
-    getVersion: (namespaceSlug, librarySlug, version) =>
-      call<LibraryVersion>(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}`),
-    createVersion: (namespaceSlug, librarySlug, sourceCode) =>
-      call<LibraryVersion>(`${libraryBase(namespaceSlug, librarySlug)}/versions`, {
+    listMyCategories: () => call<Category[]>("/me/categories"),
+    listCategories: (handle) => call<Category[]>(list(`/users/${segment(handle)}/categories`)),
+    getCategory: (categoryId) => call<Category>(categoryBase(categoryId)),
+    updateCategory: (categoryId, patch) =>
+      call<Category>(categoryBase(categoryId), { method: "PATCH", json: patch }),
+    listLibraries: (categoryId) => call<Library[]>(list(`${categoryBase(categoryId)}/libraries`)),
+    createLibrary: (input) => call<Library>("/me/libraries", { method: "POST", json: input }),
+    getLibrary: (libraryId) => call<Library>(libraryBase(libraryId)),
+    updateLibrary: (libraryId, patch) => call<Library>(libraryBase(libraryId), { method: "PATCH", json: patch }),
+    listVersions: (libraryId, limit) =>
+      call<LibraryVersionSummary[]>(list(`${libraryBase(libraryId)}/versions`, limit)),
+    getVersion: (libraryId, version) => call<LibraryVersion>(`${libraryBase(libraryId)}/versions/${version}`),
+    createVersion: (libraryId, sourceCode) =>
+      call<LibraryVersion>(`${libraryBase(libraryId)}/versions`, {
         method: "POST",
         json: { source_code: sourceCode },
       }),
@@ -235,15 +228,10 @@ export function createJudgeClient(
     listMyProblems: () => call<Problem[]>(list("/me/problems")),
     listRecentSubmissions: () => call<PublicSubmission[]>(list("/submissions/recent")),
     listMySubmissions: () => call<Submission[]>(list("/submissions")),
-    setSubmissionUrl: (namespaceSlug, librarySlug, version, input) =>
-      call<LibraryVersion>(
-        `${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-url`,
-        { method: "PUT", json: input },
-      ),
-    clearSubmissionUrl: (namespaceSlug, librarySlug, version) =>
-      call<void>(`${libraryBase(namespaceSlug, librarySlug)}/versions/${version}/submission-url`, {
-        method: "DELETE",
-      }),
+    setSubmissionUrl: (libraryId, version, input) =>
+      call<LibraryVersion>(`${libraryBase(libraryId)}/versions/${version}/submission-url`, { method: "PUT", json: input }),
+    clearSubmissionUrl: (libraryId, version) =>
+      call<void>(`${libraryBase(libraryId)}/versions/${version}/submission-url`, { method: "DELETE" }),
     withSignal: (nextSignal) => createJudgeClient(getDevHeaders, fetchImpl, nextSignal),
   };
 }

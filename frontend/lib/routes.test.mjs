@@ -4,24 +4,31 @@ import {
   libraryCodeEditPath,
   libraryEditPath,
   libraryPath,
-  namespacePath,
+  categoryPath,
+  categoryEditPath,
+  newLibraryPath,
   submissionUrlEditPath,
   userPath,
 } from "./routes.ts";
 
-test("page paths live under /n/ and encode each slug as one segment", () => {
-  assert.equal(namespacePath("seed-author"), "/n/seed-author");
-  assert.equal(libraryPath("seed-author", "union-find"), "/n/seed-author/union-find");
-  assert.equal(namespacePath("a/b"), "/n/a%2Fb");
+const ns = "aaaaaaaaaaaaaaaaaaaa";
+const lib = "bbbbbbbbbbbbbbbbbbbb";
+
+test("pages nest under /users/{handle} and find resources by id", () => {
+  assert.equal(userPath("alice"), "/users/alice");
+  assert.equal(categoryPath("alice", ns), `/users/alice/categories/${ns}`);
+  assert.equal(libraryPath("alice", lib), `/users/alice/libraries/${lib}`);
+  assert.equal(userPath("a/b"), "/users/a%2Fb");
 });
 
 test("edit pages live beside the read-only pages", () => {
-  assert.equal(libraryEditPath("ns", "uf"), "/n/ns/uf/edit");
-  assert.equal(libraryCodeEditPath("ns", "uf"), "/n/ns/uf/code/edit");
-  assert.equal(submissionUrlEditPath("ns", "uf"), "/n/ns/uf/submission-url/edit");
+  assert.equal(libraryEditPath("alice", lib), `/users/alice/libraries/${lib}/edit`);
+  assert.equal(libraryCodeEditPath("alice", lib), `/users/alice/libraries/${lib}/code/edit`);
+  assert.equal(submissionUrlEditPath("alice", lib), `/users/alice/libraries/${lib}/submission-url/edit`);
 });
 
-test("user pages live under /users/ and encode the handle", () => {
-  assert.equal(userPath("alice"), "/users/alice");
-  assert.equal(userPath("a/b"), "/users/a%2Fb");
+test("category editing and library creation take the category id", () => {
+  assert.equal(categoryEditPath("alice", ns), `/users/alice/categories/${ns}/edit`);
+  assert.equal(newLibraryPath(), "/libraries/new");
+  assert.equal(newLibraryPath(ns), `/libraries/new?category=${ns}`);
 });

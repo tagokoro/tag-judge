@@ -7,7 +7,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { createJudgeClient, isApiRequestError, type JudgeClient } from "./api";
 import { apiServerOrigin } from "./apiOrigin";
-import type { Library, LibraryVersion, Namespace, UserProfile } from "./types";
+import type { Library, LibraryVersion, Category, UserProfile } from "./types";
 
 /** A client bound to this request's cookies. Never cached across requests. */
 export const serverClient = cache(async (): Promise<JudgeClient> => {
@@ -43,20 +43,18 @@ export const getUser = cache(async (handle: string): Promise<UserProfile | null>
   orNull((await serverClient()).getUser(handle)),
 );
 
-export const getNamespace = cache(async (namespaceSlug: string): Promise<Namespace | null> =>
-  orNull((await serverClient()).getNamespace(namespaceSlug)),
+/** Null when the category is missing or hidden from the visitor. */
+export const getCategory = cache(async (categoryId: string): Promise<Category | null> =>
+  orNull((await serverClient()).getCategory(categoryId)),
 );
 
-export const getLibrary = cache(
-  async (namespaceSlug: string, librarySlug: string): Promise<Library | null> =>
-    orNull((await serverClient()).getLibrary(namespaceSlug, librarySlug)),
+export const getLibrary = cache(async (libraryId: string): Promise<Library | null> =>
+  orNull((await serverClient()).getLibrary(libraryId)),
 );
 
 /** The library's latest code, or null when it has none. */
-export const getLatestVersion = cache(
-  async (namespaceSlug: string, librarySlug: string): Promise<LibraryVersion | null> => {
-    const api = await serverClient();
-    const [latest] = await api.listVersions(namespaceSlug, librarySlug, 1);
-    return latest ? api.getVersion(namespaceSlug, librarySlug, latest.version_number) : null;
-  },
-);
+export const getLatestVersion = cache(async (libraryId: string): Promise<LibraryVersion | null> => {
+  const api = await serverClient();
+  const [latest] = await api.listVersions(libraryId, 1);
+  return latest ? api.getVersion(libraryId, latest.version_number) : null;
+});

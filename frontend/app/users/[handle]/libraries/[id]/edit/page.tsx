@@ -4,54 +4,38 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { OwnerOnly } from "@/components/OwnerOnly";
+import { CategoryField } from "@/components/CategoryField";
+import { LibraryEditFrame } from "@/components/LibraryEditFrame";
 import { MarkdownField } from "@/components/MarkdownField";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { useResource } from "@/components/useResource";
-import { Breadcrumbs, Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
-import { HOME_PATH, libraryPath, namespacePath } from "@/lib/routes";
-import type { Library, Visibility } from "@/lib/types";
+import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
+import type { Library, Category, UpdateLibraryInput, Visibility } from "@/lib/types";
 
-export default function EditLibraryPage({
-  params,
-}: {
-  params: Promise<{ namespace: string; library: string }>;
-}) {
-  const { namespace: namespaceSlug, library: librarySlug } = use(params);
-  const backHref = libraryPath(namespaceSlug, librarySlug);
-  const library = useResource(`lib:${namespaceSlug}/${librarySlug}`, (api) =>
-    api.getLibrary(namespaceSlug, librarySlug),
-  );
-
+export default function EditLibraryPage({ params }: { params: Promise<{ handle: string; id: string }> }) {
+  const { handle, id } = use(params);
   return (
-    <div className="page">
-      <Breadcrumbs
-        items={[
-          { label: "Libraries", href: HOME_PATH },
-          { label: namespaceSlug, href: namespacePath(namespaceSlug) },
-          { label: librarySlug, href: backHref },
-          { label: "設定を編集" },
-        ]}
-      />
-      <h1>Library の設定</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug}>
-        {library.data ? (
-          <LibrarySettingsForm namespaceSlug={namespaceSlug} library={library.data} backHref={backHref} />
-        ) : (
-          <LoadState loading={library.loading} error={library.error} notFound="この Library は見つかりません。" />
-        )}
-      </OwnerOnly>
-    </div>
+    <LibraryEditFrame handle={handle} libraryId={id} title="Library の設定" crumb="設定を編集">
+      {(library, backHref) => <LibrarySettingsLoader library={library} backHref={backHref} />}
+    </LibraryEditFrame>
   );
 }
 
+function LibrarySettingsLoader({ library, backHref }: { library: Library; backHref: string }) {
+  const categories = useResource("me/categories", (api) => api.listMyCategories());
+  if (!categories.data) {
+    return <LoadState loading={categories.loading} error={categories.error} notFound="" />;
+  }
+  return <LibrarySettingsForm library={library} categories={categories.data} backHref={backHref} />;
+}
+
 function LibrarySettingsForm({
-  namespaceSlug,
   library,
+  categories,
   backHref,
 }: {
-  namespaceSlug: string;
   library: Library;
+  categories: Category[];
   backHref: string;
 }) {
   const { client } = useAuth();
@@ -60,15 +44,16 @@ function LibrarySettingsForm({
   const [name, setName] = useState(library.name);
   const [description, setDescription] = useState(library.description);
   const [visibility, setVisibility] = useState<Visibility>(library.visibility);
+  const [category, setCategory] = useState(library.category.name);
 
   return (
     <Card
       title={library.name}
       owner
-      note="private にすると、自分以外からは Library も Version も見えなくなります。slug は変更できません。"
+      note="private にすると、自分以外からはコードも見えなくなります。カテゴリを変えても、この Library の URL は変わりません。移したあとに空になったカテゴリは自動で削除されます。"
     >
-      <div className="row">
-        <Field label="名前">
+      <div className="row row-fields">
+        <Field label="名前" hint="1〜80 文字">
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field label="Visibility">
@@ -78,6 +63,7 @@ function LibrarySettingsForm({
           </select>
         </Field>
       </div>
+      <CategoryField value={category} onChange={setCategory} categories={categories} />
       <MarkdownField
         label="説明"
         hint="Markdown と TeX の数式（$a^2$、$$\\sum_{i} a_i$$）が使えます。2000 文字まで。"
@@ -89,9 +75,11 @@ function LibrarySettingsForm({
           variant="primary"
           onClick={() =>
             run(async (signal) => {
-              await client
-                .withSignal(signal)
-                .updateLibrary(namespaceSlug, library.slug, { name, description, visibility });
+              const patch: UpdateLibraryInput = { name, description, visibility };
+              if (category.trim().toLowerCase() !== library.category.name.toLowerCase()) {
+                patch.category = category;
+              }
+              await client.withSignal(signal).updateLibrary(library.id, patch);
               router.push(backHref);
             })
           }

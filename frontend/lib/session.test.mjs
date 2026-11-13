@@ -43,11 +43,13 @@ test("identity changes with the dev user, so pages remount", () => {
   assert.notEqual(author, admin);
 });
 
-test("isOwner compares user ids case-insensitively and is false when anonymous", () => {
-  const actor = actorOf({ ...base, devEnabled: true });
-  assert.equal(isOwner(actor, devUser.userId.toUpperCase()), true);
-  assert.equal(isOwner(actor, SEED_USERS[1].userId), false);
-  assert.equal(isOwner(null, devUser.userId), false);
+test("isOwner compares handles and is false without one", () => {
+  const session = { user_id: "11111111-1111-4111-8111-111111111111", role: "user", handle: "alice" };
+  const actor = actorOf({ ...base, session });
+  assert.equal(isOwner(actor, "alice"), true);
+  assert.equal(isOwner(actor, "bob"), false);
+  assert.equal(isOwner(actorOf({ ...base, devEnabled: true }), "alice"), false);
+  assert.equal(isOwner(null, "alice"), false);
 });
 
 test("server-rendered data counts only for the actor the server rendered for", () => {

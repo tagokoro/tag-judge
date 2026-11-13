@@ -26,24 +26,33 @@ export interface DevHeaders {
   "X-User-Role": string;
 }
 
-export interface Namespace {
+/**
+ * Categories and libraries are found by `id`: 20 random hex characters the
+ * server assigns. A category is created with the first library filed under its
+ * name and removed when its last library moves out.
+ */
+export interface Category {
   id: string;
-  slug: string;
-  display_name: string;
-  owner_user_id: string;
+  /** The owner's handle. */
+  owner: string;
+  /** Free text, unique per owner. */
+  name: string;
+  description: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface CreateNamespaceInput {
-  slug: string;
-  display_name: string;
+export interface UpdateCategoryInput {
+  name?: string;
+  description?: string;
 }
 
 export interface Library {
   id: string;
-  namespace_slug: string;
-  slug: string;
+  /** The owner's handle. */
+  owner: string;
+  category: { id: string; name: string };
+  /** Free text; may repeat. */
   name: string;
   description: string;
   visibility: Visibility;
@@ -52,7 +61,8 @@ export interface Library {
 }
 
 export interface CreateLibraryInput {
-  slug: string;
+  /** The category's name: the caller's category by that name, created when missing. */
+  category: string;
   name: string;
   description: string;
   visibility: Visibility;
@@ -62,6 +72,8 @@ export interface UpdateLibraryInput {
   name?: string;
   description?: string;
   visibility?: Visibility;
+  /** Moves the library to the owner's category by that name, created when missing. */
+  category?: string;
 }
 
 /**

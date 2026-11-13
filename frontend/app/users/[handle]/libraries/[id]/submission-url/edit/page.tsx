@@ -4,42 +4,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { OwnerOnly } from "@/components/OwnerOnly";
+import { LibraryEditFrame } from "@/components/LibraryEditFrame";
 import { useAsyncAction } from "@/components/useAsyncAction";
 import { fetchLatestVersionNumber, useLatestVersion } from "@/components/useLatestVersion";
-import { Breadcrumbs, Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
-import { HOME_PATH, libraryPath, namespacePath } from "@/lib/routes";
+import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
 import { isValidSubmissionUrl } from "@/lib/submissionUrl";
-import type { LibraryVersion } from "@/lib/types";
+import type { Library, LibraryVersion } from "@/lib/types";
 
-export default function EditSubmissionUrlPage({
-  params,
-}: {
-  params: Promise<{ namespace: string; library: string }>;
-}) {
-  const { namespace: namespaceSlug, library: librarySlug } = use(params);
-  const backHref = libraryPath(namespaceSlug, librarySlug);
-
+export default function EditSubmissionUrlPage({ params }: { params: Promise<{ handle: string; id: string }> }) {
+  const { handle, id } = use(params);
   return (
-    <div className="page">
-      <Breadcrumbs
-        items={[
-          { label: "Libraries", href: HOME_PATH },
-          { label: namespaceSlug, href: namespacePath(namespaceSlug) },
-          { label: librarySlug, href: backHref },
-          { label: "提出 URL を編集" },
-        ]}
-      />
-      <h1>提出 URL を編集</h1>
-      <OwnerOnly namespaceSlug={namespaceSlug}>
-        <SubmissionUrlLoader namespaceSlug={namespaceSlug} librarySlug={librarySlug} backHref={backHref} />
-      </OwnerOnly>
-    </div>
+    <LibraryEditFrame handle={handle} libraryId={id} title="提出 URL を編集" crumb="提出 URL を編集">
+      {(library, backHref) => <SubmissionUrlLoader library={library} backHref={backHref} />}
+    </LibraryEditFrame>
   );
 }
 
-function SubmissionUrlLoader(props: { namespaceSlug: string; librarySlug: string; backHref: string }) {
-  const latest = useLatestVersion(props.namespaceSlug, props.librarySlug);
+function SubmissionUrlLoader(props: { library: Library; backHref: string }) {
+  const latest = useLatestVersion(props.library.id);
   if (latest.data) {
     return <SubmissionUrlForm {...props} version={latest.data} />;
   }
@@ -50,13 +32,11 @@ function SubmissionUrlLoader(props: { namespaceSlug: string; librarySlug: string
 }
 
 function SubmissionUrlForm({
-  namespaceSlug,
-  librarySlug,
+  library,
   version,
   backHref,
 }: {
-  namespaceSlug: string;
-  librarySlug: string;
+  library: Library;
   version: LibraryVersion;
   backHref: string;
 }) {
@@ -69,7 +49,7 @@ function SubmissionUrlForm({
   // updated since (e.g. in another tab), writing would attach the URL to an
   // older, hidden upload, so stop and ask for a reload instead.
   const ensureStillLatest = async (signal: AbortSignal) => {
-    const latest = await fetchLatestVersionNumber(client.withSignal(signal), namespaceSlug, librarySlug);
+    const latest = await fetchLatestVersionNumber(client.withSignal(signal), library.id);
     if (latest !== version.version_number) {
       throw new Error("このページを開いたあとにコードが更新されました。ページを再読み込みしてから保存してください。");
     }
@@ -77,7 +57,7 @@ function SubmissionUrlForm({
 
   return (
     <Card
-      title={librarySlug}
+      title={library.name}
       owner
       note="今のコードを使った提出の URL を 1 件登録できます。提出の内容や判定結果は確認しません。"
     >
@@ -102,7 +82,7 @@ function SubmissionUrlForm({
               await ensureStillLatest(signal);
               await client
                 .withSignal(signal)
-                .setSubmissionUrl(namespaceSlug, librarySlug, version.version_number, {
+                .setSubmissionUrl(library.id, version.version_number, {
                   submission_url: input.trim(),
                 });
               router.push(backHref);
@@ -123,7 +103,7 @@ function SubmissionUrlForm({
                 await ensureStillLatest(signal);
                 await client
                   .withSignal(signal)
-                  .clearSubmissionUrl(namespaceSlug, librarySlug, version.version_number);
+                  .clearSubmissionUrl(library.id, version.version_number);
                 router.push(backHref);
               })
             }

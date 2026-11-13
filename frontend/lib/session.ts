@@ -87,9 +87,9 @@ export function devHeadersOf(state: SessionState): DevHeaders | null {
   return { "X-User-ID": actor.userId, "X-User-Role": actor.role };
 }
 
-/** Owner check for showing owner-only controls; the API still enforces it. */
-export function isOwner(actor: Actor | null, ownerUserId: string): boolean {
-  return actor !== null && actor.userId.toLowerCase() === ownerUserId.toLowerCase();
+/** Owner check by handle for showing owner-only controls; the API still enforces it. */
+export function isOwner(actor: Actor | null, ownerHandle: string): boolean {
+  return actor !== null && actor.handle !== null && actor.handle === ownerHandle;
 }
 
 /** Dev header auth exists only outside production builds. */
