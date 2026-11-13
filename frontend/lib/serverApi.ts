@@ -7,7 +7,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { createJudgeClient, isApiRequestError, type JudgeClient } from "./api";
 import { apiServerOrigin } from "./apiOrigin";
-import type { Library, LibraryVersion, Namespace } from "./types";
+import type { Library, LibraryVersion, Namespace, UserProfile } from "./types";
 
 /** A client bound to this request's cookies. Never cached across requests. */
 export const serverClient = cache(async (): Promise<JudgeClient> => {
@@ -38,6 +38,10 @@ export async function orNull<T>(request: Promise<T>): Promise<T | null> {
 }
 
 // Cached per request so generateMetadata and the page share one fetch.
+
+export const getUser = cache(async (handle: string): Promise<UserProfile | null> =>
+  orNull((await serverClient()).getUser(handle)),
+);
 
 export const getNamespace = cache(async (namespaceSlug: string): Promise<Namespace | null> =>
   orNull((await serverClient()).getNamespace(namespaceSlug)),

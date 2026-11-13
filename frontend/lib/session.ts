@@ -15,6 +15,8 @@ export interface SessionState {
   cookieChecked: boolean;
   devEnabled: boolean;
   devUser: DevUser;
+  /** GET /me answered for the dev user, which tells their handle. */
+  devMe: Me | null;
 }
 
 /** Seed users from backend/db/seeds/development.sql, for dev header auth. */
@@ -27,14 +29,28 @@ export interface Actor {
   userId: string;
   role: Role;
   source: "cookie" | "dev";
+  /** Null until the user registers a handle (and while a dev user's is loading). */
+  handle: string | null;
 }
 
 export function actorOf(state: SessionState): Actor | null {
   if (state.session) {
-    return { userId: state.session.user_id, role: state.session.role, source: "cookie" };
+    return {
+      userId: state.session.user_id,
+      role: state.session.role,
+      source: "cookie",
+      handle: state.session.handle,
+    };
   }
   if (state.devEnabled) {
-    return { userId: state.devUser.userId, role: state.devUser.role, source: "dev" };
+    // A /me answer for an earlier dev user must not lend its handle.
+    const me = state.devMe?.user_id.toLowerCase() === state.devUser.userId.toLowerCase() ? state.devMe : null;
+    return {
+      userId: state.devUser.userId,
+      role: state.devUser.role,
+      source: "dev",
+      handle: me?.handle ?? null,
+    };
   }
   return null;
 }
@@ -47,6 +63,20 @@ export function actorOf(state: SessionState): Actor | null {
 export function identityOf(state: SessionState): string {
   const actor = actorOf(state);
   return actor ? `${actor.source}:${actor.userId}:${actor.role}` : "anon";
+}
+
+/**
+ * Whether data a Server Component fetched may be shown as is. The server sees
+ * only the visitor's cookies, and its data stays in the page's props after a
+ * client-side logout or login, so it counts only for the identity the first
+ * session check found (`serverIdentity`, null until that check is done) and
+ * never for a dev-header actor, whose headers the server never sees.
+ */
+export function canUseServerData(state: SessionState, serverIdentity: string | null): boolean {
+  if (devHeadersOf(state) !== null) {
+    return false;
+  }
+  return serverIdentity === null || serverIdentity === identityOf(state);
 }
 
 export function devHeadersOf(state: SessionState): DevHeaders | null {

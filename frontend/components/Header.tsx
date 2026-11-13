@@ -13,10 +13,11 @@ import {
   PROBLEMS_PATH,
   SUBMISSIONS_PATH,
 } from "@/lib/routes";
-import { DEV_AUTH_AVAILABLE } from "@/lib/session";
+import { DEV_AUTH_AVAILABLE, type Actor } from "@/lib/session";
 import type { Role } from "@/lib/types";
 import logo from "@/assets/tagjudge-logo.png";
 import { useAuth } from "./AuthProvider";
+import { Avatar } from "./ui";
 import { useAsyncAction } from "./useAsyncAction";
 
 
@@ -120,8 +121,7 @@ function PhoneSheet({ pathname }: { pathname: string }) {
       {!state.cookieChecked ? null : actor ? (
         <div className="sheet-group">
           <p className="sheet-who">
-            {actor.source === "dev" ? "dev " : ""}
-            {actor.userId.slice(0, 8)} <span className="user-role">{actor.role}</span>
+            {whoOf(actor)} <span className="user-role">{actor.role}</span>
           </p>
           {MY_ITEMS.map((item) => (
             <Link
@@ -171,6 +171,11 @@ function MenuIcon({ open }: { open: boolean }) {
   );
 }
 
+/** How the account is named in the menus: the handle, marked when it is a dev-header actor. */
+function whoOf(actor: Actor): string {
+  return `${actor.source === "dev" ? "dev " : ""}${actor.handle ? `@${actor.handle}` : "ハンドル未登録"}`;
+}
+
 /** The signed-in user's menu: their own lists and logout. */
 function UserMenu() {
   const { actor, logout } = useAuth();
@@ -198,6 +203,8 @@ function UserMenu() {
   if (!actor) {
     return null;
   }
+  // The button shows only the avatar, so the name lives in its label and atop the menu.
+  const who = whoOf(actor);
 
   return (
     <div className="user-menu" ref={rootRef}>
@@ -206,20 +213,18 @@ function UserMenu() {
         className="user-button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`アカウントメニュー（${who}）`}
+        title={who}
         onClick={() => setOpen((value) => !value)}
-        title={actor.userId}
       >
-        <span className="user-avatar" aria-hidden="true">
-          {actor.userId.slice(0, 1).toUpperCase()}
-        </span>
-        <span className="user-name">
-          {actor.source === "dev" ? "dev " : ""}
-          {actor.userId.slice(0, 8)}
-        </span>
-        <span className="user-role">{actor.role}</span>
+        <Avatar name={actor.handle ?? "?"} />
       </button>
       {open ? (
         <div className="user-menu-panel" role="menu">
+          <p className="user-menu-who">
+            <span className="user-menu-handle">{who}</span>
+            <span className="user-role">{actor.role}</span>
+          </p>
           {MY_ITEMS.map((item) => (
             <Link key={item.href} href={item.href} role="menuitem" onClick={() => setOpen(false)}>
               {item.label}

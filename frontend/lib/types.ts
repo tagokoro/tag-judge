@@ -8,6 +8,17 @@ export type Role = "user" | "author" | "admin";
 export interface Me {
   user_id: string;
   role: Role;
+  /** The user's only name. Null until they register at /signup. */
+  handle: string | null;
+}
+
+/** A user's public profile (GET /users/{handle}). */
+export interface UserProfile {
+  handle: string;
+}
+
+export interface CreateProfileInput {
+  handle: string;
 }
 
 export interface DevHeaders {
@@ -87,7 +98,8 @@ export interface Problem {
   time_limit_ms: number;
   memory_limit_kb: number;
   visibility: string;
-  created_by: string;
+  /** The creator's handle, or null when they have none. */
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,7 +128,8 @@ export interface PublicSubmission {
   score: number;
   created_at: string;
   judged_at: string | null;
-  submitter_namespace_slug: string | null;
+  /** The submitter's handle, or null when they have none. */
+  submitter: string | null;
 }
 
 /** PUT body for setting a version's submission URL: one absolute HTTP(S) URL. */
