@@ -153,9 +153,9 @@ func TestCreateMyProfile(t *testing.T) {
 func TestCreateMyProfileRejectsInput(t *testing.T) {
 	profiles := &fakeUserProfileRepository{}
 	use := usecase.NewUserProfileUsecase(profiles)
-	for _, handle := range []string{"A", "-ab", "a--b", "a", strings.Repeat("a", 33), "", "seed_author", "Seed"} {
+	for _, handle := range []string{"A", "-ab", "a--b", "a", strings.Repeat("a", 17), "", "seed_author", "Seed"} {
 		_, err := use.CreateMine(context.Background(), authorActor(), handle)
-		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_HANDLE", "handle must be 2-32 lowercase letters, digits, or single hyphens")
+		assertAppError(t, err, apperror.ErrInvalidInput, "INVALID_HANDLE", "handle must be 2-16 lowercase letters, digits, or single hyphens")
 	}
 	_, err := use.CreateMine(context.Background(), auth.Actor{}, "seed-author")
 	assertAppError(t, err, apperror.ErrUnauthorized, "UNAUTHORIZED", "authentication required")
