@@ -36,12 +36,12 @@ func TestHandleGoogleCallback(t *testing.T) {
 		t.Fatal("session expiration should be in the future")
 	}
 	if !session.NeedsHandle {
-		t.Fatal("a user without a handle should be sent to handle creation")
+		t.Fatal("a user without a profile should be sent to handle creation")
 	}
 }
 
-func TestHandleGoogleCallbackWithHandle(t *testing.T) {
-	repo := &fakeAuthRepository{hasHandle: true}
+func TestHandleGoogleCallbackWithProfile(t *testing.T) {
+	repo := &fakeAuthRepository{hasProfile: true}
 	uc := NewAuthUsecase(repo, &fakeOAuthProvider{}, time.Hour)
 
 	session, err := uc.HandleGoogleCallback(context.Background(), "oauth-code")
@@ -49,7 +49,7 @@ func TestHandleGoogleCallbackWithHandle(t *testing.T) {
 		t.Fatalf("HandleGoogleCallback returned error: %v", err)
 	}
 	if session.NeedsHandle {
-		t.Fatal("a user with a handle should not be sent to handle creation")
+		t.Fatal("a user with a profile should not be sent to handle creation")
 	}
 }
 
@@ -84,7 +84,7 @@ func (p *fakeOAuthProvider) ExchangeUser(_ context.Context, code string) (OAuthU
 }
 
 type fakeAuthRepository struct {
-	hasHandle        bool
+	hasProfile       bool
 	googleUser       repository.GoogleUser
 	session          repository.CreateSessionParams
 	revokedTokenHash string
@@ -97,7 +97,7 @@ func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, user repository
 			UserID: "00000000-0000-4000-8000-000000000001",
 			Role:   domain.UserRoleUser,
 		},
-		HasHandle: r.hasHandle,
+		HasProfile: r.hasProfile,
 	}, nil
 }
 
