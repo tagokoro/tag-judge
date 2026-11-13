@@ -49,7 +49,7 @@ func run() error {
 	authRepo := postgres.NewAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
 	userProfileRepo := postgres.NewUserProfileRepository(db)
-	namespaceRepo := postgres.NewNamespaceRepository(db)
+	categoryRepo := postgres.NewCategoryRepository(db)
 	libraryRepo := postgres.NewLibraryRepository(db)
 	libraryVersionRepo := postgres.NewLibraryVersionRepository(db)
 	sourceCodeStorage, executionDispatcher, err := buildJudgeInfra(ctx, cfg)
@@ -84,8 +84,8 @@ func run() error {
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 	userProfileUsecase := usecase.NewUserProfileUsecase(userProfileRepo)
-	namespaceUsecase := usecase.NewNamespaceUsecase(namespaceRepo)
-	libraryUsecase := usecase.NewLibraryUsecase(namespaceRepo, libraryRepo)
+	categoryUsecase := usecase.NewCategoryUsecase(categoryRepo, userProfileRepo)
+	libraryUsecase := usecase.NewLibraryUsecase(categoryRepo, libraryRepo)
 	libraryVersionUsecase := usecase.NewLibraryVersionUsecase(libraryUsecase, libraryVersionRepo)
 
 	problemHandler := handler.NewProblemHandler(problemUsecase)
@@ -97,7 +97,7 @@ func run() error {
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
 	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
 	userProfileHandler := handler.NewUserProfileHandler(userProfileUsecase)
-	namespaceHandler := handler.NewNamespaceHandler(namespaceUsecase)
+	categoryHandler := handler.NewCategoryHandler(categoryUsecase)
 	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
 	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
 
@@ -113,7 +113,7 @@ func run() error {
 			AuthHTTP:        authHandler,
 			Auth:            authMiddleware,
 			Profiles:        userProfileHandler,
-			Namespaces:      namespaceHandler,
+			Categories:      categoryHandler,
 			Libraries:       libraryHandler,
 			LibraryVersions: libraryVersionHandler,
 		}),

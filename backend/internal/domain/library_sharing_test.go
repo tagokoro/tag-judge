@@ -78,3 +78,26 @@ func repeat(b byte, n int) string {
 	}
 	return string(s)
 }
+
+func TestValidPublicID(t *testing.T) {
+	if !ValidPublicID("70da733124b8e860f0fd") {
+		t.Fatal("a 20-character lowercase hex id must be valid")
+	}
+	for _, id := range []string{"", "70DA733124B8E860F0FD", "70da733124b8e860f0f", "70da733124b8e860f0fd0", "70da733124b8e860f0fg", "union-find"} {
+		if ValidPublicID(id) {
+			t.Fatalf("ValidPublicID(%q) = true, want invalid", id)
+		}
+	}
+}
+
+func TestCategoryVisibleTo(t *testing.T) {
+	const owner = "00000000-0000-4000-8000-000000000001"
+	hidden := Category{OwnerUserID: owner}
+	if !hidden.VisibleTo(owner) || hidden.VisibleTo("00000000-0000-4000-8000-000000000002") || hidden.VisibleTo("") {
+		t.Fatal("a category without a public library must be visible to its owner only")
+	}
+	public := Category{OwnerUserID: owner, HasPublicLibrary: true}
+	if !public.VisibleTo("") {
+		t.Fatal("a category with a public library must be visible to everyone")
+	}
+}

@@ -20,11 +20,11 @@ func NewLibraryVersionUsecase(libraries *LibraryUsecase, versions repository.Lib
 
 // Create appends one immutable version to a library the actor owns. Version
 // numbers come from the database; this method never counts existing versions.
-func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug, sourceCode string) (*domain.LibraryVersion, error) {
+func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, libraryID, sourceCode string) (*domain.LibraryVersion, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
-	library, err := u.libraries.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
+	library, err := u.libraries.AuthorizeOwner(ctx, actor, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,16 +43,16 @@ func (u *LibraryVersionUsecase) Create(ctx context.Context, actor auth.Actor, na
 // re-checks the CURRENT visibility in the same statement as the source read.
 // The authorizing decision therefore lives in the fetch statement, not in a
 // stale prior check.
-func (u *LibraryVersionUsecase) Get(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int) (*domain.LibraryVersion, error) {
-	library, err := u.libraries.Get(ctx, actor, namespaceSlug, librarySlug)
+func (u *LibraryVersionUsecase) Get(ctx context.Context, actor auth.Actor, libraryID string, versionNumber int) (*domain.LibraryVersion, error) {
+	library, err := u.libraries.Get(ctx, actor, libraryID)
 	if err != nil {
 		return nil, err
 	}
 	return u.versions.FindByNumber(ctx, library.ID, versionNumber, actor.UserID)
 }
 
-func (u *LibraryVersionUsecase) List(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, limit int, limitProvided bool, offset int) ([]domain.LibraryVersion, error) {
-	library, err := u.libraries.Get(ctx, actor, namespaceSlug, librarySlug)
+func (u *LibraryVersionUsecase) List(ctx context.Context, actor auth.Actor, libraryID string, limit int, limitProvided bool, offset int) ([]domain.LibraryVersion, error) {
+	library, err := u.libraries.Get(ctx, actor, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ const submissionURLInvalidMessage = "submission_url must be an absolute HTTP(S) 
 // of one version. Only the library owner may write it (403 on a public library,
 // 404 on a private one, as for other owner-only writes); the repository
 // re-checks ownership in the UPDATE itself.
-func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int, rawURL string) (*domain.LibraryVersion, error) {
+func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth.Actor, libraryID string, versionNumber int, rawURL string) (*domain.LibraryVersion, error) {
 	if err := validateActor(actor); err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth
 	if err != nil {
 		return nil, apperror.InvalidInput("INVALID_SUBMISSION_URL", submissionURLInvalidMessage)
 	}
-	library, err := u.libraries.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
+	library, err := u.libraries.AuthorizeOwner(ctx, actor, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,14 +98,14 @@ func (u *LibraryVersionUsecase) SetSubmissionURL(ctx context.Context, actor auth
 }
 
 // ClearSubmissionURL removes the submission URL with the same owner-only rules.
-func (u *LibraryVersionUsecase) ClearSubmissionURL(ctx context.Context, actor auth.Actor, namespaceSlug, librarySlug string, versionNumber int) error {
+func (u *LibraryVersionUsecase) ClearSubmissionURL(ctx context.Context, actor auth.Actor, libraryID string, versionNumber int) error {
 	if err := validateActor(actor); err != nil {
 		return err
 	}
 	if versionNumber <= 0 {
 		return apperror.InvalidInput("INVALID_VERSION_NUMBER", "version_number must be a positive integer")
 	}
-	library, err := u.libraries.AuthorizeOwner(ctx, actor, namespaceSlug, librarySlug)
+	library, err := u.libraries.AuthorizeOwner(ctx, actor, libraryID)
 	if err != nil {
 		return err
 	}

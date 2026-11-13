@@ -33,11 +33,11 @@ INSERT INTO users (id, provider, provider_user_id, name, email)
 VALUES ('`+alice+`', 'test', 'alice', 'Alice', 'alice@example.test'),
        ('`+bob+`', 'test', 'bob', 'Bob', 'bob@example.test');
 INSERT INTO user_profiles (user_id, handle) VALUES ('`+alice+`', 'alice');
-INSERT INTO namespaces (owner_user_id, slug, display_name) VALUES ('`+alice+`', 'alice', 'Alice');
-INSERT INTO libraries (namespace_id, slug, name, visibility)
-SELECT id, 'public-lib', 'Public', 'public' FROM namespaces WHERE slug = 'alice';
-INSERT INTO libraries (namespace_id, slug, name, visibility)
-SELECT id, 'private-lib', 'Private', 'private' FROM namespaces WHERE slug = 'alice';
+INSERT INTO categories (owner_user_id, name) VALUES ('`+alice+`', 'Algorithms');
+INSERT INTO libraries (category_id, name, visibility)
+SELECT id, 'Public', 'public' FROM categories WHERE name = 'Algorithms';
+INSERT INTO libraries (category_id, name, visibility)
+SELECT id, 'Private', 'private' FROM categories WHERE name = 'Algorithms';
 INSERT INTO problems (id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by)
 VALUES (1, 'Public problem', 's', 1000, 262144, 'public', '`+alice+`'),
        (2, 'Private problem', 's', 1000, 262144, 'private', '`+alice+`'),
@@ -55,8 +55,8 @@ VALUES (10, '`+alice+`', 1, 'python', 'a.py', 'cases.json', 'ac', 3),
 	if err != nil {
 		t.Fatalf("ListAllPublic: %v", err)
 	}
-	if len(libraries) != 1 || libraries[0].Slug != "public-lib" || libraries[0].NamespaceSlug != "alice" {
-		t.Fatalf("public libraries = %+v, want only alice/public-lib", libraries)
+	if len(libraries) != 1 || libraries[0].Name != "Public" || libraries[0].OwnerHandle != "alice" || libraries[0].CategoryName != "Algorithms" {
+		t.Fatalf("public libraries = %+v, want only alice's Public library", libraries)
 	}
 
 	submissions, err := postgres.NewSubmissionRepository(db).ListRecentPublic(ctx, repository.ListRecentSubmissionsParams{Limit: 20})

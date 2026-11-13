@@ -39,74 +39,109 @@ func decodeLibraryJSON(r *http.Request, target any) error {
 	return decodeJSON(r, target)
 }
 
-type NamespaceHandler struct {
-	namespaces *usecase.NamespaceUsecase
+type CategoryHandler struct {
+	categories *usecase.CategoryUsecase
 }
 
-func NewNamespaceHandler(namespaces *usecase.NamespaceUsecase) *NamespaceHandler {
-	return &NamespaceHandler{namespaces: namespaces}
+func NewCategoryHandler(categories *usecase.CategoryUsecase) *CategoryHandler {
+	return &CategoryHandler{categories: categories}
 }
 
-func (h *NamespaceHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *CategoryHandler) ListMine(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFromContext(r.Context())
+	categories, err := h.categories.ListMine(r.Context(), actor)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newCategoryListResponse(categories))
+}
+
+func (h *CategoryHandler) ListByHandle(w http.ResponseWriter, r *http.Request) {
+	limit, limitProvided, err := parseOptionalInt(r, "limit")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_LIMIT", "limit must be an integer"))
+		return
+	}
+	offset, _, err := parseOptionalInt(r, "offset")
+	if err != nil {
+		WriteError(w, r, apperror.InvalidInput("INVALID_OFFSET", "offset must be an integer"))
+		return
+	}
+	actor, _ := auth.ActorFromContext(r.Context())
+
+	categories, err := h.categories.ListByHandle(r.Context(), actor, chi.URLParam(r, "handle"), limit, limitProvided, offset)
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newCategoryListResponse(categories))
+}
+
+func (h *CategoryHandler) Get(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFromContext(r.Context())
+	category, err := h.categories.Get(r.Context(), actor, chi.URLParam(r, "category_id"))
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newCategoryResponse(*category))
+}
+
+func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request struct {
-		Slug        string `json:"slug"`
-		DisplayName string `json:"display_name"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
 	}
 	if err := decodeLibraryJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
 
-	namespace, err := h.namespaces.Create(r.Context(), actor, request.Slug, request.DisplayName)
+	category, err := h.categories.Update(r.Context(), actor, chi.URLParam(r, "category_id"), usecase.UpdateCategoryInput{
+		Name:        request.Name,
+		Description: request.Description,
+	})
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, newNamespaceResponse(*namespace))
+	writeJSON(w, http.StatusOK, newCategoryResponse(*category))
 }
 
-func (h *NamespaceHandler) GetMine(w http.ResponseWriter, r *http.Request) {
-	actor, _ := auth.ActorFromContext(r.Context())
-	namespace, err := h.namespaces.GetMine(r.Context(), actor)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, newNamespaceResponse(*namespace))
-}
-
-func (h *NamespaceHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
-	slug := chi.URLParam(r, "namespace_slug")
-	namespace, err := h.namespaces.GetBySlug(r.Context(), slug)
-	if err != nil {
-		WriteError(w, r, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, newNamespaceResponse(*namespace))
-}
-
-type namespaceResponse struct {
+// categoryResponse carries the public id and names the owner by handle; the
+// internal id and the owner's user id are never returned.
+type categoryResponse struct {
 	ID          string    `json:"id"`
-	Slug        string    `json:"slug"`
-	DisplayName string    `json:"display_name"`
-	OwnerUserID string    `json:"owner_user_id"`
+	Owner       string    `json:"owner"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func newNamespaceResponse(namespace domain.Namespace) namespaceResponse {
-	return namespaceResponse{
-		ID:          namespace.ID,
-		Slug:        namespace.Slug,
-		DisplayName: namespace.DisplayName,
-		OwnerUserID: namespace.OwnerUserID,
-		CreatedAt:   namespace.CreatedAt,
-		UpdatedAt:   namespace.UpdatedAt,
+func newCategoryResponse(category domain.Category) categoryResponse {
+	return categoryResponse{
+		ID:          category.PublicID,
+		Owner:       category.OwnerHandle,
+		Name:        category.Name,
+		Description: category.Description,
+		CreatedAt:   category.CreatedAt,
+		UpdatedAt:   category.UpdatedAt,
 	}
+}
+
+func newCategoryListResponse(categories []domain.Category) []categoryResponse {
+	response := make([]categoryResponse, 0, len(categories))
+	for _, category := range categories {
+		response = append(response, newCategoryResponse(category))
+	}
+	return response
 }
 
 type LibraryHandler struct {
@@ -118,12 +153,14 @@ func NewLibraryHandler(libraries *usecase.LibraryUsecase) *LibraryHandler {
 }
 
 type createLibraryRequest struct {
-	Slug        string `json:"slug"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Visibility  string `json:"visibility"`
+	Category    string `json:"category"`
 }
 
+// Create files a new library under the caller's category named in the body
+// (POST /me/libraries), creating the category when needed.
 func (h *LibraryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
 	var request createLibraryRequest
@@ -132,11 +169,11 @@ func (h *LibraryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	library, err := h.libraries.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), usecase.CreateLibraryInput{
-		Slug:        request.Slug,
+	library, err := h.libraries.Create(r.Context(), actor, usecase.CreateLibraryInput{
 		Name:        request.Name,
 		Description: request.Description,
 		Visibility:  request.Visibility,
+		Category:    request.Category,
 	})
 	if err != nil {
 		WriteError(w, r, err)
@@ -159,7 +196,7 @@ func (h *LibraryHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
 
-	libraries, err := h.libraries.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), limit, limitProvided, offset)
+	libraries, err := h.libraries.List(r.Context(), actor, chi.URLParam(r, "category_id"), limit, limitProvided, offset)
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -172,7 +209,7 @@ func (h *LibraryHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// ListAllPublic lists public libraries across every namespace.
+// ListAllPublic lists public libraries across every category.
 func (h *LibraryHandler) ListAllPublic(w http.ResponseWriter, r *http.Request) {
 	limit, limitProvided, err := parseOptionalInt(r, "limit")
 	if err != nil {
@@ -200,7 +237,7 @@ func (h *LibraryHandler) ListAllPublic(w http.ResponseWriter, r *http.Request) {
 
 func (h *LibraryHandler) Get(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFromContext(r.Context())
-	library, err := h.libraries.Get(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"))
+	library, err := h.libraries.Get(r.Context(), actor, chi.URLParam(r, "library_id"))
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -217,7 +254,7 @@ func (h *LibraryHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	library, err := h.libraries.Update(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), request.toUseCase())
+	library, err := h.libraries.Update(r.Context(), actor, chi.URLParam(r, "library_id"), request.toUseCase())
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -232,6 +269,7 @@ type updateLibraryRequest struct {
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
 	Visibility  *string `json:"visibility"`
+	Category    *string `json:"category"`
 }
 
 func (r updateLibraryRequest) toUseCase() usecase.UpdateLibraryInput {
@@ -239,6 +277,7 @@ func (r updateLibraryRequest) toUseCase() usecase.UpdateLibraryInput {
 		Name:        r.Name,
 		Description: r.Description,
 		Visibility:  r.Visibility,
+		Category:    r.Category,
 	}
 }
 
@@ -260,7 +299,7 @@ func (h *LibraryVersionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version, err := h.versions.Create(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), request.SourceCode)
+	version, err := h.versions.Create(r.Context(), actor, chi.URLParam(r, "library_id"), request.SourceCode)
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -282,7 +321,7 @@ func (h *LibraryVersionHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
 
-	versions, err := h.versions.List(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), limit, limitProvided, offset)
+	versions, err := h.versions.List(r.Context(), actor, chi.URLParam(r, "library_id"), limit, limitProvided, offset)
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -303,7 +342,7 @@ func (h *LibraryVersionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, _ := auth.ActorFromContext(r.Context())
 
-	version, err := h.versions.Get(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), versionNumber)
+	version, err := h.versions.Get(r.Context(), actor, chi.URLParam(r, "library_id"), versionNumber)
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -351,7 +390,7 @@ func (h *LibraryVersionHandler) SetSubmissionURL(w http.ResponseWriter, r *http.
 		WriteError(w, r, err)
 		return
 	}
-	version, err := h.versions.SetSubmissionURL(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), versionNumber, request.SubmissionURL)
+	version, err := h.versions.SetSubmissionURL(r.Context(), actor, chi.URLParam(r, "library_id"), versionNumber, request.SubmissionURL)
 	if err != nil {
 		WriteError(w, r, err)
 		return
@@ -367,7 +406,7 @@ func (h *LibraryVersionHandler) ClearSubmissionURL(w http.ResponseWriter, r *htt
 		WriteError(w, r, err)
 		return
 	}
-	if err := h.versions.ClearSubmissionURL(r.Context(), actor, chi.URLParam(r, "namespace_slug"), chi.URLParam(r, "library_slug"), versionNumber); err != nil {
+	if err := h.versions.ClearSubmissionURL(r.Context(), actor, chi.URLParam(r, "library_id"), versionNumber); err != nil {
 		WriteError(w, r, err)
 		return
 	}
@@ -430,26 +469,33 @@ func optionalString(value string) *string {
 	return &value
 }
 
+// libraryResponse carries the public ids and names the owner by handle; no
+// internal id or user id is returned.
 type libraryResponse struct {
-	ID            string    `json:"id"`
-	NamespaceSlug string    `json:"namespace_slug"`
-	Slug          string    `json:"slug"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Visibility    string    `json:"visibility"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID          string                  `json:"id"`
+	Owner       string                  `json:"owner"`
+	Category    libraryCategoryResponse `json:"category"`
+	Name        string                  `json:"name"`
+	Description string                  `json:"description"`
+	Visibility  string                  `json:"visibility"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+}
+
+type libraryCategoryResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func newLibraryResponse(library domain.Library) libraryResponse {
 	return libraryResponse{
-		ID:            library.ID,
-		NamespaceSlug: library.NamespaceSlug,
-		Slug:          library.Slug,
-		Name:          library.Name,
-		Description:   library.Description,
-		Visibility:    string(library.Visibility),
-		CreatedAt:     library.CreatedAt,
-		UpdatedAt:     library.UpdatedAt,
+		ID:          library.PublicID,
+		Owner:       library.OwnerHandle,
+		Category:    libraryCategoryResponse{ID: library.CategoryPublicID, Name: library.CategoryName},
+		Name:        library.Name,
+		Description: library.Description,
+		Visibility:  string(library.Visibility),
+		CreatedAt:   library.CreatedAt,
+		UpdatedAt:   library.UpdatedAt,
 	}
 }
