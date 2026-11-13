@@ -10,6 +10,7 @@
 import type {
   CreateLibraryInput,
   CreateNamespaceInput,
+  CreateProfileInput,
   DevHeaders,
   Library,
   LibraryVersion,
@@ -21,6 +22,7 @@ import type {
   SetSubmissionUrlInput,
   Submission,
   UpdateLibraryInput,
+  UserProfile,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -141,6 +143,9 @@ function list(path: string, limit = LIST_LIMIT): string {
 export interface JudgeClient {
   getMe(): Promise<Me>;
   logout(): Promise<void>;
+  /** Registers the caller's handle, once. */
+  createProfile(input: CreateProfileInput): Promise<UserProfile>;
+  getUser(handle: string): Promise<UserProfile>;
   getMyNamespace(): Promise<Namespace>;
   getNamespace(namespaceSlug: string): Promise<Namespace>;
   createNamespace(input: CreateNamespaceInput): Promise<Namespace>;
@@ -196,6 +201,8 @@ export function createJudgeClient(
   return {
     getMe: () => call<Me>("/me"),
     logout: () => call<void>("/auth/logout", { method: "POST" }),
+    createProfile: (input) => call<UserProfile>("/me/profile", { method: "POST", json: input }),
+    getUser: (handle) => call<UserProfile>(`/users/${segment(handle)}`),
     getMyNamespace: () => call<Namespace>("/me/namespace"),
     getNamespace: (namespaceSlug) => call<Namespace>(`/namespaces/${segment(namespaceSlug)}`),
     createNamespace: (input) =>

@@ -8,8 +8,16 @@ export const PROBLEMS_PATH = "/problems";
 export const SUBMISSIONS_PATH = "/submissions";
 export const MY_PROBLEMS_PATH = "/me/problems";
 export const MY_SUBMISSIONS_PATH = "/me/submissions";
+/** Where a signed-in user without a handle registers one. */
+export const SIGNUP_PATH = "/signup";
+export const SETTINGS_PROFILE_PATH = "/settings/profile";
 /** Creating a library always targets the signed-in user's own namespace. */
 export const NEW_LIBRARY_PATH = "/libraries/new";
+
+/** A user's own page, under /users/ so a handle never collides with an app route. */
+export function userPath(handle: string): string {
+  return `/users/${encodeURIComponent(handle)}`;
+}
 
 export function namespacePath(namespaceSlug: string): string {
   return `/n/${encodeURIComponent(namespaceSlug)}`;

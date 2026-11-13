@@ -147,6 +147,20 @@ export function ErrorNote({ error }: { error: string | null }) {
   );
 }
 
+/**
+ * The first letter of a handle in a light blue circle: the avatar until
+ * uploads exist. Decorative: the handle is always given beside it or in the
+ * label of the control that holds it.
+ */
+export function Avatar({ name, large = false }: { name: string; large?: boolean }) {
+  const initial = Array.from(name.trim())[0]?.toUpperCase() ?? "?";
+  return (
+    <span className={large ? "user-avatar avatar-lg" : "user-avatar"} aria-hidden="true">
+      {initial}
+    </span>
+  );
+}
+
 export function VisibilityBadge({ visibility }: { visibility: Visibility }) {
   return (
     <span className={`badge badge-${visibility}`}>

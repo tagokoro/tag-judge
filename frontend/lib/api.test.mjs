@@ -182,6 +182,19 @@ test("createJudgeClient keeps the namespace/library/version contract", async () 
   assert.equal(calls[4].url, "/api/v1/namespaces/my-ns/libraries/uf/versions?limit=1");
 });
 
+test("createJudgeClient builds the profile endpoints", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
+  const client = createJudgeClient(() => null, fake);
+
+  await client.createProfile({ handle: "alice" });
+  await client.getUser("a b");
+  assert.deepEqual(
+    calls.map((call) => `${call.init.method ?? "GET"} ${call.url}`),
+    ["POST /api/v1/me/profile", "GET /api/v1/users/a%20b"],
+  );
+  assert.deepEqual(JSON.parse(calls[0].init.body), { handle: "alice" });
+});
+
 test("createJudgeClient uses the dev-header provider on every request", async () => {
   const { calls, fake } = recorder(jsonResponse(200, { data: {} }));
   const client = createJudgeClient(

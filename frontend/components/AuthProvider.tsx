@@ -26,7 +26,14 @@ export interface AuthValue {
   state: SessionState;
   actor: Actor | null;
   identity: string;
+  /**
+   * The identity the first session check found: whom the server rendered the
+   * page for. Null until that check is done. See canUseServerData.
+   */
+  serverIdentity: string | null;
   logout: () => Promise<void>;
+  /** Reload the signed-in user's /me, for example after creating the handle. */
+  refresh: () => Promise<void>;
   setDevEnabled: (value: boolean) => void;
   setDevUser: (value: DevUser) => void;
   switchDevUser: () => void;
@@ -49,8 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     cookieChecked: false,
     devEnabled: false,
     devUser: { userId: SEED_USERS[0].userId, role: SEED_USERS[0].role },
+    devMe: null,
   });
 
+  const [serverIdentity, setServerIdentity] = useState<string | null>(null);
   const devHeaders = useMemo(() => devHeadersOf(state), [state]);
   const client = useMemo(() => createJudgeClient(() => devHeaders), [devHeaders]);
 
@@ -62,6 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A real cookie session always wins: force dev auth off.
       devEnabled: session ? false : current.devEnabled,
     }));
+    // The first check tells whom the server rendered for (it sees cookies
+    // only); later commits (logout, refresh) never move it.
+    const rendered = identityOf({ session, cookieChecked: true, devEnabled: false, devUser: SEED_USERS[0], devMe: null });
+    setServerIdentity((first) => first ?? rendered);
   }, []);
 
   const fetchSession = useCallback(async (): Promise<Me | null> => {
@@ -85,10 +98,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchSession, commitSession]);
 
+  // A dev user's handle comes from /me asked with their dev headers.
+  const fetchDevMe = useCallback(async (): Promise<Me | null> => {
+    if (!devHeaders) {
+      return null;
+    }
+    try {
+      return await client.getMe();
+    } catch {
+      return null;
+    }
+  }, [client, devHeaders]);
+
+  const commitDevMe = useCallback((devMe: Me | null) => {
+    setState((current) => ({ ...current, devMe }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Commit state only in the promise callback (never synchronously in the effect).
+    void fetchDevMe().then((devMe) => {
+      if (!cancelled) {
+        commitDevMe(devMe);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchDevMe, commitDevMe]);
+
   const logout = useCallback(async () => {
     await client.logout();
     commitSession(await fetchSession());
   }, [client, fetchSession, commitSession]);
+
+  const refresh = useCallback(async () => {
+    if (devHeaders) {
+      commitDevMe(await fetchDevMe());
+      return;
+    }
+    commitSession(await fetchSession());
+  }, [devHeaders, fetchDevMe, commitDevMe, fetchSession, commitSession]);
 
   const setDevEnabled = useCallback((value: boolean) => {
     setState((current) => ({ ...current, devEnabled: value }));
@@ -111,12 +161,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       state,
       actor: actorOf(state),
       identity: identityOf(state),
+      serverIdentity,
       logout,
+      refresh,
       setDevEnabled,
       setDevUser,
       switchDevUser,
     }),
-    [client, state, logout, setDevEnabled, setDevUser, switchDevUser],
+    [client, state, serverIdentity, logout, refresh, setDevEnabled, setDevUser, switchDevUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

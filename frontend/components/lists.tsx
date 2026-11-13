@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { descriptionSummary, formatDateTime, statusLabel, statusTone } from "@/lib/format";
-import { libraryPath, namespacePath } from "@/lib/routes";
+import { libraryPath, userPath } from "@/lib/routes";
 import type { Library, Problem } from "@/lib/types";
 import { VisibilityBadge } from "./ui";
 
@@ -107,7 +107,7 @@ export function SubmissionTable({
             {showSubmitter ? (
               <td data-label="提出者">
                 {submission.submitter ? (
-                  <Link href={namespacePath(submission.submitter)}>{submission.submitter}</Link>
+                  <Link href={userPath(submission.submitter)}>{submission.submitter}</Link>
                 ) : (
                   <span className="muted">—</span>
                 )}
