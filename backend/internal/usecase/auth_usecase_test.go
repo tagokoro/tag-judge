@@ -35,6 +35,22 @@ func TestHandleGoogleCallback(t *testing.T) {
 	if !repo.session.ExpiresAt.After(time.Now()) {
 		t.Fatal("session expiration should be in the future")
 	}
+	if !session.NeedsHandle {
+		t.Fatal("a user without a profile should be sent to handle creation")
+	}
+}
+
+func TestHandleGoogleCallbackWithProfile(t *testing.T) {
+	repo := &fakeAuthRepository{hasProfile: true}
+	uc := NewAuthUsecase(repo, &fakeOAuthProvider{}, time.Hour)
+
+	session, err := uc.HandleGoogleCallback(context.Background(), "oauth-code")
+	if err != nil {
+		t.Fatalf("HandleGoogleCallback returned error: %v", err)
+	}
+	if session.NeedsHandle {
+		t.Fatal("a user with a profile should not be sent to handle creation")
+	}
 }
 
 func TestLogout(t *testing.T) {
@@ -68,16 +84,20 @@ func (p *fakeOAuthProvider) ExchangeUser(_ context.Context, code string) (OAuthU
 }
 
 type fakeAuthRepository struct {
+	hasProfile       bool
 	googleUser       repository.GoogleUser
 	session          repository.CreateSessionParams
 	revokedTokenHash string
 }
 
-func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, user repository.GoogleUser) (auth.Actor, error) {
+func (r *fakeAuthRepository) UpsertGoogleUser(_ context.Context, user repository.GoogleUser) (repository.GoogleLogin, error) {
 	r.googleUser = user
-	return auth.Actor{
-		UserID: "00000000-0000-4000-8000-000000000001",
-		Role:   domain.UserRoleUser,
+	return repository.GoogleLogin{
+		Actor: auth.Actor{
+			UserID: "00000000-0000-4000-8000-000000000001",
+			Role:   domain.UserRoleUser,
+		},
+		HasProfile: r.hasProfile,
 	}, nil
 }
 

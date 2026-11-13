@@ -36,11 +36,14 @@ func (r *ProblemRepository) Create(ctx context.Context, params repository.Create
 		Visibility:    string(params.Visibility),
 		CreatedBy:     createdBy,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperror.Conflict("HANDLE_REQUIRED", "create a handle before creating a problem")
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -53,7 +56,7 @@ func (r *ProblemRepository) FindByID(ctx context.Context, id int64) (*domain.Pro
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -73,7 +76,7 @@ func (r *ProblemRepository) Update(ctx context.Context, params repository.Update
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -103,7 +106,7 @@ func (r *ProblemRepository) ListPublic(ctx context.Context, params repository.Li
 
 	problems := make([]domain.Problem, 0, len(rows))
 	for _, row := range rows {
-		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt))
+		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt))
 	}
 
 	return problems, nil
@@ -121,7 +124,7 @@ func (r *ProblemRepository) ListByCreator(ctx context.Context, params repository
 
 	problems := make([]domain.Problem, 0, len(rows))
 	for _, row := range rows {
-		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt))
+		problems = append(problems, newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt))
 	}
 
 	return problems, nil
@@ -136,7 +139,7 @@ func (r *ProblemRepository) FindPublicByID(ctx context.Context, id int64) (*doma
 		return nil, err
 	}
 
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedAt, row.UpdatedAt)
+	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt)
 	return &problem, nil
 }
 
@@ -156,6 +159,7 @@ func newProblem(
 	visibility string,
 	currentTestCasesKey string,
 	createdBy string,
+	createdByHandle pgtype.Text,
 	createdAt pgtype.Timestamptz,
 	updatedAt pgtype.Timestamptz,
 ) domain.Problem {
@@ -168,6 +172,7 @@ func newProblem(
 		Visibility:          domain.ProblemVisibility(visibility),
 		CurrentTestCasesKey: currentTestCasesKey,
 		CreatedBy:           createdBy,
+		CreatedByHandle:     createdByHandle.String,
 		CreatedAt:           createdAt.Time,
 		UpdatedAt:           updatedAt.Time,
 	}

@@ -121,10 +121,10 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 
 const listRecentPublicSubmissions = `-- name: ListRecentPublicSubmissions :many
 SELECT s.id, s.problem_id, p.title AS problem_title, s.language, s.status, s.score, s.created_at, s.judged_at,
-       n.slug AS submitter_namespace_slug
+       up.handle AS submitter_handle
 FROM submissions s
 JOIN problems p ON p.id = s.problem_id AND p.visibility = 'public'
-LEFT JOIN namespaces n ON n.owner_user_id = s.user_id
+LEFT JOIN user_profiles up ON up.user_id = s.user_id
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT $2 OFFSET $1
 `
@@ -135,20 +135,20 @@ type ListRecentPublicSubmissionsParams struct {
 }
 
 type ListRecentPublicSubmissionsRow struct {
-	ID                     int64              `json:"id"`
-	ProblemID              int64              `json:"problem_id"`
-	ProblemTitle           string             `json:"problem_title"`
-	Language               string             `json:"language"`
-	Status                 string             `json:"status"`
-	Score                  int32              `json:"score"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	JudgedAt               pgtype.Timestamptz `json:"judged_at"`
-	SubmitterNamespaceSlug pgtype.Text        `json:"submitter_namespace_slug"`
+	ID              int64              `json:"id"`
+	ProblemID       int64              `json:"problem_id"`
+	ProblemTitle    string             `json:"problem_title"`
+	Language        string             `json:"language"`
+	Status          string             `json:"status"`
+	Score           int32              `json:"score"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	JudgedAt        pgtype.Timestamptz `json:"judged_at"`
+	SubmitterHandle pgtype.Text        `json:"submitter_handle"`
 }
 
 // Recent submissions to public problems for the site-wide submission list.
 // Only public metadata is returned: no source key and no user id. The
-// submitter is shown by their namespace slug when they have one.
+// submitter is shown by their handle when they have one.
 func (q *Queries) ListRecentPublicSubmissions(ctx context.Context, arg ListRecentPublicSubmissionsParams) ([]ListRecentPublicSubmissionsRow, error) {
 	rows, err := q.db.Query(ctx, listRecentPublicSubmissions, arg.ResultOffset, arg.ResultLimit)
 	if err != nil {
@@ -167,7 +167,7 @@ func (q *Queries) ListRecentPublicSubmissions(ctx context.Context, arg ListRecen
 			&i.Score,
 			&i.CreatedAt,
 			&i.JudgedAt,
-			&i.SubmitterNamespaceSlug,
+			&i.SubmitterHandle,
 		); err != nil {
 			return nil, err
 		}

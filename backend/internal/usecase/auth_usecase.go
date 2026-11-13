@@ -41,6 +41,8 @@ func (u *AuthUsecase) GoogleLoginURL(state string) (string, error) {
 	return u.google.AuthCodeURL(state), nil
 }
 
+// HandleGoogleCallback signs the Google user in. The session's NeedsHandle
+// tells the caller to send the user to handle creation first.
 func (u *AuthUsecase) HandleGoogleCallback(ctx context.Context, code string) (auth.Session, error) {
 	if u.google == nil {
 		return auth.Session{}, apperror.Internal("google oauth is not configured")
@@ -54,7 +56,7 @@ func (u *AuthUsecase) HandleGoogleCallback(ctx context.Context, code string) (au
 		return auth.Session{}, err
 	}
 
-	actor, err := u.repo.UpsertGoogleUser(ctx, repository.GoogleUser{
+	login, err := u.repo.UpsertGoogleUser(ctx, repository.GoogleUser{
 		ProviderUserID: googleUser.ProviderUserID,
 		Name:           googleUser.Name,
 		Email:          googleUser.Email,
@@ -70,7 +72,7 @@ func (u *AuthUsecase) HandleGoogleCallback(ctx context.Context, code string) (au
 
 	expiresAt := time.Now().Add(u.sessionTTL)
 	if err := u.repo.CreateSession(ctx, repository.CreateSessionParams{
-		UserID:    actor.UserID,
+		UserID:    login.Actor.UserID,
 		TokenHash: auth.HashToken(token),
 		ExpiresAt: expiresAt,
 	}); err != nil {
@@ -78,8 +80,9 @@ func (u *AuthUsecase) HandleGoogleCallback(ctx context.Context, code string) (au
 	}
 
 	return auth.Session{
-		Token:     token,
-		ExpiresAt: expiresAt,
+		Token:       token,
+		ExpiresAt:   expiresAt,
+		NeedsHandle: !login.HasProfile,
 	}, nil
 }
 

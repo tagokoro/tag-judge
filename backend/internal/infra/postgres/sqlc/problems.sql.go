@@ -12,9 +12,15 @@ import (
 )
 
 const createProblem = `-- name: CreateProblem :one
-INSERT INTO problems (title, statement, time_limit_ms, memory_limit_kb, visibility, created_by)
-VALUES ($1, $2, $3, $4, $5, $6::uuid)
-RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
+WITH p AS (
+    INSERT INTO problems (title, statement, time_limit_ms, memory_limit_kb, visibility, created_by)
+    SELECT $1, $2, $3, $4, $5, $6::uuid
+    WHERE EXISTS (SELECT 1 FROM user_profiles WHERE user_id = $6::uuid)
+    RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by, created_at, updated_at, current_test_cases_key
+)
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
 `
 
 type CreateProblemParams struct {
@@ -35,10 +41,13 @@ type CreateProblemRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
+// Insert and update return the creator's handle like the reads do. Only a
+// user with a handle may create a problem: no row comes back otherwise.
 func (q *Queries) CreateProblem(ctx context.Context, arg CreateProblemParams) (CreateProblemRow, error) {
 	row := q.db.QueryRow(ctx, createProblem,
 		arg.Title,
@@ -58,6 +67,7 @@ func (q *Queries) CreateProblem(ctx context.Context, arg CreateProblemParams) (C
 		&i.Visibility,
 		&i.CurrentTestCasesKey,
 		&i.CreatedBy,
+		&i.CreatedByHandle,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -78,9 +88,10 @@ func (q *Queries) DeleteProblem(ctx context.Context, id int64) (int64, error) {
 }
 
 const getProblem = `-- name: GetProblem :one
-SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
-FROM problems
-WHERE id = $1
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM problems p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
+WHERE p.id = $1
 `
 
 type GetProblemRow struct {
@@ -92,6 +103,7 @@ type GetProblemRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -108,6 +120,7 @@ func (q *Queries) GetProblem(ctx context.Context, id int64) (GetProblemRow, erro
 		&i.Visibility,
 		&i.CurrentTestCasesKey,
 		&i.CreatedBy,
+		&i.CreatedByHandle,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -115,9 +128,10 @@ func (q *Queries) GetProblem(ctx context.Context, id int64) (GetProblemRow, erro
 }
 
 const getPublicProblem = `-- name: GetPublicProblem :one
-SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
-FROM problems
-WHERE id = $1 AND visibility = 'public'
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM problems p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
+WHERE p.id = $1 AND p.visibility = 'public'
 `
 
 type GetPublicProblemRow struct {
@@ -129,6 +143,7 @@ type GetPublicProblemRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -145,6 +160,7 @@ func (q *Queries) GetPublicProblem(ctx context.Context, id int64) (GetPublicProb
 		&i.Visibility,
 		&i.CurrentTestCasesKey,
 		&i.CreatedBy,
+		&i.CreatedByHandle,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -152,10 +168,11 @@ func (q *Queries) GetPublicProblem(ctx context.Context, id int64) (GetPublicProb
 }
 
 const listProblemsByCreator = `-- name: ListProblemsByCreator :many
-SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
-FROM problems
-WHERE created_by = (($1::text)::uuid)
-ORDER BY id DESC
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM problems p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
+WHERE p.created_by = (($1::text)::uuid)
+ORDER BY p.id DESC
 LIMIT $3 OFFSET $2
 `
 
@@ -174,6 +191,7 @@ type ListProblemsByCreatorRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -197,6 +215,7 @@ func (q *Queries) ListProblemsByCreator(ctx context.Context, arg ListProblemsByC
 			&i.Visibility,
 			&i.CurrentTestCasesKey,
 			&i.CreatedBy,
+			&i.CreatedByHandle,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -211,10 +230,11 @@ func (q *Queries) ListProblemsByCreator(ctx context.Context, arg ListProblemsByC
 }
 
 const listPublicProblems = `-- name: ListPublicProblems :many
-SELECT id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
-FROM problems
-WHERE visibility = 'public'
-ORDER BY id DESC
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM problems p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
+WHERE p.visibility = 'public'
+ORDER BY p.id DESC
 LIMIT $1 OFFSET $2
 `
 
@@ -232,6 +252,7 @@ type ListPublicProblemsRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -254,6 +275,7 @@ func (q *Queries) ListPublicProblems(ctx context.Context, arg ListPublicProblems
 			&i.Visibility,
 			&i.CurrentTestCasesKey,
 			&i.CreatedBy,
+			&i.CreatedByHandle,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -285,15 +307,20 @@ func (q *Queries) SetCurrentTestCasesKey(ctx context.Context, arg SetCurrentTest
 }
 
 const updateProblem = `-- name: UpdateProblem :one
-UPDATE problems
-SET title = $1,
-    statement = $2,
-    time_limit_ms = $3,
-    memory_limit_kb = $4,
-    visibility = $5,
-    updated_at = now()
-WHERE id = $6
-RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, current_test_cases_key, created_by::text AS created_by, created_at, updated_at
+WITH p AS (
+    UPDATE problems
+    SET title = $1,
+        statement = $2,
+        time_limit_ms = $3,
+        memory_limit_kb = $4,
+        visibility = $5,
+        updated_at = now()
+    WHERE id = $6
+    RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by, created_at, updated_at, current_test_cases_key
+)
+SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
+FROM p
+LEFT JOIN user_profiles up ON up.user_id = p.created_by
 `
 
 type UpdateProblemParams struct {
@@ -314,6 +341,7 @@ type UpdateProblemRow struct {
 	Visibility          string             `json:"visibility"`
 	CurrentTestCasesKey string             `json:"current_test_cases_key"`
 	CreatedBy           string             `json:"created_by"`
+	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -337,6 +365,7 @@ func (q *Queries) UpdateProblem(ctx context.Context, arg UpdateProblemParams) (U
 		&i.Visibility,
 		&i.CurrentTestCasesKey,
 		&i.CreatedBy,
+		&i.CreatedByHandle,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

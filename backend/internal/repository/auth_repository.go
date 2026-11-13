@@ -13,6 +13,13 @@ type GoogleUser struct {
 	Email          string
 }
 
+// GoogleLogin is the user a Google login resolved to. HasProfile is false
+// until the user creates their handle.
+type GoogleLogin struct {
+	Actor      auth.Actor
+	HasProfile bool
+}
+
 type CreateSessionParams struct {
 	UserID    string
 	TokenHash string
@@ -20,7 +27,7 @@ type CreateSessionParams struct {
 }
 
 type AuthRepository interface {
-	UpsertGoogleUser(ctx context.Context, user GoogleUser) (auth.Actor, error)
+	UpsertGoogleUser(ctx context.Context, user GoogleUser) (GoogleLogin, error)
 	CreateSession(ctx context.Context, params CreateSessionParams) error
 	FindActorBySessionTokenHash(ctx context.Context, tokenHash string) (auth.Actor, error)
 	RevokeSessionByTokenHash(ctx context.Context, tokenHash string) error
