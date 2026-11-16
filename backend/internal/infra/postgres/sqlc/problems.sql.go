@@ -273,7 +273,7 @@ WITH p AS (
         statement = $2,
         time_limit_ms = $3,
         memory_limit_kb = $4,
-        visibility = $5,
+        visibility = CASE WHEN problems.visibility = 'public' THEN 'public' ELSE $5::text END,
         updated_at = now()
     WHERE id = $6
     RETURNING id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by, created_at, updated_at, current_test_cases_key
@@ -306,6 +306,9 @@ type UpdateProblemRow struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
+// Publishing is one-way. The usecase refuses to unpublish, but a request that
+// read the problem before a concurrent publish would otherwise write its stale
+// visibility back, so a public problem stays public here too.
 func (q *Queries) UpdateProblem(ctx context.Context, arg UpdateProblemParams) (UpdateProblemRow, error) {
 	row := q.db.QueryRow(ctx, updateProblem,
 		arg.Title,

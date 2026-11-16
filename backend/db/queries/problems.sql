@@ -25,6 +25,9 @@ SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibil
 FROM p
 LEFT JOIN user_profiles up ON up.user_id = p.created_by;
 
+-- Publishing is one-way. The usecase refuses to unpublish, but a request that
+-- read the problem before a concurrent publish would otherwise write its stale
+-- visibility back, so a public problem stays public here too.
 -- name: UpdateProblem :one
 WITH p AS (
     UPDATE problems
@@ -32,7 +35,7 @@ WITH p AS (
         statement = sqlc.arg(statement),
         time_limit_ms = sqlc.arg(time_limit_ms),
         memory_limit_kb = sqlc.arg(memory_limit_kb),
-        visibility = sqlc.arg(visibility),
+        visibility = CASE WHEN problems.visibility = 'public' THEN 'public' ELSE sqlc.arg(visibility)::text END,
         updated_at = now()
     WHERE id = sqlc.arg(id)
     RETURNING *

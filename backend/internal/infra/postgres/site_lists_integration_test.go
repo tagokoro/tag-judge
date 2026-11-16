@@ -94,7 +94,7 @@ VALUES (10, '`+alice+`', 1, 'python', 'a.py', 'cases.json', 'ac', 3, true),
 	}
 	problemID := int64(1)
 	mine, err := submissionRepo.ListByUserID(ctx, repository.ListSubmissionsParams{UserID: alice, ProblemID: &problemID, Limit: 20})
-	if err != nil || len(mine) != 2 || mine[0].ID != 13 || mine[1].ID != 10 || mine[0].ProblemTitle != "Public problem" {
+	if err != nil || len(mine) != 2 || mine[0].ID != 13 || mine[1].ID != 10 {
 		t.Fatalf("alice's submissions to problem 1 = %+v, %v; want 13 then 10", mine, err)
 	}
 	all, err := submissionRepo.ListByUserID(ctx, repository.ListSubmissionsParams{UserID: alice, Limit: 20})

@@ -32,14 +32,11 @@ WHERE s.id = $1;
 
 -- A null problem_id lists the user's submissions to every problem.
 -- name: ListUserSubmissions :many
-SELECT s.id, s.user_id::text AS user_id, s.problem_id, s.language, s.source_code_key, s.test_cases_key, s.status, s.score, s.is_public, s.created_at, s.judged_at,
-       p.title AS problem_title, up.handle AS submitter_handle
-FROM submissions s
-JOIN problems p ON p.id = s.problem_id
-LEFT JOIN user_profiles up ON up.user_id = s.user_id
-WHERE s.user_id = ((sqlc.arg(user_id)::text)::uuid)
-  AND (sqlc.narg(problem_id)::bigint IS NULL OR s.problem_id = sqlc.narg(problem_id)::bigint)
-ORDER BY s.created_at DESC, s.id DESC
+SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, is_public, created_at, judged_at
+FROM submissions
+WHERE user_id = ((sqlc.arg(user_id)::text)::uuid)
+  AND (sqlc.narg(problem_id)::bigint IS NULL OR problem_id = sqlc.narg(problem_id)::bigint)
+ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
 
 -- name: ListSubmissionCaseResults :many

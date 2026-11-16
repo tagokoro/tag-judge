@@ -237,14 +237,11 @@ func (q *Queries) ListSubmissionCaseResults(ctx context.Context, submissionID in
 }
 
 const listUserSubmissions = `-- name: ListUserSubmissions :many
-SELECT s.id, s.user_id::text AS user_id, s.problem_id, s.language, s.source_code_key, s.test_cases_key, s.status, s.score, s.is_public, s.created_at, s.judged_at,
-       p.title AS problem_title, up.handle AS submitter_handle
-FROM submissions s
-JOIN problems p ON p.id = s.problem_id
-LEFT JOIN user_profiles up ON up.user_id = s.user_id
-WHERE s.user_id = (($1::text)::uuid)
-  AND ($2::bigint IS NULL OR s.problem_id = $2::bigint)
-ORDER BY s.created_at DESC, s.id DESC
+SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, is_public, created_at, judged_at
+FROM submissions
+WHERE user_id = (($1::text)::uuid)
+  AND ($2::bigint IS NULL OR problem_id = $2::bigint)
+ORDER BY created_at DESC, id DESC
 LIMIT $4 OFFSET $3
 `
 
@@ -256,19 +253,17 @@ type ListUserSubmissionsParams struct {
 }
 
 type ListUserSubmissionsRow struct {
-	ID              int64              `json:"id"`
-	UserID          string             `json:"user_id"`
-	ProblemID       int64              `json:"problem_id"`
-	Language        string             `json:"language"`
-	SourceCodeKey   string             `json:"source_code_key"`
-	TestCasesKey    string             `json:"test_cases_key"`
-	Status          string             `json:"status"`
-	Score           int32              `json:"score"`
-	IsPublic        bool               `json:"is_public"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	JudgedAt        pgtype.Timestamptz `json:"judged_at"`
-	ProblemTitle    string             `json:"problem_title"`
-	SubmitterHandle pgtype.Text        `json:"submitter_handle"`
+	ID            int64              `json:"id"`
+	UserID        string             `json:"user_id"`
+	ProblemID     int64              `json:"problem_id"`
+	Language      string             `json:"language"`
+	SourceCodeKey string             `json:"source_code_key"`
+	TestCasesKey  string             `json:"test_cases_key"`
+	Status        string             `json:"status"`
+	Score         int32              `json:"score"`
+	IsPublic      bool               `json:"is_public"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
 
 // A null problem_id lists the user's submissions to every problem.
@@ -298,8 +293,6 @@ func (q *Queries) ListUserSubmissions(ctx context.Context, arg ListUserSubmissio
 			&i.IsPublic,
 			&i.CreatedAt,
 			&i.JudgedAt,
-			&i.ProblemTitle,
-			&i.SubmitterHandle,
 		); err != nil {
 			return nil, err
 		}
