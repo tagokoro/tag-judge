@@ -198,7 +198,7 @@ func (r *SubmissionRepository) ListByUserID(ctx context.Context, params reposito
 
 	submissions := make([]domain.Submission, 0, len(rows))
 	for _, row := range rows {
-		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, row.ProblemTitle, row.SubmitterHandle))
+		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, "", pgtype.Text{}))
 	}
 	return submissions, nil
 }

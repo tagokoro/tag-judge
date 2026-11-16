@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
 	judgeinfra "github.com/tagokoro/tag-judge/backend/internal/infra/judge"
@@ -110,6 +112,53 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 	results, err := repo.ListCaseResults(ctx, 999)
 	if err != nil || results == nil || len(results) != 0 {
 		t.Fatalf("empty query = %+v, %v; want empty non-nil results", results, err)
+	}
+}
+
+// A stale write never unpublishes a problem, and a test case that a
+// submission was judged on reports a conflict instead of failing.
+func TestProblemWritesKeepJudgedStatePostgres(t *testing.T) {
+	databaseURL := os.Getenv("SUBMISSION_DETAILS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set SUBMISSION_DETAILS_TEST_DATABASE_URL to run the PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	db := submissionDetailsTestDatabase(t, ctx, databaseURL)
+	_, err := db.Exec(ctx, `
+INSERT INTO users (id, provider, provider_user_id, name, email)
+VALUES ('00000000-0000-4000-8000-000000000001', 'test', 'writes', 'Test', 'writes@example.test');
+INSERT INTO problems (id, title, statement, time_limit_ms, memory_limit_kb, visibility, created_by)
+VALUES (42, 'Test', 'Test', 1000, 262144, 'public', '00000000-0000-4000-8000-000000000001');
+INSERT INTO test_cases (id, problem_id, input, expected_output)
+VALUES (10, 42, 'in', 'out'), (11, 42, 'in', 'out');
+INSERT INTO submissions (id, user_id, problem_id, language, source_code_key, test_cases_key, status, score, judged_at)
+VALUES (7, '00000000-0000-4000-8000-000000000001', 42, 'python', 'source.py', 'cases.json', 'ac', 1, now());
+INSERT INTO submission_results (submission_id, test_case_id, status)
+VALUES (7, 10, 'ac');
+`)
+	if err != nil {
+		t.Fatalf("seed test database: %v", err)
+	}
+
+	problem, err := postgres.NewProblemRepository(db).Update(ctx, repository.UpdateProblemParams{
+		ID: 42, Title: "Renamed", Statement: "Test", TimeLimitMS: 1000, MemoryLimitKB: 262144,
+		Visibility: domain.ProblemVisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem.Title != "Renamed" || problem.Visibility != domain.ProblemVisibilityPublic {
+		t.Fatalf("update = %q %s, want the new title and still public", problem.Title, problem.Visibility)
+	}
+
+	testCases := postgres.NewTestCaseRepository(db)
+	var appErr *apperror.AppError
+	if err := testCases.Delete(ctx, 42, 10); !errors.As(err, &appErr) || appErr.Code != "TEST_CASE_HAS_RESULTS" {
+		t.Fatalf("deleting a judged test case = %v, want TEST_CASE_HAS_RESULTS", err)
+	}
+	if err := testCases.Delete(ctx, 42, 11); err != nil {
+		t.Fatalf("deleting an unjudged test case = %v", err)
 	}
 }
 

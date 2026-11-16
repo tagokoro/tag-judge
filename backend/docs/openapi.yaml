@@ -294,7 +294,10 @@ paths:
           $ref: "#/components/responses/Error"
     delete:
       summary: Delete a test case
-      description: The last test case of a public problem cannot be deleted.
+      description: |
+        The last test case of a public problem cannot be deleted. A test case
+        that a submission was judged on returns 409 TEST_CASE_HAS_RESULTS; edit
+        it instead.
       security:
         - CookieAuth: []
       parameters:

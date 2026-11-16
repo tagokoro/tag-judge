@@ -63,7 +63,7 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 		return nil, err
 	}
 	if len(input.Stdin) > domain.MaxCodeRunStdinBytes {
-		return nil, apperror.InvalidInput("STDIN_TOO_LARGE", "stdin must be at most 131072 bytes")
+		return nil, apperror.InvalidInput("STDIN_TOO_LARGE", fmt.Sprintf("stdin must be at most %d bytes", domain.MaxCodeRunStdinBytes))
 	}
 	idempotency, err := buildCodeRunIdempotency(actor.UserID, u.idempotencyKeyMaxLen, input)
 	if err != nil {

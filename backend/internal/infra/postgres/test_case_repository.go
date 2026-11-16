@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -98,6 +99,10 @@ func (r *TestCaseRepository) Update(ctx context.Context, params repository.Updat
 func (r *TestCaseRepository) Delete(ctx context.Context, problemID, id int64) error {
 	rows, err := r.queries.DeleteTestCase(ctx, sqlc.DeleteTestCaseParams{ProblemID: problemID, ID: id})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return apperror.Conflict("TEST_CASE_HAS_RESULTS", "test case with submission results cannot be deleted")
+		}
 		return err
 	}
 	if rows == 0 {
