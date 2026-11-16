@@ -129,7 +129,9 @@ func canViewSubmission(actor auth.Actor, s domain.Submission) bool
 | リクエスト body | 約 1.2 MiB（`6 × (64 KiB + 128 KiB) + 64 KiB`） | 400 `INVALID_REQUEST_BODY` |
 | stdout / stderr（実行結果） | それぞれ 64 KiB。worker が UTF-8 の境界で切り詰める | — |
 
-stdin は SQS メッセージ（上限 256 KiB）に入るので、JSON エスケープで膨らむ分を見込んで 128 KiB にする。上限は定数（`domain.MaxExecutionSourceBytes` / `domain.MaxCodeRunStdinBytes`）にし、環境変数にはしない。
+stdin は SQS メッセージ（上限 256 KiB）に入るので、JSON エスケープで膨らむ分を見込んで 128 KiB にする。
+
+ただし今の SQS メッセージは stdin を 2 か所（`stdin` と `stdinExecution.stdin`）に入れていて、改行や制御文字の多い入力ではエスケープで膨らみ、128 KiB 以内でも 256 KiB を超えることがある。超えると送信が失敗し続け、CodeRun が `pending` のまま利用者の実行枠を占める。worker の PR（3）でメッセージの形を決め直すときに、stdin を 1 か所にし、エンコード後の大きさで確かめるか、stdin を S3 に置くかを決める。CodeRun は今は画面から呼べず worker も扱えないので、それまでは実害がない。上限は定数（`domain.MaxExecutionSourceBytes` / `domain.MaxCodeRunStdinBytes`）にし、環境変数にはしない。
 
 body の上限は既存の Library API（`decodeLibraryJSON`）と同じ考え方で、すべて `\uXXXX` でエスケープされても通る大きさにし、超えたら不正な JSON と同じ 400 にする。デコード後の大きさは usecase が上の上限で確かめる。
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { draftKey, isJudging, MAX_POLL_FAILURES, pollDelay, POLL_GIVE_UP_MS, submitErrorMessage } from "./judging.ts";
+import { draftKey, isJudging, isRetryable, MAX_POLL_FAILURES, pollDelay, POLL_GIVE_UP_MS, submitErrorMessage } from "./judging.ts";
 
 test("only pending and running are still being judged", () => {
   assert.equal(isJudging("pending"), true);
@@ -38,4 +38,15 @@ test("a missing problem falls back to the generic error", () => {
 test("drafts are kept per problem", () => {
   assert.equal(draftKey(42), "tag-judge:draft:problem:42");
   assert.notEqual(draftKey(1), draftKey(2));
+});
+
+test("network errors and 5xx are retryable, a 4xx is final", () => {
+  assert.equal(isRetryable({}), true);
+  assert.equal(isRetryable({ status: 503, code: "TRANSIENT_COMMIT_FAILURE" }), true);
+  assert.equal(isRetryable({ status: 429, code: "USER_RATE_LIMIT_EXCEEDED" }), false);
+  assert.equal(isRetryable({ status: 404 }), false);
+});
+
+test("an unconfirmed commit asks for a retry", () => {
+  assert.match(submitErrorMessage({ status: 503, code: "TRANSIENT_COMMIT_FAILURE", retryAfter: 1 }), /1 秒ほど待ってから/);
 });

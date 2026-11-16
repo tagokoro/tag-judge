@@ -45,6 +45,7 @@ export function submitErrorMessage(error: ErrorLike): string | null {
       return "判定中の提出があります。判定が終わってからもう一度提出してください。";
     case "GLOBAL_OUTSTANDING_LIMIT_EXCEEDED":
     case "TRANSIENT_DATABASE_ERROR":
+    case "TRANSIENT_COMMIT_FAILURE":
       return `混み合っています。${later(error.retryAfter)}もう一度提出してください。`;
     case "PROBLEM_HAS_NO_TEST_CASES":
       return "この問題にはまだテストケースがないため、提出できません。";
@@ -57,6 +58,16 @@ export function submitErrorMessage(error: ErrorLike): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * Whether a failed request may succeed when tried again: a network error or a
+ * 5xx is, a 4xx is a definite answer. A retried submission reuses its
+ * idempotency key, since a 5xx can come after the submission was committed
+ * (TRANSIENT_COMMIT_FAILURE says so outright).
+ */
+export function isRetryable(error: ErrorLike): boolean {
+  return error.status === undefined || error.status >= 500;
 }
 
 /** Source drafts are kept per problem in localStorage under this key. */

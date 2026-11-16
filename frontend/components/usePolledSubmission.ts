@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isJudging, MAX_POLL_FAILURES, pollDelay, POLL_GIVE_UP_MS } from "@/lib/judging";
+import { isApiRequestError } from "@/lib/api";
+import { isJudging, isRetryable, MAX_POLL_FAILURES, pollDelay, POLL_GIVE_UP_MS } from "@/lib/judging";
 import type { SubmissionDetail } from "@/lib/types";
 import { useAuth } from "./AuthProvider";
 import { useResource } from "./useResource";
@@ -14,7 +15,7 @@ export interface PolledSubmission {
   loading: boolean;
   /** Why polling gave up while the submission was still being judged. */
   stopped: PollStop | null;
-  /** Loads the submission again and resumes polling. */
+  /** Resumes polling after it stopped, keeping what is on screen meanwhile. */
   reload: () => void;
 }
 
@@ -22,7 +23,7 @@ export interface PolledSubmission {
  * Loads a submission and, while it is pending or running, polls it until the
  * verdict arrives: 0.5 s apart at first, slowing to every 3 s. Polling pauses
  * while the tab is hidden (and polls at once when it is shown again), gives up
- * after two minutes or three failures in a row, and stops on unmount. An actor
+ * after two minutes, three failures in a row, or a 4xx, and stops on unmount. An actor
  * change remounts the page (ActorScope), which drops everything polled.
  */
 export function usePolledSubmission(submissionId: number, initial?: SubmissionDetail): PolledSubmission {
@@ -72,12 +73,12 @@ export function usePolledSubmission(submissionId: number, initial?: SubmissionDe
         if (!isJudging(next.status)) {
           return;
         }
-      } catch {
+      } catch (caught) {
         if (controller.signal.aborted) {
           return;
         }
         failures += 1;
-        if (failures >= MAX_POLL_FAILURES) {
+        if (failures >= MAX_POLL_FAILURES || (isApiRequestError(caught) && !isRetryable(caught))) {
           setStop({ base, reason: "error" });
           return;
         }
@@ -102,5 +103,5 @@ export function usePolledSubmission(submissionId: number, initial?: SubmissionDe
     };
   }, [base, judging, stopped, client, submissionId]);
 
-  return { data: current, error: resource.error, loading: resource.loading, stopped, reload: resource.reload };
+  return { data: current, error: resource.error, loading: resource.loading, stopped, reload: () => setStop(null) };
 }

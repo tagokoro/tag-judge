@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { GOOGLE_LOGIN_PATH, isApiRequestError } from "@/lib/api";
-import { draftKey, submitErrorMessage } from "@/lib/judging";
+import { draftKey, isRetryable, submitErrorMessage } from "@/lib/judging";
 import { problemPath, submissionPath, userPath } from "@/lib/routes";
 import type { ProblemDetail, ProblemSample } from "@/lib/types";
 import { useAuth } from "./AuthProvider";
@@ -33,6 +33,10 @@ const TABS: { tab: ProblemTab; label: string }[] = [
 export function ProblemView({ problemId, initial }: { problemId: number; initial?: ProblemDetail }) {
   const problem = useResource(`problem:${problemId}`, (api) => api.getProblem(problemId), initial && { data: initial });
   const tab: ProblemTab = useSearchParams().get("tab") === "submit" ? "submit" : "statement";
+  // Held here, not in the form, so it outlives a switch to the statement tab
+  // and back: a retry after a lost response replays the first submission
+  // instead of judging the code twice.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   if (!problem.data) {
     // Only reached without server data, i.e. through dev header auth (the
@@ -82,7 +86,7 @@ export function ProblemView({ problemId, initial }: { problemId: number; initial
         ))}
       </div>
 
-      {tab === "statement" ? <Statement problem={problem.data} /> : <SubmitPanel problem={problem.data} />}
+      {tab === "statement" ? <Statement problem={problem.data} /> : <SubmitPanel problem={problem.data} idempotencyKeyRef={idempotencyKeyRef} />}
     </div>
   );
 }
@@ -123,7 +127,8 @@ function SampleText({ label, text }: { label: string; text: string }) {
           className="btn btn-ghost"
           aria-label={`${label}をコピー`}
           onClick={() => {
-            navigator.clipboard.writeText(text).then(
+            // Missing outside secure contexts (plain http on a LAN address).
+            navigator.clipboard?.writeText(text).then(
               () => setCopied(true),
               () => setCopied(false),
             );
@@ -138,7 +143,13 @@ function SampleText({ label, text }: { label: string; text: string }) {
   );
 }
 
-function SubmitPanel({ problem }: { problem: ProblemDetail }) {
+function SubmitPanel({
+  problem,
+  idempotencyKeyRef,
+}: {
+  problem: ProblemDetail;
+  idempotencyKeyRef: RefObject<string | null>;
+}) {
   const { actor, state } = useAuth();
   if (!state.cookieChecked) {
     return <p className="muted">読み込み中…</p>;
@@ -152,7 +163,7 @@ function SubmitPanel({ problem }: { problem: ProblemDetail }) {
   }
   return (
     <>
-      <SubmitForm problem={problem} />
+      <SubmitForm problem={problem} idempotencyKeyRef={idempotencyKeyRef} />
       <MySubmissions problemId={problem.id} />
     </>
   );
@@ -175,31 +186,41 @@ function writeDraft(problemId: number, source: string) {
 }
 
 /** Only mounted in the browser after the session check, so the draft can be read on first render. */
-function SubmitForm({ problem }: { problem: ProblemDetail }) {
+function SubmitForm({
+  problem,
+  idempotencyKeyRef,
+}: {
+  problem: ProblemDetail;
+  idempotencyKeyRef: RefObject<string | null>;
+}) {
   const { client } = useAuth();
   const router = useRouter();
   const { busy, error, run } = useAsyncAction();
   const [source, setSource] = useState(() => readDraft(problem.id));
-  // Kept across retries of the same source after a lost response, so a retry
-  // replays the first submission instead of judging the code twice.
-  const idempotencyKey = useRef<string | null>(null);
+  // Set once the submission is created: the button stays disabled while the
+  // page moves to it, so a second click cannot submit the code again.
+  const [submitted, setSubmitted] = useState(false);
 
   const submit = () =>
     run(async (signal) => {
-      const key = idempotencyKey.current ?? crypto.randomUUID();
-      idempotencyKey.current = key;
+      const key = idempotencyKeyRef.current ?? crypto.randomUUID();
+      idempotencyKeyRef.current = key;
       try {
         const submission = await client
           .withSignal(signal)
           .createSubmission(problem.id, { language: "python", source_code: source }, key);
-        idempotencyKey.current = null;
+        idempotencyKeyRef.current = null;
+        setSubmitted(true);
         router.push(submissionPath(submission.id));
       } catch (caught) {
         if (!isApiRequestError(caught)) {
           throw caught;
         }
-        // The server answered, so the next attempt is a new submission.
-        idempotencyKey.current = null;
+        // A refusal makes the next attempt a new submission; after a 5xx the
+        // submission may exist, so the retry keeps the key to replay it.
+        if (!isRetryable(caught)) {
+          idempotencyKeyRef.current = null;
+        }
         const message = submitErrorMessage(caught);
         throw message ? new Error(message) : caught;
       }
@@ -220,14 +241,14 @@ function SubmitForm({ problem }: { problem: ProblemDetail }) {
           onChange={(next) => {
             setSource(next);
             writeDraft(problem.id, next);
-            idempotencyKey.current = null;
+            idempotencyKeyRef.current = null;
           }}
           label="コード（Python）"
         />
       </div>
       <div className="row">
-        <Button variant="primary" onClick={submit} disabled={busy || source.trim() === ""}>
-          {busy ? "提出中…" : "提出"}
+        <Button variant="primary" onClick={submit} disabled={busy || submitted || source.trim() === ""}>
+          {busy || submitted ? "提出中…" : "提出"}
         </Button>
       </div>
       <ErrorNote error={error} />
