@@ -19,7 +19,7 @@ import {
   type DevUser,
   type SessionState,
 } from "@/lib/session";
-import type { Me } from "@/lib/types";
+import type { DevHeaders, Me } from "@/lib/types";
 
 export interface AuthValue {
   client: JudgeClient;
@@ -60,7 +60,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const [serverIdentity, setServerIdentity] = useState<string | null>(null);
-  const devHeaders = useMemo(() => devHeadersOf(state), [state]);
+  // Keyed by the header values, not the whole state: committing the dev
+  // user's /me changes the state, and a new client for it would fetch /me
+  // again (and make every page refetch) in an endless loop.
+  const currentDevHeaders = devHeadersOf(state);
+  const devUserId = currentDevHeaders?.["X-User-ID"] ?? null;
+  const devRole = currentDevHeaders?.["X-User-Role"] ?? null;
+  const devHeaders = useMemo<DevHeaders | null>(
+    () => (devUserId !== null && devRole !== null ? { "X-User-ID": devUserId, "X-User-Role": devRole } : null),
+    [devUserId, devRole],
+  );
   const client = useMemo(() => createJudgeClient(() => devHeaders), [devHeaders]);
 
   const commitSession = useCallback((session: Me | null) => {

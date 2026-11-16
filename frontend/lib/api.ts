@@ -16,10 +16,13 @@ import type {
   LibraryVersionSummary,
   Me,
   Category,
+  CreateSubmissionInput,
   Problem,
+  ProblemDetail,
   PublicSubmission,
   SetSubmissionUrlInput,
   Submission,
+  SubmissionDetail,
   UpdateLibraryInput,
   UpdateCategoryInput,
   UserProfile,
@@ -32,14 +35,22 @@ const LIST_LIMIT = 100;
 export interface ApiRequestError extends Error {
   status: number;
   code: string;
+  /** Seconds from a Retry-After header (429 / 503), when the server sent one. */
+  retryAfter?: number;
 }
 
-function makeApiRequestError(status: number, code: string, message: string): ApiRequestError {
+function makeApiRequestError(status: number, code: string, message: string, retryAfter?: number): ApiRequestError {
   return Object.assign(new Error(message), {
     name: "ApiRequestError",
     status,
     code,
+    ...(retryAfter !== undefined ? { retryAfter } : {}),
   }) as ApiRequestError;
+}
+
+function retryAfterOf(response: Response): number | undefined {
+  const seconds = Number(response.headers?.get("Retry-After"));
+  return Number.isInteger(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 /**
@@ -129,6 +140,7 @@ export async function apiRequest<T>(
       response.status,
       error?.code ?? "UNKNOWN_ERROR",
       error?.message ?? `HTTP ${response.status}`,
+      retryAfterOf(response),
     );
   }
 
@@ -174,7 +186,17 @@ export interface JudgeClient {
   listProblems(): Promise<Problem[]>;
   listMyProblems(): Promise<Problem[]>;
   listRecentSubmissions(): Promise<PublicSubmission[]>;
-  listMySubmissions(): Promise<Submission[]>;
+  /** The caller's submissions, newest first; to one problem when `problemId` is given. */
+  listMySubmissions(problemId?: number): Promise<Submission[]>;
+  /** A problem with its samples; a private problem is a 404 to all but its creator. */
+  getProblem(problemId: number): Promise<ProblemDetail>;
+  /**
+   * Submits to a problem. Send the same `idempotencyKey` when retrying after a
+   * lost response, so the retry returns the first submission.
+   */
+  createSubmission(problemId: number, input: CreateSubmissionInput, idempotencyKey: string): Promise<Submission>;
+  /** A submission with its source and case results; poll it while judging. */
+  getSubmission(submissionId: number): Promise<SubmissionDetail>;
   // The owner sets or clears a version's submission URL. Reads come with the
   // version.
   setSubmissionUrl(libraryId: string, version: number, input: SetSubmissionUrlInput): Promise<LibraryVersion>;
@@ -227,7 +249,16 @@ export function createJudgeClient(
     listProblems: () => call<Problem[]>(list("/problems")),
     listMyProblems: () => call<Problem[]>(list("/me/problems")),
     listRecentSubmissions: () => call<PublicSubmission[]>(list("/submissions/recent")),
-    listMySubmissions: () => call<Submission[]>(list("/submissions")),
+    listMySubmissions: (problemId) =>
+      call<Submission[]>(problemId === undefined ? list("/submissions") : `${list("/submissions")}&problem_id=${problemId}`),
+    getProblem: (problemId) => call<ProblemDetail>(`/problems/${problemId}`),
+    createSubmission: (problemId, input, idempotencyKey) =>
+      call<Submission>(`/problems/${problemId}/submissions`, {
+        method: "POST",
+        json: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      }),
+    getSubmission: (submissionId) => call<SubmissionDetail>(`/submissions/${submissionId}`),
     setSubmissionUrl: (libraryId, version, input) =>
       call<LibraryVersion>(`${libraryBase(libraryId)}/versions/${version}/submission-url`, { method: "PUT", json: input }),
     clearSubmissionUrl: (libraryId, version) =>

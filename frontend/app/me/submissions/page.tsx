@@ -21,12 +21,7 @@ export default function MySubmissionsPage() {
           <p className="empty">まだ提出していません。</p>
         ) : (
           <div className="panel">
-            <SubmissionTable
-              submissions={submissions.data.map((submission) => ({
-                ...submission,
-                problem: `#${submission.problem_id}`,
-              }))}
-            />
+            <SubmissionTable submissions={submissions.data} />
           </div>
         )
       ) : (

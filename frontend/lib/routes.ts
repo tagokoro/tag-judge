@@ -14,6 +14,15 @@ export const MY_SUBMISSIONS_PATH = "/me/submissions";
 export const SIGNUP_PATH = "/signup";
 export const SETTINGS_PROFILE_PATH = "/settings/profile";
 
+/** The problem page; `submit` opens its submission tab. */
+export function problemPath(problemId: number, tab?: "submit"): string {
+  return tab ? `${PROBLEMS_PATH}/${problemId}?tab=${tab}` : `${PROBLEMS_PATH}/${problemId}`;
+}
+
+export function submissionPath(submissionId: number): string {
+  return `${SUBMISSIONS_PATH}/${submissionId}`;
+}
+
 /** Creates a library; with a category id, the form starts in that category. */
 export function newLibraryPath(categoryId?: string): string {
   return categoryId ? `/libraries/new?category=${encodeURIComponent(categoryId)}` : "/libraries/new";
@@ -49,4 +58,15 @@ export function libraryCodeEditPath(handle: string, libraryId: string): string {
 /** Sets or clears the submission URL of the library's latest code. */
 export function submissionUrlEditPath(handle: string, libraryId: string): string {
   return `${libraryPath(handle, libraryId)}/submission-url/edit`;
+}
+
+/**
+ * The positive integer id a /problems/{id} or /submissions/{id} segment names,
+ * or null for anything else (which the page answers with 404).
+ */
+export function parseIdSegment(segment: string): number | null {
+  if (!/^[1-9]\d{0,15}$/.test(segment)) {
+    return null;
+  }
+  return Number(segment);
 }

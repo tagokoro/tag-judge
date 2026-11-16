@@ -121,7 +121,7 @@ export JUDGE_SUBMISSIONS_QUEUE_NAME=judge-submissions
 
 ### 提出結果の詳細API
 
-提出者本人または管理者は、既存の詳細取得APIでケース別結果も取得できる。
+詳細取得APIでは、ソースコードとケース別結果も取得できる（読める人は下記）。
 
 ```sh
 curl -s -b cookies.txt "http://localhost:8080/api/v1/submissions/${SUBMISSION_ID}"
@@ -142,7 +142,7 @@ curl -s -b cookies.txt "http://localhost:8080/api/v1/submissions/${SUBMISSION_ID
 - 完了後は保存済みの実行ケースだけを `test_case_id` 昇順で返す。最初の失敗で判定が止まった場合、未実行ケースは含まれない。ケース実行前のIEも空配列になる。
 - 未計測の実行時間・メモリ使用量は `null`。現在のWorkerはメモリ使用量を保存しないため `memory_kb` は `null` となる。
 - 隠しテストを保護するため、入力・期待出力・標準出力・標準エラーは管理者にもこのAPIからは返さない。
-- 他人の提出は管理者以外 `403`、未認証は `401`、存在しない提出は `404`。提出一覧・提出作成レスポンスの形式は従来どおり。
+- public な提出は未認証でも読める（ソースコードを含む）。private な提出は提出者と管理者だけが読め、それ以外は存在しない提出と同じ `404`。提出一覧・提出作成レスポンスの形式は従来どおり。
 
 詳細APIのPostgreSQL統合テストは、ローカルのテスト用DBを指定して実行できる。テスト専用schemaへmigrationとfixtureを投入し、終了時にschemaを削除する。指定ユーザーにはschema・extension作成権限が必要。CIではPostgreSQL 16の専用サービスで毎回実行する。
 

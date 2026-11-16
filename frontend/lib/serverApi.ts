@@ -7,7 +7,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { createJudgeClient, isApiRequestError, type JudgeClient } from "./api";
 import { apiServerOrigin } from "./apiOrigin";
-import type { Library, LibraryVersion, Category, UserProfile } from "./types";
+import type { Library, LibraryVersion, Category, ProblemDetail, SubmissionDetail, UserProfile } from "./types";
 
 /** A client bound to this request's cookies. Never cached across requests. */
 export const serverClient = cache(async (): Promise<JudgeClient> => {
@@ -58,3 +58,13 @@ export const getLatestVersion = cache(async (libraryId: string): Promise<Library
   const [latest] = await api.listVersions(libraryId, 1);
   return latest ? api.getVersion(libraryId, latest.version_number) : null;
 });
+
+/** Null when the problem is missing or a draft hidden from the visitor. */
+export const getProblem = cache(async (problemId: number): Promise<ProblemDetail | null> =>
+  orNull((await serverClient()).getProblem(problemId)),
+);
+
+/** Null when the submission is missing or private to someone else. */
+export const getSubmission = cache(async (submissionId: number): Promise<SubmissionDetail | null> =>
+  orNull((await serverClient()).getSubmission(submissionId)),
+);
