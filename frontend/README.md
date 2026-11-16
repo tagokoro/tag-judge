@@ -5,7 +5,7 @@ Next.js（App Router）+ TypeScript で実装したライブラリ共有 MVP の
 単一 HTML や Go による静的配信は使わず、Go API（`:8080`）と Next.js（`:3000`）は別プロセスです。
 
 API 契約は `backend/docs/openapi.yaml`、要件は
-`docs/library-sharing.md` と `docs/user-profile.md` に従います。
+`docs/library-sharing.md`・`docs/user-profile.md`・`docs/problem-submission.md` に従います。
 
 ## ページ構成
 
@@ -17,7 +17,9 @@ API 契約は `backend/docs/openapi.yaml`、要件は
 | --- | --- | --- |
 | `/` | ライブラリ一覧（全ユーザーの公開 Library） | `GET /libraries` |
 | `/problems` | 問題一覧（公開の問題） | `GET /problems` |
-| `/submissions` | 提出一覧（公開の問題への最近の提出。ソースは出さない） | `GET /submissions/recent` |
+| `/problems/[id]` | 問題ページ。問題文タブ（問題文とサンプル）と提出タブ（`?tab=submit`。エディタと、この問題への自分の提出） | `GET /problems/{id}`、`POST /problems/{id}/submissions`、`GET /submissions?problem_id=` |
+| `/submissions` | 提出一覧（最近の public な提出。各行から提出ページへ） | `GET /submissions/recent` |
+| `/submissions/[id]` | 提出ページ（結果・テストケースごとの結果・ソースコード。判定中は自動で更新） | `GET /submissions/{id}` |
 | `/me` | 自分のページ。ハンドルがあれば `/users/[handle]` へ、無ければ `/signup` へ移動 | `GET /me` |
 | `/me/submissions` | 自分の提出 | `GET /submissions` |
 | `/me/problems` | 自分が作った問題（非公開を含む） | `GET /me/problems` |
@@ -37,6 +39,12 @@ API 契約は `backend/docs/openapi.yaml`、要件は
   変えても URL は変わりません。Library の URL にはカテゴリを入れないので、別のカテゴリに移しても URL は変わりません。
 - カテゴリを管理する画面はありません。Library を作るときや移すときに名前を書けば作られ、Library が 1 つもなくなれば自動で消えます。
 - URL のハンドルと実際の所有者が違うページは 404 です。
+- 問題と提出は数値の ID で URL を作ります（`/problems/{id}`・`/submissions/{id}`）。private の問題（下書き）は作成者と管理者にしか見えず、
+  private の提出は提出者と管理者にしか見えません。それ以外の人には存在しないページと同じ 404 です。
+- 問題ページのタブは URL の `?tab=submit` だけで持ちます（切り替えは `history.replaceState`）。提出タブのコードは問題ごとに
+  `localStorage` に下書きとして残ります。提出には `Idempotency-Key` を付け、応答が失われて再試行したときに二重に判定されないようにします。
+- 提出ページは、判定中（pending / running）の間だけ結果を取り直します（0.5 秒から 1.5 倍ずつ伸ばして最大 3 秒間隔。
+  タブが非表示の間は止め、2 分または 3 回続けて失敗したら止めて「再読み込み」を出します）。
 - 閲覧ページと編集ページは分けています。所有者が自分のページを見ても閲覧ページにはフォームを置かず、
   Description・Code・Verification の各カードの見出しの右にある「編集」ボタンから、それぞれの編集ページへ移ります
   （Description の「編集」は名前・説明・公開範囲の設定ページです）。
@@ -138,7 +146,9 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 - `lib/session.test.mjs` — cookie セッションが dev 認証より優先されること、dev ヘッダーはオプトイン時だけ
   送ること、actor ごとの識別子、dev ユーザーのハンドル、所有者判定（ハンドルで比較）。
 - `lib/routes.test.mjs` — ページパスの組み立て（`/users/` 配下・ID で引くパス・エンコード）、編集ページ・設定ページ・
-  Library 作成ページのパス。
+  Library 作成ページのパス、問題・提出のパスと URL の ID の解析。
+- `lib/judging.test.mjs` — 判定中かどうか、ポーリングの間隔と打ち切り、提出が断られたときの文言（存在しない問題には
+  専用の文言を出さないこと）、下書きのキー。
 
 ## 手動 E2E の目安
 
@@ -148,6 +158,11 @@ seed ユーザーにはハンドル `seed-author` / `seed-admin` があります
 → Library の設定で別の新しいカテゴリに移す（URL が変わらず、元のカテゴリが消えること）→ seed ユーザーを切り替えて
 404 になることを確認 → 戻して public 化 → コードを登録 → 提出 URL を設定 → 別ユーザーでは編集フォームが
 出ないこと、ログアウト状態でも public のコードと URL が読めることを確認します。
+
+提出の流れ: dev 認証（author）で public の問題 1 を開く → 提出タブでコードを書いて提出 → 提出ページが「判定中」から
+結果に変わることを確認（worker を動かすか、DB の `submissions.status` と `submission_results` を更新）→ 別の seed ユーザーや
+ログアウト状態でも public な提出のソースが読めること → private の問題 2 は作成者だけが開けて、そこへの提出は
+他のユーザーとログアウト状態では見つからないことを確認します。
 
 ## 制限（設計どおりの MVP 範囲）
 

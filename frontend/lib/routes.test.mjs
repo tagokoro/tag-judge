@@ -7,6 +7,9 @@ import {
   categoryPath,
   categoryEditPath,
   newLibraryPath,
+  parseIdSegment,
+  problemPath,
+  submissionPath,
   submissionUrlEditPath,
   userPath,
 } from "./routes.ts";
@@ -31,4 +34,17 @@ test("category editing and library creation take the category id", () => {
   assert.equal(categoryEditPath("alice", ns), `/users/alice/categories/${ns}/edit`);
   assert.equal(newLibraryPath(), "/libraries/new");
   assert.equal(newLibraryPath(ns), `/libraries/new?category=${ns}`);
+});
+
+test("problems and submissions are found by their numeric id", () => {
+  assert.equal(problemPath(3), "/problems/3");
+  assert.equal(problemPath(3, "submit"), "/problems/3?tab=submit");
+  assert.equal(submissionPath(10), "/submissions/10");
+});
+
+test("only a positive integer segment names a problem or submission", () => {
+  assert.equal(parseIdSegment("42"), 42);
+  for (const segment of ["0", "-1", "01", "1.5", "abc", "", "1e3", "12345678901234567"]) {
+    assert.equal(parseIdSegment(segment), null, segment);
+  }
 });

@@ -11,20 +11,13 @@ export default async function SubmissionsPage() {
     <div className="page">
       <div className="page-head">
         <h1>Submissions</h1>
-        <p className="page-sub">public な問題への最近の提出です。ソースコードは表示しません。</p>
+        <p className="page-sub">public な提出の最近のものです。提出日時から、ソースコードと結果を見られます。</p>
       </div>
       {submissions.length === 0 ? (
         <p className="empty">まだ提出がありません。</p>
       ) : (
         <div className="panel">
-          <SubmissionTable
-            showSubmitter
-            submissions={submissions.map((submission) => ({
-              ...submission,
-              problem: submission.problem_title,
-              submitter: submission.submitter,
-            }))}
-          />
+          <SubmissionTable showSubmitter submissions={submissions} />
         </div>
       )}
     </div>

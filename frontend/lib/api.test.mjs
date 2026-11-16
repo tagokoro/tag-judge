@@ -119,6 +119,46 @@ test("createJudgeClient builds the site-wide list endpoints", async () => {
   );
 });
 
+test("createJudgeClient builds the problem and submission endpoints", async () => {
+  const { calls, fake } = recorder(jsonResponse(200, { data: { id: 10 } }));
+  const client = createJudgeClient(() => null, fake);
+  await client.getProblem(3);
+  await client.listMySubmissions(3);
+  await client.getSubmission(10);
+  const created = await client.createSubmission(3, { language: "python", source_code: "print(1)" }, "key-1");
+  assert.equal(created.id, 10);
+  assert.deepEqual(
+    calls.map((call) => [call.init.method ?? "GET", call.url]),
+    [
+      ["GET", "/api/v1/problems/3"],
+      ["GET", "/api/v1/submissions?limit=100&problem_id=3"],
+      ["GET", "/api/v1/submissions/10"],
+      ["POST", "/api/v1/problems/3/submissions"],
+    ],
+  );
+  const post = calls[3].init;
+  assert.equal(post.headers["Idempotency-Key"], "key-1");
+  assert.deepEqual(JSON.parse(post.body), { language: "python", source_code: "print(1)" });
+});
+
+test("apiRequest keeps Retry-After on a refused request", async () => {
+  const response = {
+    status: 429,
+    ok: false,
+    headers: new Headers({ "Retry-After": "7" }),
+    text: async () => JSON.stringify({ error: { code: "USER_RATE_LIMIT_EXCEEDED", message: "slow down" } }),
+  };
+  await assert.rejects(apiRequest("/code-runs", {}, null, async () => response), (error) => {
+    assert.equal(error.code, "USER_RATE_LIMIT_EXCEEDED");
+    assert.equal(error.retryAfter, 7);
+    return true;
+  });
+  await assert.rejects(apiRequest("/x", {}, null, async () => jsonResponse(500, { error: { code: "INTERNAL_ERROR" } })), (error) => {
+    assert.equal(error.retryAfter, undefined);
+    return true;
+  });
+});
+
 // A version's submission URL is a self-declared related-submission URL set by
 // the owner. PUT carries ONLY submission_url; DELETE clears it (204).
 test("createJudgeClient builds the version submission-URL endpoints", async () => {

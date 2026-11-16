@@ -1106,6 +1106,12 @@ textarea.code-input {
     font-size: 13px;
   }
 
+  /* A badge keeps its own width instead of filling the value column. */
+  .table td > .status,
+  .table td > .badge {
+    justify-self: start;
+  }
+
   /* The title leads the card on its own line. */
   .table td.cell-main {
     display: block;
@@ -1352,4 +1358,32 @@ textarea.code-input {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* ---------- Problem and submission pages ---------- */
+
+.page-tabs {
+  align-self: flex-start;
+}
+
+.sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.sample {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.sample-text {
+  padding-left: 12px;
+  min-height: 3rem;
+}
+
+.judging-note {
+  margin-top: 1rem;
 }

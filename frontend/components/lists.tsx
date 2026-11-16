@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { descriptionSummary, formatDateTime, statusLabel, statusTone } from "@/lib/format";
-import { libraryPath, userPath } from "@/lib/routes";
+import { libraryPath, problemPath, submissionPath, userPath } from "@/lib/routes";
 import type { Library, Problem } from "@/lib/types";
 import { VisibilityBadge } from "./ui";
 
@@ -53,7 +53,9 @@ export function ProblemList({ problems, showVisibility = false }: { problems: Pr
         {problems.map((problem) => (
           <tr key={problem.id}>
             <td className="num col-shrink" data-label="ID">{problem.id}</td>
-            <td className="cell-main" data-label="問題">{problem.title}</td>
+            <td className="cell-main" data-label="問題">
+              <Link href={problemPath(problem.id)}>{problem.title}</Link>
+            </td>
             <td className="num muted col-shrink" data-label="制限">
               {problem.time_limit_ms / 1000} 秒 / {Math.round(problem.memory_limit_kb / 1024)} MB
             </td>
@@ -71,7 +73,9 @@ export function ProblemList({ problems, showVisibility = false }: { problems: Pr
 
 export interface SubmissionRow {
   id: number;
-  problem: string;
+  problem_id: number;
+  /** Shown instead of "#{problem_id}" when known. */
+  problem_title?: string;
   submitter?: string | null;
   language: string;
   status: string;
@@ -79,19 +83,23 @@ export interface SubmissionRow {
   created_at: string;
 }
 
+/** Submissions as rows; the date opens the submission, the problem its page. */
 export function SubmissionTable({
   submissions,
   showSubmitter = false,
+  showProblem = true,
 }: {
   submissions: SubmissionRow[];
   showSubmitter?: boolean;
+  /** Off where every row is for the same problem. */
+  showProblem?: boolean;
 }) {
   return (
     <table className="table">
       <thead>
         <tr>
           <th scope="col" className="col-shrink">提出日時</th>
-          <th scope="col">問題</th>
+          {showProblem ? <th scope="col">問題</th> : null}
           {showSubmitter ? <th scope="col">提出者</th> : null}
           <th scope="col">言語</th>
           <th scope="col">結果</th>
@@ -101,8 +109,16 @@ export function SubmissionTable({
       <tbody>
         {submissions.map((submission) => (
           <tr key={submission.id}>
-            <td className="num col-shrink" data-label="提出日時">{formatDateTime(submission.created_at)}</td>
-            <td className="cell-main" data-label="問題">{submission.problem}</td>
+            <td className="num col-shrink" data-label="提出日時">
+              <Link href={submissionPath(submission.id)}>{formatDateTime(submission.created_at)}</Link>
+            </td>
+            {showProblem ? (
+              <td className="cell-main" data-label="問題">
+                <Link href={problemPath(submission.problem_id)}>
+                  {submission.problem_title ?? `#${submission.problem_id}`}
+                </Link>
+              </td>
+            ) : null}
             {showSubmitter ? (
               <td data-label="提出者">
                 {submission.submitter ? (

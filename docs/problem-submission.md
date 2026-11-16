@@ -178,7 +178,8 @@ body の上限は既存の Library API（`decodeLibraryJSON`）と同じ考え�
   - 「サンプル n を入力」ボタンで標準入力にサンプルを入れる。そのまま実行した場合は、stdout をサンプルの出力と比べて「一致 / 不一致」を出す（末尾の空白・改行は無視）。
   - 未ログインなら `LoginRequired`。
 - 提出タブとコード実行タブは**同じソースコード**を編集する。ソースは問題ごとに `localStorage` に下書きとして保存する（読み書きは try/catch で囲み、失敗しても動くようにする）。
-- タブの切り替えはクライアント側で行い、URL の `?tab=` を置き換える（履歴は積まない）。Next.js 16 の `useSearchParams` と `window.history.replaceState` の連携は、実装前に `node_modules/next/dist/docs/` で確認する（`frontend/AGENTS.md`）。
+- タブは URL の `?tab=submit` だけで持ち、`useSearchParams` で読む。切り替えは `window.history.replaceState` で URL を置き換える（履歴は積まない。Next.js 16 では `replaceState` が `useSearchParams` に反映される）。actor が変わってページが作り直されても、タブは URL のとおりに保たれる。
+- dev ヘッダー認証の actor はサーバーから見えないため、開発ビルドではサーバーで 404 だった問題・提出もブラウザ側で取り直す（既存の Library ページと同じ）。そのときブラウザ側では `notFound()` を呼ばず「見つかりません」の文言を出し、actor を切り替えたら取り直す。本番ビルドはサーバーがそのまま 404 を返す。
 
 ### 提出結果ページ `/submissions/{id}`
 
@@ -223,11 +224,11 @@ body の上限は既存の Library API（`decodeLibraryJSON`）と同じ考え�
 feature ブランチを順に積み、それぞれマージコミットでマージする。
 
 1. **backend**：`submissions.is_public` のマイグレーション、public から戻す変更の禁止、権限の判定、`GET /problems/{id}` の `samples`、`GET /submissions/{id}` の変更、`problem_id` での絞り込み、サイズ上限、OpenAPI。
-2. **worker**：メッセージの判別、CodeRun の実行と結果の書き込み、パースできないメッセージの扱い。
-3. **frontend（問題・提出）**：`/problems/{id}`（問題文・提出タブ）、`/submissions/{id}`、ポーリング、一覧からのリンク。
+2. **frontend（問題・提出）**：`/problems/{id}`（問題文・提出タブ）、`/submissions/{id}`、ポーリング、一覧からのリンク。
+3. **worker**：メッセージの判別、CodeRun の実行と結果の書き込み、パースできないメッセージの扱い。
 4. **frontend（コード実行）**：コード実行タブ、`/code-runs`、ヘッダーのリンク。
 
-1 と 2 は独立している。worker の変更（2）は、CodeRun のメッセージで worker が落ちる問題を直すので、先に入れられるなら先に入れる。
+2 は 1 の API だけを使う。3 は 1・2 と独立していて、CodeRun のメッセージで worker が落ちる問題を直すので、先に入れられるなら先に入れる。
 
 ## 今回やらないこと
 

@@ -116,6 +116,16 @@ export interface Problem {
   updated_at: string;
 }
 
+export interface ProblemSample {
+  input: string;
+  output: string;
+}
+
+/** One problem with its sample cases (GET /problems/{id}); lists carry no samples. */
+export interface ProblemDetail extends Problem {
+  samples: ProblemSample[];
+}
+
 export type SubmissionStatus = "pending" | "running" | "ac" | "wa" | "tle" | "mle" | "re" | "ce" | "ie";
 
 /** The signed-in user's own submission (GET /submissions). */
@@ -128,6 +138,40 @@ export interface Submission {
   score: number;
   created_at: string;
   judged_at: string | null;
+}
+
+export interface SubmissionCaseResult {
+  test_case_id: number;
+  status: SubmissionStatus;
+  execution_time_ms: number | null;
+  memory_kb: number | null;
+}
+
+/**
+ * One submission with its source and case results (GET /submissions/{id}).
+ * Anyone may read a public one, so it names the submitter by handle only.
+ */
+export interface SubmissionDetail {
+  id: number;
+  problem_id: number;
+  problem_title: string;
+  /** The submitter's handle, or null when they have none. */
+  submitter: string | null;
+  language: string;
+  source_code: string;
+  status: SubmissionStatus;
+  score: number;
+  /** Fixed when accepted: true when the problem was public then. */
+  is_public: boolean;
+  created_at: string;
+  judged_at: string | null;
+  /** Empty while pending or running. */
+  case_results: SubmissionCaseResult[];
+}
+
+export interface CreateSubmissionInput {
+  language: "python";
+  source_code: string;
 }
 
 /** A submission to a public problem, as anyone may see it (no source, no user id). */
