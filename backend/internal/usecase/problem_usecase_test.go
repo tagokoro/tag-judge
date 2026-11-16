@@ -81,9 +81,56 @@ func TestGetProblemID(t *testing.T) {
 	repo := newFakeProblemRepository()
 	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
 
-	_, err := uc.GetPublicProblem(context.Background(), 0)
+	_, err := uc.GetProblem(context.Background(), auth.Actor{}, 0)
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// A private (draft) or group problem is shown only to its creator and an
+// admin; everyone else, signed in or not, gets the same 404 as a missing one.
+func TestGetProblemVisibility(t *testing.T) {
+	anonymous := auth.Actor{}
+	creator := authorActor()
+	other := auth.Actor{UserID: problemUserID, Role: domain.UserRoleUser}
+	admin := auth.Actor{UserID: problemAdminID, Role: domain.UserRoleAdmin}
+	tests := []struct {
+		visibility domain.ProblemVisibility
+		actor      auth.Actor
+		visible    bool
+	}{
+		{domain.ProblemVisibilityPublic, anonymous, true},
+		{domain.ProblemVisibilityPublic, other, true},
+		{domain.ProblemVisibilityPublic, creator, true},
+		{domain.ProblemVisibilityPrivate, anonymous, false},
+		{domain.ProblemVisibilityPrivate, other, false},
+		{domain.ProblemVisibilityPrivate, creator, true},
+		{domain.ProblemVisibilityPrivate, admin, true},
+		{domain.ProblemVisibilityGroup, other, false},
+		{domain.ProblemVisibilityGroup, creator, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.visibility)+"/"+string(tt.actor.Role), func(t *testing.T) {
+			repo := newFakeProblemRepository()
+			repo.problem.Visibility = tt.visibility
+			testCases := &fakeTestCaseCounter{samples: []domain.ProblemSample{{Input: "1 2\n", Output: "3\n"}}}
+			uc := NewProblemUsecase(repo, testCases)
+
+			got, err := uc.GetProblem(context.Background(), tt.actor, 42)
+			if tt.visible {
+				if err != nil {
+					t.Fatalf("GetProblem err = %v, want visible", err)
+				}
+				if got.ID != 42 || len(got.Samples) != 1 || testCases.samplesProblemID != 42 {
+					t.Fatalf("detail = %+v, samples read for problem %d", got, testCases.samplesProblemID)
+				}
+				return
+			}
+			requireAppError(t, err, apperror.ErrNotFound, "PROBLEM_NOT_FOUND", "problem not found")
+			if testCases.samplesProblemID != 0 {
+				t.Fatal("samples must not be read for a hidden problem")
+			}
+		})
 	}
 }
 
@@ -190,9 +237,57 @@ func TestUpdateProblemPublic(t *testing.T) {
 	}
 }
 
+// Publishing is one-way, for the creator and an admin alike, so a public
+// submission never becomes hidden again.
+func TestUpdateProblemCannotUnpublish(t *testing.T) {
+	for _, actor := range []auth.Actor{authorActor(), {UserID: problemAdminID, Role: domain.UserRoleAdmin}} {
+		for _, visibility := range []domain.ProblemVisibility{domain.ProblemVisibilityPrivate, domain.ProblemVisibilityGroup} {
+			repo := newFakeProblemRepository()
+			repo.problem.Visibility = domain.ProblemVisibilityPublic
+			uc := NewProblemUsecase(repo, &fakeTestCaseCounter{count: 1})
+
+			_, err := uc.UpdateProblem(context.Background(), actor, 42, UpdateProblemInput{Visibility: &visibility})
+			requireAppError(t, err, apperror.ErrConflict, "PROBLEM_ALREADY_PUBLIC", "a public problem cannot be made private or group")
+			if repo.updateCalled {
+				t.Fatal("repository should not be called")
+			}
+		}
+	}
+}
+
+func TestUpdatePublicProblemKeepsItPublic(t *testing.T) {
+	repo := newFakeProblemRepository()
+	repo.problem.Visibility = domain.ProblemVisibilityPublic
+	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{count: 1})
+	title := "Updated"
+	visibility := domain.ProblemVisibilityPublic
+
+	if _, err := uc.UpdateProblem(context.Background(), authorActor(), 42, UpdateProblemInput{Title: &title}); err != nil {
+		t.Fatalf("title update err = %v", err)
+	}
+	if _, err := uc.UpdateProblem(context.Background(), authorActor(), 42, UpdateProblemInput{Visibility: &visibility}); err != nil {
+		t.Fatalf("public to public err = %v", err)
+	}
+}
+
+// Someone else's draft is hidden even from another author, like on a read.
+func TestUpdateOthersPrivateProblemIsNotFound(t *testing.T) {
+	repo := newFakeProblemRepository()
+	repo.problem.CreatedBy = problemAdminID
+	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
+	title := "Updated"
+
+	_, err := uc.UpdateProblem(context.Background(), authorActor(), 42, UpdateProblemInput{Title: &title})
+	requireAppError(t, err, apperror.ErrNotFound, "PROBLEM_NOT_FOUND", "problem not found")
+	if err := uc.DeleteProblem(context.Background(), authorActor(), 42); !errors.Is(err, apperror.ErrNotFound) {
+		t.Fatalf("delete err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestUpdateProblemOwner(t *testing.T) {
 	repo := newFakeProblemRepository()
 	repo.problem.CreatedBy = problemAdminID
+	repo.problem.Visibility = domain.ProblemVisibilityPublic
 	uc := NewProblemUsecase(repo, &fakeTestCaseCounter{})
 	title := "Updated"
 
@@ -264,12 +359,6 @@ func (r *fakeProblemRepository) ListByCreator(_ context.Context, params reposito
 	return []domain.Problem{r.problem}, nil
 }
 
-func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
-	problem := r.problem
-	problem.ID = id
-	return &problem, nil
-}
-
 func (r *fakeProblemRepository) FindByID(_ context.Context, id int64) (*domain.Problem, error) {
 	problem := r.problem
 	problem.ID = id
@@ -310,11 +399,29 @@ func (r *fakeProblemRepository) SetCurrentTestCasesKey(_ context.Context, _ int6
 }
 
 type fakeTestCaseCounter struct {
-	count     int
-	problemID int64
+	count            int
+	problemID        int64
+	samples          []domain.ProblemSample
+	samplesProblemID int64
+}
+
+func (r *fakeTestCaseCounter) ListSamplesByProblemID(_ context.Context, problemID int64) ([]domain.ProblemSample, error) {
+	r.samplesProblemID = problemID
+	return r.samples, nil
 }
 
 func (r *fakeTestCaseCounter) CountByProblemID(_ context.Context, problemID int64) (int, error) {
 	r.problemID = problemID
 	return r.count, nil
+}
+
+func requireAppError(t *testing.T, err error, wantSentinel error, wantCode, wantMessage string) {
+	t.Helper()
+	var appErr *apperror.AppError
+	if !errors.Is(err, wantSentinel) || !errors.As(err, &appErr) {
+		t.Fatalf("err = %v, want %v", err, wantSentinel)
+	}
+	if appErr.Code != wantCode || appErr.Message != wantMessage {
+		t.Fatalf("error = %s %q, want %s %q", appErr.Code, appErr.Message, wantCode, wantMessage)
+	}
 }

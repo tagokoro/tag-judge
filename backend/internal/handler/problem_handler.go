@@ -168,13 +168,14 @@ func (h *ProblemHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	problem, err := h.problems.GetPublicProblem(r.Context(), id)
+	actor, _ := auth.ActorFromContext(r.Context())
+	problem, err := h.problems.GetProblem(r.Context(), actor, id)
 	if err != nil {
 		WriteError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, newProblemResponse(*problem))
+	writeJSON(w, http.StatusOK, newProblemDetailResponse(*problem))
 }
 
 func parseProblemID(r *http.Request) (int64, error) {
@@ -226,6 +227,26 @@ type problemResponse struct {
 	CreatedBy     *string   `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// problemDetailResponse is the single-problem read; lists and writes return
+// the plain problemResponse.
+type problemDetailResponse struct {
+	problemResponse
+	Samples []problemSampleResponse `json:"samples"`
+}
+
+type problemSampleResponse struct {
+	Input  string `json:"input"`
+	Output string `json:"output"`
+}
+
+func newProblemDetailResponse(detail domain.ProblemDetail) problemDetailResponse {
+	samples := make([]problemSampleResponse, 0, len(detail.Samples))
+	for _, sample := range detail.Samples {
+		samples = append(samples, problemSampleResponse{Input: sample.Input, Output: sample.Output})
+	}
+	return problemDetailResponse{problemResponse: newProblemResponse(detail.Problem), Samples: samples}
 }
 
 func newProblemResponse(problem domain.Problem) problemResponse {

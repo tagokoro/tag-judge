@@ -33,6 +33,22 @@ func TestFileSourceCodeStorageWritesUnderRoot(t *testing.T) {
 	}
 }
 
+func TestFileSourceCodeStorageReadsBackSource(t *testing.T) {
+	storage := NewFileSourceCodeStorage(t.TempDir())
+	key := "submissions/user/problems/42/main.py"
+	if err := storage.PutSourceCode(context.Background(), repository.PutSourceCodeParams{Key: key, Language: domain.SubmissionLanguagePython, SourceCode: "print(42)\n"}); err != nil {
+		t.Fatalf("PutSourceCode returned error: %v", err)
+	}
+
+	got, err := storage.GetSourceCode(context.Background(), key)
+	if err != nil || got != "print(42)\n" {
+		t.Fatalf("GetSourceCode = %q, %v", got, err)
+	}
+	if _, err := storage.GetSourceCode(context.Background(), "../outside.py"); err == nil {
+		t.Fatal("a key escaping the root must be rejected")
+	}
+}
+
 func TestFileSourceCodeStorageKeepsContentAddressedTestCaseSnapshots(t *testing.T) {
 	root := t.TempDir()
 	storage := NewFileSourceCodeStorage(root)

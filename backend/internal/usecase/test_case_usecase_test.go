@@ -34,12 +34,23 @@ func TestCreateTestCase(t *testing.T) {
 func TestListTestCasesOwner(t *testing.T) {
 	problems := newFakeProblemRepository()
 	problems.problem.CreatedBy = problemAdminID
+	problems.problem.Visibility = domain.ProblemVisibilityPublic
 	uc := newTestCaseUsecase(problems, newFakeTestCaseRepository())
 
 	_, err := uc.List(context.Background(), authorActor(), 42)
 	if !errors.Is(err, apperror.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden", err)
 	}
+}
+
+// Someone else's draft is hidden from another author, as on a read.
+func TestListTestCasesOfOthersPrivateProblemIsNotFound(t *testing.T) {
+	problems := newFakeProblemRepository()
+	problems.problem.CreatedBy = problemAdminID
+	uc := newTestCaseUsecase(problems, newFakeTestCaseRepository())
+
+	_, err := uc.List(context.Background(), authorActor(), 42)
+	requireAppError(t, err, apperror.ErrNotFound, "PROBLEM_NOT_FOUND", "problem not found")
 }
 
 func TestListTestCasesAdmin(t *testing.T) {

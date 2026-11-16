@@ -22,6 +22,7 @@ func TestGetSubmissionDetailsRoute(t *testing.T) {
 			ID: 7, UserID: routerUserID, ProblemID: 42,
 			Language: domain.SubmissionLanguagePython, SourceCodeKey: "submissions/7/main.py",
 			Status: domain.SubmissionStatusWA, Score: 1, JudgedAt: &judgedAt,
+			ProblemTitle: "A + B", SubmitterHandle: "seed-author",
 		},
 		caseResults: []domain.SubmissionCaseResult{
 			{TestCaseID: 10, Status: domain.SubmissionStatusAC, ExecutionTimeMS: &zero, MemoryKB: &memory},
@@ -44,6 +45,14 @@ func TestGetSubmissionDetailsRoute(t *testing.T) {
 	}
 	if body.Data["id"] != float64(7) || body.Data["status"] != "wa" || body.Data["score"] != float64(1) || body.Data["judged_at"] != "2026-10-04T12:00:00Z" {
 		t.Fatalf("submission metadata was not preserved: %v", body.Data)
+	}
+	if body.Data["source_code"] != "print(1)" || body.Data["problem_title"] != "A + B" || body.Data["submitter"] != "seed-author" || body.Data["is_public"] != false {
+		t.Fatalf("detail = %v, want source, problem title, and submitter handle", body.Data)
+	}
+	for _, internal := range []string{"user_id", "source_code_key", "test_cases_key"} {
+		if _, ok := body.Data[internal]; ok {
+			t.Fatalf("detail must not expose %s: %v", internal, body.Data)
+		}
 	}
 	want := []any{
 		map[string]any{"test_case_id": float64(10), "status": "ac", "execution_time_ms": float64(0), "memory_kb": float64(1024)},
@@ -83,6 +92,7 @@ func TestGetSubmissionDetailsAccessAndErrors(t *testing.T) {
 		name       string
 		role       string
 		owner      string
+		public     bool
 		path       string
 		findErr    error
 		resultsErr error
@@ -90,9 +100,11 @@ func TestGetSubmissionDetailsAccessAndErrors(t *testing.T) {
 		wantCode   string
 		wantReads  int
 	}{
-		{name: "unauthenticated", path: "/api/v1/submissions/7", wantStatus: 401, wantCode: "UNAUTHORIZED"},
-		{name: "other user", role: "user", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 403, wantCode: "SUBMISSION_FORBIDDEN"},
-		{name: "author is not admin", role: "author", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 403, wantCode: "SUBMISSION_FORBIDDEN"},
+		{name: "anonymous on public", owner: "another-user", public: true, path: "/api/v1/submissions/7", wantStatus: 200, wantReads: 1},
+		{name: "other user on public", role: "user", owner: "another-user", public: true, path: "/api/v1/submissions/7", wantStatus: 200, wantReads: 1},
+		{name: "anonymous on private", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 404, wantCode: "SUBMISSION_NOT_FOUND"},
+		{name: "other user on private", role: "user", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 404, wantCode: "SUBMISSION_NOT_FOUND"},
+		{name: "author is not admin", role: "author", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 404, wantCode: "SUBMISSION_NOT_FOUND"},
 		{name: "admin", role: "admin", owner: "another-user", path: "/api/v1/submissions/7", wantStatus: 200, wantReads: 1},
 		{name: "invalid id", role: "user", path: "/api/v1/submissions/0", wantStatus: 400, wantCode: "INVALID_SUBMISSION_ID"},
 		{name: "missing", role: "user", path: "/api/v1/submissions/7", findErr: apperror.NotFound("SUBMISSION_NOT_FOUND", "submission not found"), wantStatus: 404, wantCode: "SUBMISSION_NOT_FOUND"},
@@ -100,7 +112,7 @@ func TestGetSubmissionDetailsAccessAndErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeSubmissionRepository{
-				submission: &domain.Submission{ID: 7, UserID: tc.owner, Status: domain.SubmissionStatusAC},
+				submission: &domain.Submission{ID: 7, UserID: tc.owner, Status: domain.SubmissionStatusAC, IsPublic: tc.public},
 				findErr:    tc.findErr, caseResultsErr: tc.resultsErr,
 			}
 			router := newTestRouterWithRepositories(newRouterGroupRepository(), repo)

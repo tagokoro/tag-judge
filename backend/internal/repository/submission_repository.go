@@ -14,6 +14,7 @@ type CreateSubmissionParams struct {
 	TestCasesKey  string
 	Status        domain.SubmissionStatus
 	Score         int
+	IsPublic      bool
 }
 
 // CreateSubmissionWithOutboxParams describes the immutable job to be sent once
@@ -24,9 +25,10 @@ type CreateSubmissionWithOutboxParams struct {
 }
 
 type ListSubmissionsParams struct {
-	UserID string
-	Limit  int
-	Offset int
+	UserID    string
+	ProblemID *int64 // nil lists submissions to every problem
+	Limit     int
+	Offset    int
 }
 
 type ListRecentSubmissionsParams struct {
@@ -38,7 +40,7 @@ type SubmissionRepository interface {
 	FindByID(ctx context.Context, id int64) (*domain.Submission, error)
 	ListCaseResults(ctx context.Context, submissionID int64) ([]domain.SubmissionCaseResult, error)
 	ListByUserID(ctx context.Context, params ListSubmissionsParams) ([]domain.Submission, error)
-	// ListRecentPublic lists recent submissions to public problems for everyone.
+	// ListRecentPublic lists recent public submissions for everyone.
 	ListRecentPublic(ctx context.Context, params ListRecentSubmissionsParams) ([]domain.PublicSubmission, error)
 }
 

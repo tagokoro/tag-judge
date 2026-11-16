@@ -122,6 +122,7 @@ func (a *AdmissionControl) CreateSubmission(ctx context.Context, params reposito
 		TestCasesKey:  params.TestCasesKey,
 		Status:        string(params.Status),
 		Score:         int32(params.Score),
+		IsPublic:      params.IsPublic,
 	})
 	if err != nil {
 		return nil, classifyDBError(err, "create submission")
@@ -151,7 +152,7 @@ func (a *AdmissionControl) CreateSubmission(ctx context.Context, params reposito
 		return nil, classifyCommitError()
 	}
 
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
+	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, "", pgtype.Text{})
 	return &submission, nil
 }
 
@@ -383,7 +384,7 @@ func (a *AdmissionControl) findIdempotentSubmission(ctx context.Context, tx pgx.
 	if err != nil {
 		return nil, classifyDBError(err, "fetch idempotent submission")
 	}
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
+	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, row.ProblemTitle, row.SubmitterHandle)
 	return &submission, nil
 }
 

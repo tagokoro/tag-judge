@@ -132,6 +132,7 @@ type Submission struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 	TestCasesKey  string             `json:"test_cases_key"`
+	IsPublic      bool               `json:"is_public"`
 }
 
 type SubmissionJobOutbox struct {

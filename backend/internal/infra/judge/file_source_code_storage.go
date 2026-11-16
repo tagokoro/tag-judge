@@ -29,6 +29,18 @@ func (s *FileSourceCodeStorage) PutSourceCode(_ context.Context, params reposito
 	return os.WriteFile(path, []byte(params.SourceCode), 0o600)
 }
 
+func (s *FileSourceCodeStorage) GetSourceCode(_ context.Context, key string) (string, error) {
+	path, err := s.objectPath(key)
+	if err != nil {
+		return "", err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 func (s *FileSourceCodeStorage) PutTestCases(_ context.Context, params repository.PutTestCasesParams) (string, error) {
 	body, key, err := marshalTestCases(params)
 	if err != nil {

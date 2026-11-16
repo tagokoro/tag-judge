@@ -31,8 +31,16 @@ type Submission struct {
 	TestCasesKey  string
 	Status        SubmissionStatus
 	Score         int
-	CreatedAt     time.Time
-	JudgedAt      *time.Time
+	// IsPublic is fixed when the submission is accepted: true only when the
+	// problem was public then. Anyone may read a public submission.
+	IsPublic  bool
+	CreatedAt time.Time
+	JudgedAt  *time.Time
+	// ProblemTitle and SubmitterHandle are filled by reads; a newly created
+	// submission leaves them empty. SubmitterHandle is empty when the
+	// submitter has no handle.
+	ProblemTitle    string
+	SubmitterHandle string
 }
 
 // PublicSubmission is what anyone may see about a submission to a public
@@ -52,6 +60,7 @@ type PublicSubmission struct {
 
 type SubmissionDetail struct {
 	Submission
+	SourceCode  string
 	CaseResults []SubmissionCaseResult
 }
 

@@ -122,7 +122,15 @@ paths:
           $ref: "#/components/responses/Error"
   /problems/{problem_id}:
     get:
-      summary: Get a public problem
+      summary: Get a problem
+      description: |
+        Anyone may read a public problem, signed in or not. A private or group
+        problem is a draft shown only to its creator and administrators; it
+        returns 404 for everyone else, like a missing problem.
+
+        The response carries the sample test cases (`is_sample`) ordered by id;
+        non-sample cases are never returned. Lists and writes return the
+        problem without samples.
       parameters:
         - name: problem_id
           in: path
@@ -133,18 +141,25 @@ paths:
             minimum: 1
       responses:
         "200":
-          description: Public problem
+          description: Problem with its samples
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProblemResponse"
+                $ref: "#/components/schemas/ProblemDetailResponse"
         "400":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
     patch:
       summary: Update a problem
-      description: The owning author or an administrator can update a problem. A problem requires at least one test case before it can be public.
+      description: |
+        The owning author or an administrator can update a problem. A problem
+        requires at least one test case before it can be public.
+
+        Publishing is one-way: a public problem cannot be made private or group
+        again, by anyone, and such a request returns `409 PROBLEM_ALREADY_PUBLIC`.
+        Submissions made while the problem was private stay private after it
+        is published. Someone else's private or group problem returns 404.
       security:
         - CookieAuth: []
       parameters:
@@ -171,6 +186,8 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
     delete:
       summary: Delete a problem
@@ -277,7 +294,10 @@ paths:
           $ref: "#/components/responses/Error"
     delete:
       summary: Delete a test case
-      description: The last test case of a public problem cannot be deleted.
+      description: |
+        The last test case of a public problem cannot be deleted. A test case
+        that a submission was judged on returns 409 TEST_CASE_HAS_RESULTS; edit
+        it instead.
       security:
         - CookieAuth: []
       parameters:
@@ -300,8 +320,14 @@ paths:
           $ref: "#/components/responses/Error"
   /problems/{problem_id}/submissions:
     post:
-      summary: Create a submission for a public problem
+      summary: Create a submission
       description: |
+        Any signed-in user may submit to a public problem. Only the creator may
+        submit to their private or group problem (to check it before
+        publishing); for anyone else, administrators included, it returns 404.
+        A submission is public when the problem is public at that moment, and
+        that never changes afterwards.
+
         Creates a pending submission and records a durable outbox entry so the
         job is dispatched even if SQS is temporarily unavailable. The source
         code is stored before the admission decision; a rejected request may
@@ -354,6 +380,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/UserIDHeader"
         - $ref: "#/components/parameters/UserRoleHeader"
+        - name: problem_id
+          in: query
+          description: Lists only submissions to this problem.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
         - name: limit
           in: query
           schema:
@@ -380,10 +413,11 @@ paths:
           $ref: "#/components/responses/Error"
   /submissions/recent:
     get:
-      summary: List recent submissions to public problems
+      summary: List recent public submissions
       description: |
-        Anyone may call this. Only submissions to public problems are listed,
-        newest first. No source code key and no user id are returned; the
+        Anyone may call this. Only public submissions are listed, newest first;
+        a submission made while its problem was private is not listed even
+        after the problem is published. No source code key and no user id are returned; the
         submitter is shown by their handle, or null when they have none.
       parameters:
         - name: limit
@@ -410,9 +444,11 @@ paths:
           $ref: "#/components/responses/Error"
   /submissions/{submission_id}:
     get:
-      summary: Get a submission with case results
+      summary: Get a submission with its source and case results
       description: |
-        The owner and administrators can view a submission and its saved case results.
+        Anyone may read a public submission, source included, signed in or not.
+        A private submission is shown only to its submitter and administrators
+        and returns 404 for everyone else, like a missing one.
         Pending and running submissions return an empty case_results array; poll this
         endpoint until the status is terminal. Hidden test inputs, expected output,
         stdout, and stderr are never included, including for administrators.
@@ -435,10 +471,6 @@ paths:
                 $ref: "#/components/schemas/SubmissionDetailResponse"
         "400":
           $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
   /code-runs:
@@ -458,6 +490,9 @@ paths:
         response is lost. Replays with the same key and identical normalized
         input return the same code run. A different body for the same key
         returns `409`. Without a key, duplicate code runs are possible on retry.
+
+        `source_code` is at most 65536 bytes (`400 SOURCE_CODE_TOO_LARGE`) and
+        `stdin` at most 131072 bytes (`400 STDIN_TOO_LARGE`), both in UTF-8.
 
         CodeRun execution is not yet implemented in the Rust worker; the
         durable outbox and admission counts still treat pending CodeRuns as
@@ -527,7 +562,7 @@ paths:
   /code-runs/{code_run_id}:
     get:
       summary: Get a code run
-      description: The owner can view the code run. An admin can view any code run.
+      description: The owner can view the code run. An admin can view any code run. Anyone else gets 404.
       security:
         - CookieAuth: []
       parameters:
@@ -550,8 +585,6 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
-          $ref: "#/components/responses/Error"
-        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -1450,6 +1483,23 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/Problem"
+    ProblemDetail:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [samples]
+          properties:
+            samples:
+              type: array
+              description: Sample cases ordered by id; empty when the problem has none.
+              items:
+                $ref: "#/components/schemas/ProblemSample"
+    ProblemDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ProblemDetail"
     Me:
       type: object
       required:
@@ -1494,9 +1544,11 @@ components:
         source_code:
           type: string
           minLength: 1
+          description: At most 65536 bytes in UTF-8.
         stdin:
           type: string
           default: ""
+          description: At most 131072 bytes in UTF-8.
     CodeRun:
       type: object
       required:
@@ -1568,6 +1620,7 @@ components:
         source_code:
           type: string
           minLength: 1
+          description: At most 65536 bytes in UTF-8 (`400 SOURCE_CODE_TOO_LARGE`).
     Submission:
       type: object
       required:
@@ -1633,19 +1686,59 @@ components:
           minimum: 0
           description: Memory usage in KiB, or null if not recorded. The current worker does not record this metric.
     SubmissionDetail:
-      allOf:
-        - $ref: "#/components/schemas/Submission"
-        - type: object
-          required: [case_results]
-          properties:
-            case_results:
-              type: array
-              description: |
-                Saved results ordered by test_case_id ascending. Empty for pending/running
-                submissions or when no cases ran (for example an early internal error).
-                Cases not executed after an early failure are omitted.
-              items:
-                $ref: "#/components/schemas/SubmissionCaseResult"
+      type: object
+      description: |
+        May be read by anyone when public, so it carries no user id and no
+        storage key; the submitter is named by handle.
+      required: [id, problem_id, problem_title, submitter, language, source_code, status, score, is_public, created_at, judged_at, case_results]
+      properties:
+        id:
+          type: integer
+          format: int64
+        problem_id:
+          type: integer
+          format: int64
+        problem_title:
+          type: string
+        submitter:
+          type: [string, "null"]
+          description: The submitter's handle, or null when they have none.
+        language:
+          type: string
+          enum: [python]
+        source_code:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, ac, wa, tle, mle, re, ce, ie]
+        score:
+          type: integer
+          minimum: 0
+        is_public:
+          type: boolean
+          description: Fixed when the submission was accepted; true when the problem was public then.
+        created_at:
+          type: string
+          format: date-time
+        judged_at:
+          type: [string, "null"]
+          format: date-time
+        case_results:
+          type: array
+          description: |
+            Saved results ordered by test_case_id ascending. Empty for pending/running
+            submissions or when no cases ran (for example an early internal error).
+            Cases not executed after an early failure are omitted.
+          items:
+            $ref: "#/components/schemas/SubmissionCaseResult"
+    ProblemSample:
+      type: object
+      required: [input, output]
+      properties:
+        input:
+          type: string
+        output:
+          type: string
     SubmissionDetailResponse:
       type: object
       required: [data]

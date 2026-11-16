@@ -101,6 +101,42 @@ func (q *Queries) GetTestCase(ctx context.Context, arg GetTestCaseParams) (TestC
 	return i, err
 }
 
+const listSampleTestCases = `-- name: ListSampleTestCases :many
+SELECT id, problem_id, input, expected_output, is_sample, score, created_at
+FROM test_cases
+WHERE problem_id = $1 AND is_sample
+ORDER BY id
+`
+
+// Sample cases only, for anyone who may view the problem.
+func (q *Queries) ListSampleTestCases(ctx context.Context, problemID int64) ([]TestCase, error) {
+	rows, err := q.db.Query(ctx, listSampleTestCases, problemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TestCase
+	for rows.Next() {
+		var i TestCase
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProblemID,
+			&i.Input,
+			&i.ExpectedOutput,
+			&i.IsSample,
+			&i.Score,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTestCases = `-- name: ListTestCases :many
 SELECT id, problem_id, input, expected_output, is_sample, score, created_at
 FROM test_cases

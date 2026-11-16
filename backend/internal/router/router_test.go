@@ -494,7 +494,7 @@ func TestCodeRunsJSON(t *testing.T) {
 	}
 }
 
-func TestCodeRunsForbidden(t *testing.T) {
+func TestCodeRunsOfOthersNotFound(t *testing.T) {
 	router := newTestRouter()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/code-runs/1", nil)
 	setAuth(req, "user")
@@ -502,9 +502,84 @@ func TestCodeRunsForbidden(t *testing.T) {
 
 	router.ServeHTTP(res, req)
 
-	if res.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", res.Code, http.StatusForbidden)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
 	}
+	assertErrorCode(t, res, "CODE_RUN_NOT_FOUND")
+}
+
+// The problem page reads a problem with its samples, signed in or not; a
+// private problem is shown to its creator and is a 404 to everyone else.
+func TestGetProblemRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		userID     string
+		wantStatus int
+	}{
+		{"creator", routerUserID, http.StatusOK},
+		{"other user", "00000000-0000-4000-8000-000000000009", http.StatusNotFound},
+		{"anonymous", "", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := newTestRouter()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/problems/42", nil)
+			if tc.userID != "" {
+				setAuthAsUser(req, tc.userID, "user")
+			}
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %s", res.Code, tc.wantStatus, res.Body)
+			}
+			if tc.wantStatus == http.StatusNotFound {
+				assertErrorCode(t, res, "PROBLEM_NOT_FOUND")
+				return
+			}
+			if !strings.Contains(res.Body.String(), `"samples":[{"input":"1 2\n","output":"3\n"}]`) {
+				t.Fatalf("problem body = %s, want its samples", res.Body)
+			}
+		})
+	}
+}
+
+// Lists and writes return the plain problem without samples.
+func TestProblemListHasNoSamples(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/problems", nil)
+	setAuth(req, "author")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || strings.Contains(res.Body.String(), "samples") {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body)
+	}
+}
+
+// An oversized body is refused before it is decoded, with the same 400 as
+// malformed JSON; a body at the decoded limits is left to the usecase.
+func TestExecutionBodiesAreBounded(t *testing.T) {
+	huge := `{"language":"python","source_code":"` + strings.Repeat("a", 2*1024*1024) + `"}`
+	for _, path := range []string{"/api/v1/problems/42/submissions", "/api/v1/code-runs"} {
+		router := newTestRouter()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(huge))
+		setAuth(req, "author")
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d, want 400", path, res.Code)
+		}
+		assertErrorCode(t, res, "INVALID_REQUEST_BODY")
+	}
+
+	escaped := `{"language":"python","source_code":"` + strings.Repeat(`\u0061`, domain.MaxExecutionSourceBytes+1) + `"}`
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/code-runs", strings.NewReader(escaped))
+	setAuth(req, "user")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("escaped status = %d, want 400", res.Code)
+	}
+	assertErrorCode(t, res, "SOURCE_CODE_TOO_LARGE")
 }
 
 func TestCodeRunsLimit(t *testing.T) {
@@ -801,14 +876,11 @@ func (r *fakeProblemRepository) ListByCreator(_ context.Context, params reposito
 	return []domain.Problem{{ID: 7, Title: "Mine", Visibility: domain.ProblemVisibilityPrivate, CreatedBy: params.CreatedBy, CreatedByHandle: "seed-author"}}, nil
 }
 
-func (r *fakeProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
-	return &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: "problems/1/testcases/current.json", CreatedBy: routerUserID}, nil
-}
-
+// FindByID serves routerUserID's private problem.
 func (r *fakeProblemRepository) FindByID(_ context.Context, id int64) (*domain.Problem, error) {
 	return &domain.Problem{
 		ID: id, Title: "A + B", Statement: "Compute.", TimeLimitMS: 1000, MemoryLimitKB: 262144,
-		Visibility: domain.ProblemVisibilityPrivate, CreatedBy: routerUserID,
+		Visibility: domain.ProblemVisibilityPrivate, CurrentTestCasesKey: "problems/1/testcases/current.json", CreatedBy: routerUserID,
 	}, nil
 }
 
@@ -890,6 +962,10 @@ func (s *fakeSourceCodeStorage) PutTestCases(_ context.Context, _ repository.Put
 
 func (s *fakeSourceCodeStorage) PutSourceCode(_ context.Context, _ repository.PutSourceCodeParams) error {
 	return nil
+}
+
+func (s *fakeSourceCodeStorage) GetSourceCode(_ context.Context, _ string) (string, error) {
+	return "print(1)", nil
 }
 
 type fakeExecutionDispatcher struct{}
@@ -1017,6 +1093,10 @@ type fakeRouterTestCaseRepository struct{}
 
 func (r *fakeRouterTestCaseRepository) CountByProblemID(_ context.Context, _ int64) (int, error) {
 	return 2, nil
+}
+
+func (r *fakeRouterTestCaseRepository) ListSamplesByProblemID(_ context.Context, _ int64) ([]domain.ProblemSample, error) {
+	return []domain.ProblemSample{{Input: "1 2\n", Output: "3\n"}}, nil
 }
 
 func (r *fakeRouterTestCaseRepository) ListByProblemID(_ context.Context, problemID int64) ([]domain.TestCase, error) {

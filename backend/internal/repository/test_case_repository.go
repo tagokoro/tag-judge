@@ -26,6 +26,17 @@ type TestCaseCounter interface {
 	CountByProblemID(ctx context.Context, problemID int64) (int, error)
 }
 
+type SampleReader interface {
+	ListSamplesByProblemID(ctx context.Context, problemID int64) ([]domain.ProblemSample, error)
+}
+
+// ProblemTestCaseReader is what the problem usecase reads about test cases:
+// the count that gates publishing and the samples shown on the problem page.
+type ProblemTestCaseReader interface {
+	TestCaseCounter
+	SampleReader
+}
+
 type TestCaseRepository interface {
 	TestCaseCounter
 	ListByProblemID(ctx context.Context, problemID int64) ([]domain.TestCase, error)

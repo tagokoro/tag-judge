@@ -130,19 +130,6 @@ func (r *ProblemRepository) ListByCreator(ctx context.Context, params repository
 	return problems, nil
 }
 
-func (r *ProblemRepository) FindPublicByID(ctx context.Context, id int64) (*domain.Problem, error) {
-	row, err := r.queries.GetPublicProblem(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperror.NotFound("PROBLEM_NOT_FOUND", "problem not found")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	problem := newProblem(row.ID, row.Title, row.Statement, row.TimeLimitMs, row.MemoryLimitKb, row.Visibility, row.CurrentTestCasesKey, row.CreatedBy, row.CreatedByHandle, row.CreatedAt, row.UpdatedAt)
-	return &problem, nil
-}
-
 func (r *ProblemRepository) SetCurrentTestCasesKey(ctx context.Context, problemID int64, key string) error {
 	return r.queries.SetCurrentTestCasesKey(ctx, sqlc.SetCurrentTestCasesKeyParams{
 		ID:                  problemID,

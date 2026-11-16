@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
@@ -60,8 +59,11 @@ func (u *CodeRunUsecase) Create(ctx context.Context, actor auth.Actor, input Cre
 	if !input.Language.Valid() {
 		return nil, apperror.InvalidInput("INVALID_LANGUAGE", "language must be python")
 	}
-	if strings.TrimSpace(input.SourceCode) == "" {
-		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must not be empty")
+	if err := validateSourceCode(input.SourceCode); err != nil {
+		return nil, err
+	}
+	if len(input.Stdin) > domain.MaxCodeRunStdinBytes {
+		return nil, apperror.InvalidInput("STDIN_TOO_LARGE", fmt.Sprintf("stdin must be at most %d bytes", domain.MaxCodeRunStdinBytes))
 	}
 	idempotency, err := buildCodeRunIdempotency(actor.UserID, u.idempotencyKeyMaxLen, input)
 	if err != nil {
@@ -138,8 +140,9 @@ func (u *CodeRunUsecase) Get(ctx context.Context, actor auth.Actor, id int64) (*
 	if err != nil {
 		return nil, err
 	}
+	// Someone else's code run is reported as missing, like any hidden resource.
 	if actor.Role != domain.UserRoleAdmin && codeRun.UserID != actor.UserID {
-		return nil, apperror.Forbidden("CODE_RUN_FORBIDDEN", "code run is not accessible")
+		return nil, apperror.NotFound("CODE_RUN_NOT_FOUND", "code run not found")
 	}
 
 	return codeRun, nil

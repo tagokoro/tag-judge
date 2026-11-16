@@ -18,6 +18,17 @@ type SourceCodeStorage interface {
 	PutSourceCode(ctx context.Context, params PutSourceCodeParams) error
 }
 
+type SourceCodeReader interface {
+	GetSourceCode(ctx context.Context, key string) (string, error)
+}
+
+// SubmissionSourceStorage stores a submission's source and reads it back for
+// the submission page.
+type SubmissionSourceStorage interface {
+	SourceCodeStorage
+	SourceCodeReader
+}
+
 // PutTestCasesParams describes the immutable judge-input snapshot made when a
 // submission is accepted.  It deliberately contains the database records,
 // rather than a mutable problem key, so storage can derive a content-addressed
@@ -34,7 +45,7 @@ type TestCaseArtifactStorage interface {
 // ArtifactStorage is shared by submissions, which need both source code and
 // the test-case snapshot.  Code runs only need SourceCodeStorage.
 type ArtifactStorage interface {
-	SourceCodeStorage
+	SubmissionSourceStorage
 	TestCaseArtifactStorage
 }
 

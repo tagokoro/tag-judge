@@ -49,7 +49,8 @@ func New(handlers Handlers) http.Handler {
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs", handlers.CodeRuns.List)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/code-runs/{code_run_id}", handlers.CodeRuns.Get)
 	r.With(handlers.Auth.RequireAuth).Post("/api/v1/problems/{problem_id}/submissions", handlers.Submissions.Create)
-	r.With(handlers.Auth.RequireAuth).Get("/api/v1/submissions/{submission_id}", handlers.Submissions.Get)
+	// Anyone may read a public submission; the usecase hides the rest.
+	r.Get("/api/v1/submissions/{submission_id}", handlers.Submissions.Get)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/submissions", handlers.Submissions.List)
 	r.Get("/api/v1/submissions/recent", handlers.Submissions.ListRecent)
 	r.With(handlers.Auth.RequireAuth).Get("/api/v1/me", handlers.Me.Get)

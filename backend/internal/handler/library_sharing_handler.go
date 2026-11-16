@@ -21,8 +21,7 @@ import (
 // expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so a
 // fully escaped valid body is still admitted while memory stays bounded.
 // Submission URL requests carry only a short URL but share this decoder.
-// Submission and code-run endpoints keep decodeJSON's original unbounded
-// contract.
+// Submission and code-run bodies have their own bound, decodeExecutionJSON.
 const maxLibraryRequestBytes = 6*domain.MaxLibrarySourceBytes + 64*1024
 
 // decodeLibraryJSON bounds a request body before the shared decoder runs so an

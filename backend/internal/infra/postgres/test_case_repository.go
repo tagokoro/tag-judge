@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -36,6 +37,18 @@ func (r *TestCaseRepository) ListByProblemID(ctx context.Context, problemID int6
 		testCases = append(testCases, newTestCase(row.ID, row.ProblemID, row.Input, row.ExpectedOutput, row.IsSample, row.Score, row.CreatedAt))
 	}
 	return testCases, nil
+}
+
+func (r *TestCaseRepository) ListSamplesByProblemID(ctx context.Context, problemID int64) ([]domain.ProblemSample, error) {
+	rows, err := r.queries.ListSampleTestCases(ctx, problemID)
+	if err != nil {
+		return nil, err
+	}
+	samples := make([]domain.ProblemSample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, domain.ProblemSample{Input: row.Input, Output: row.ExpectedOutput})
+	}
+	return samples, nil
 }
 
 func (r *TestCaseRepository) FindByID(ctx context.Context, problemID, id int64) (*domain.TestCase, error) {
@@ -86,6 +99,10 @@ func (r *TestCaseRepository) Update(ctx context.Context, params repository.Updat
 func (r *TestCaseRepository) Delete(ctx context.Context, problemID, id int64) error {
 	rows, err := r.queries.DeleteTestCase(ctx, sqlc.DeleteTestCaseParams{ProblemID: problemID, ID: id})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return apperror.Conflict("TEST_CASE_HAS_RESULTS", "test case with submission results cannot be deleted")
+		}
 		return err
 	}
 	if rows == 0 {
