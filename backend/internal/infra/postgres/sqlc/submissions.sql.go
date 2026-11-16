@@ -19,7 +19,8 @@ INSERT INTO submissions (
     source_code_key,
 	 test_cases_key,
     status,
-    score
+    score,
+    is_public
 )
 VALUES (
     (($1::text)::uuid),
@@ -28,9 +29,10 @@ VALUES (
     $4,
 	 $5,
     $6,
-    $7
+    $7,
+    $8
 )
-RETURNING id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, created_at, judged_at
+RETURNING id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, is_public, created_at, judged_at
 `
 
 type CreateSubmissionParams struct {
@@ -41,6 +43,7 @@ type CreateSubmissionParams struct {
 	TestCasesKey  string `json:"test_cases_key"`
 	Status        string `json:"status"`
 	Score         int32  `json:"score"`
+	IsPublic      bool   `json:"is_public"`
 }
 
 type CreateSubmissionRow struct {
@@ -52,6 +55,7 @@ type CreateSubmissionRow struct {
 	TestCasesKey  string             `json:"test_cases_key"`
 	Status        string             `json:"status"`
 	Score         int32              `json:"score"`
+	IsPublic      bool               `json:"is_public"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
 }
@@ -65,6 +69,7 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 		arg.TestCasesKey,
 		arg.Status,
 		arg.Score,
+		arg.IsPublic,
 	)
 	var i CreateSubmissionRow
 	err := row.Scan(
@@ -76,6 +81,7 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 		&i.TestCasesKey,
 		&i.Status,
 		&i.Score,
+		&i.IsPublic,
 		&i.CreatedAt,
 		&i.JudgedAt,
 	)
@@ -83,24 +89,31 @@ func (q *Queries) CreateSubmission(ctx context.Context, arg CreateSubmissionPara
 }
 
 const getSubmission = `-- name: GetSubmission :one
-SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, created_at, judged_at
-FROM submissions
-WHERE id = $1
+SELECT s.id, s.user_id::text AS user_id, s.problem_id, s.language, s.source_code_key, s.test_cases_key, s.status, s.score, s.is_public, s.created_at, s.judged_at,
+       p.title AS problem_title, up.handle AS submitter_handle
+FROM submissions s
+JOIN problems p ON p.id = s.problem_id
+LEFT JOIN user_profiles up ON up.user_id = s.user_id
+WHERE s.id = $1
 `
 
 type GetSubmissionRow struct {
-	ID            int64              `json:"id"`
-	UserID        string             `json:"user_id"`
-	ProblemID     int64              `json:"problem_id"`
-	Language      string             `json:"language"`
-	SourceCodeKey string             `json:"source_code_key"`
-	TestCasesKey  string             `json:"test_cases_key"`
-	Status        string             `json:"status"`
-	Score         int32              `json:"score"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
+	ID              int64              `json:"id"`
+	UserID          string             `json:"user_id"`
+	ProblemID       int64              `json:"problem_id"`
+	Language        string             `json:"language"`
+	SourceCodeKey   string             `json:"source_code_key"`
+	TestCasesKey    string             `json:"test_cases_key"`
+	Status          string             `json:"status"`
+	Score           int32              `json:"score"`
+	IsPublic        bool               `json:"is_public"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	JudgedAt        pgtype.Timestamptz `json:"judged_at"`
+	ProblemTitle    string             `json:"problem_title"`
+	SubmitterHandle pgtype.Text        `json:"submitter_handle"`
 }
 
+// Reads name the problem and the submitter (by handle, when they have one).
 func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow, error) {
 	row := q.db.QueryRow(ctx, getSubmission, id)
 	var i GetSubmissionRow
@@ -113,8 +126,11 @@ func (q *Queries) GetSubmission(ctx context.Context, id int64) (GetSubmissionRow
 		&i.TestCasesKey,
 		&i.Status,
 		&i.Score,
+		&i.IsPublic,
 		&i.CreatedAt,
 		&i.JudgedAt,
+		&i.ProblemTitle,
+		&i.SubmitterHandle,
 	)
 	return i, err
 }
@@ -123,8 +139,9 @@ const listRecentPublicSubmissions = `-- name: ListRecentPublicSubmissions :many
 SELECT s.id, s.problem_id, p.title AS problem_title, s.language, s.status, s.score, s.created_at, s.judged_at,
        up.handle AS submitter_handle
 FROM submissions s
-JOIN problems p ON p.id = s.problem_id AND p.visibility = 'public'
+JOIN problems p ON p.id = s.problem_id
 LEFT JOIN user_profiles up ON up.user_id = s.user_id
+WHERE s.is_public
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT $2 OFFSET $1
 `
@@ -146,9 +163,10 @@ type ListRecentPublicSubmissionsRow struct {
 	SubmitterHandle pgtype.Text        `json:"submitter_handle"`
 }
 
-// Recent submissions to public problems for the site-wide submission list.
-// Only public metadata is returned: no source key and no user id. The
-// submitter is shown by their handle when they have one.
+// Recent public submissions for the site-wide submission list. A submission
+// made while its problem was private stays out even after the problem is
+// published. Only public metadata is returned: no source key and no user id.
+// The submitter is shown by their handle when they have one.
 func (q *Queries) ListRecentPublicSubmissions(ctx context.Context, arg ListRecentPublicSubmissionsParams) ([]ListRecentPublicSubmissionsRow, error) {
 	rows, err := q.db.Query(ctx, listRecentPublicSubmissions, arg.ResultOffset, arg.ResultLimit)
 	if err != nil {
@@ -219,34 +237,48 @@ func (q *Queries) ListSubmissionCaseResults(ctx context.Context, submissionID in
 }
 
 const listUserSubmissions = `-- name: ListUserSubmissions :many
-SELECT id, user_id::text AS user_id, problem_id, language, source_code_key, test_cases_key, status, score, created_at, judged_at
-FROM submissions
-WHERE user_id = (($1::text)::uuid)
-ORDER BY created_at DESC, id DESC
-LIMIT $3 OFFSET $2
+SELECT s.id, s.user_id::text AS user_id, s.problem_id, s.language, s.source_code_key, s.test_cases_key, s.status, s.score, s.is_public, s.created_at, s.judged_at,
+       p.title AS problem_title, up.handle AS submitter_handle
+FROM submissions s
+JOIN problems p ON p.id = s.problem_id
+LEFT JOIN user_profiles up ON up.user_id = s.user_id
+WHERE s.user_id = (($1::text)::uuid)
+  AND ($2::bigint IS NULL OR s.problem_id = $2::bigint)
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT $4 OFFSET $3
 `
 
 type ListUserSubmissionsParams struct {
-	UserID       string `json:"user_id"`
-	ResultOffset int32  `json:"result_offset"`
-	ResultLimit  int32  `json:"result_limit"`
+	UserID       string      `json:"user_id"`
+	ProblemID    pgtype.Int8 `json:"problem_id"`
+	ResultOffset int32       `json:"result_offset"`
+	ResultLimit  int32       `json:"result_limit"`
 }
 
 type ListUserSubmissionsRow struct {
-	ID            int64              `json:"id"`
-	UserID        string             `json:"user_id"`
-	ProblemID     int64              `json:"problem_id"`
-	Language      string             `json:"language"`
-	SourceCodeKey string             `json:"source_code_key"`
-	TestCasesKey  string             `json:"test_cases_key"`
-	Status        string             `json:"status"`
-	Score         int32              `json:"score"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	JudgedAt      pgtype.Timestamptz `json:"judged_at"`
+	ID              int64              `json:"id"`
+	UserID          string             `json:"user_id"`
+	ProblemID       int64              `json:"problem_id"`
+	Language        string             `json:"language"`
+	SourceCodeKey   string             `json:"source_code_key"`
+	TestCasesKey    string             `json:"test_cases_key"`
+	Status          string             `json:"status"`
+	Score           int32              `json:"score"`
+	IsPublic        bool               `json:"is_public"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	JudgedAt        pgtype.Timestamptz `json:"judged_at"`
+	ProblemTitle    string             `json:"problem_title"`
+	SubmitterHandle pgtype.Text        `json:"submitter_handle"`
 }
 
+// A null problem_id lists the user's submissions to every problem.
 func (q *Queries) ListUserSubmissions(ctx context.Context, arg ListUserSubmissionsParams) ([]ListUserSubmissionsRow, error) {
-	rows, err := q.db.Query(ctx, listUserSubmissions, arg.UserID, arg.ResultOffset, arg.ResultLimit)
+	rows, err := q.db.Query(ctx, listUserSubmissions,
+		arg.UserID,
+		arg.ProblemID,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +295,11 @@ func (q *Queries) ListUserSubmissions(ctx context.Context, arg ListUserSubmissio
 			&i.TestCasesKey,
 			&i.Status,
 			&i.Score,
+			&i.IsPublic,
 			&i.CreatedAt,
 			&i.JudgedAt,
+			&i.ProblemTitle,
+			&i.SubmitterHandle,
 		); err != nil {
 			return nil, err
 		}

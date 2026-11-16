@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -95,6 +96,82 @@ func TestCreateSubmissionProblem(t *testing.T) {
 	}
 }
 
+// A submission's visibility is fixed from the problem's when it is accepted.
+// Only the creator may submit to a private (draft) or group problem; anyone
+// else, an admin included, sees it as missing.
+func TestCreateSubmissionProblemAccess(t *testing.T) {
+	const otherUserID = "00000000-0000-4000-8000-000000000009"
+	tests := []struct {
+		name       string
+		visibility domain.ProblemVisibility
+		createdBy  string
+		role       domain.UserRole
+		wantPublic bool
+		wantErr    bool
+	}{
+		{"public by anyone", domain.ProblemVisibilityPublic, otherUserID, domain.UserRoleUser, true, false},
+		{"public by creator", domain.ProblemVisibilityPublic, testUserID, domain.UserRoleAuthor, true, false},
+		{"private by creator", domain.ProblemVisibilityPrivate, testUserID, domain.UserRoleAuthor, false, false},
+		{"group by creator", domain.ProblemVisibilityGroup, testUserID, domain.UserRoleAuthor, false, false},
+		{"private by other", domain.ProblemVisibilityPrivate, otherUserID, domain.UserRoleAuthor, false, true},
+		{"private by admin", domain.ProblemVisibilityPrivate, otherUserID, domain.UserRoleAdmin, false, true},
+		{"group by other", domain.ProblemVisibilityGroup, otherUserID, domain.UserRoleUser, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			problems := &submissionProblemRepository{visibility: tt.visibility, createdBy: tt.createdBy}
+			storage := &fakeSubmissionSourceCodeStorage{}
+			admission := &fakeAdmissionControl{}
+			uc := NewSubmissionUsecase(&fakeSubmissionRepository{}, problems, storage, admission, 255)
+
+			_, err := uc.Create(context.Background(), CreateSubmissionInput{
+				Actor:      submissionTestActor(tt.role),
+				ProblemID:  42,
+				Language:   domain.SubmissionLanguagePython,
+				SourceCode: "print(42)",
+			})
+			if tt.wantErr {
+				requireAppError(t, err, apperror.ErrNotFound, "PROBLEM_NOT_FOUND", "problem not found")
+				if storage.putCalled || admission.createSubmissionCalled {
+					t.Fatal("nothing may be stored for a hidden problem")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Create returned error: %v", err)
+			}
+			if admission.createSubmissionParams.IsPublic != tt.wantPublic {
+				t.Fatalf("is_public = %v, want %v", admission.createSubmissionParams.IsPublic, tt.wantPublic)
+			}
+		})
+	}
+}
+
+func TestCreateSubmissionSourceSize(t *testing.T) {
+	for _, tt := range []struct {
+		size    int
+		wantErr bool
+	}{{domain.MaxExecutionSourceBytes, false}, {domain.MaxExecutionSourceBytes + 1, true}} {
+		storage := &fakeSubmissionSourceCodeStorage{}
+		uc := NewSubmissionUsecase(&fakeSubmissionRepository{}, &submissionProblemRepository{}, storage, &fakeAdmissionControl{}, 255)
+
+		_, err := uc.Create(context.Background(), CreateSubmissionInput{
+			Actor:      submissionTestActor(domain.UserRoleUser),
+			ProblemID:  42,
+			Language:   domain.SubmissionLanguagePython,
+			SourceCode: strings.Repeat("a", tt.size),
+		})
+		if tt.wantErr {
+			requireAppError(t, err, apperror.ErrInvalidInput, "SOURCE_CODE_TOO_LARGE", "source_code must be at most 65536 bytes")
+			if storage.putCalled {
+				t.Fatal("an oversized source must not be stored")
+			}
+		} else if err != nil {
+			t.Fatalf("size %d err = %v", tt.size, err)
+		}
+	}
+}
+
 func TestCreateSubmissionRequiresCurrentTestCaseSnapshot(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	problems := &submissionProblemRepository{withoutSnapshot: true}
@@ -144,19 +221,47 @@ func TestGetSubmissionAdmin(t *testing.T) {
 	}
 }
 
-func TestGetSubmissionForbidden(t *testing.T) {
-	submissions := &fakeSubmissionRepository{submission: domain.Submission{ID: 7, UserID: "another-user"}}
-	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
+// Someone else's private submission is reported as missing, signed in or not.
+func TestGetPrivateSubmissionOfOthersIsNotFound(t *testing.T) {
+	for _, actor := range []auth.Actor{submissionTestActor(domain.UserRoleAuthor), {}} {
+		submissions := &fakeSubmissionRepository{submission: domain.Submission{ID: 7, UserID: "another-user"}}
+		storage := &fakeSubmissionSourceCodeStorage{}
+		uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{}, storage, &fakeAdmissionControl{}, 255)
 
-	_, err := uc.Get(context.Background(), GetSubmissionInput{
-		Actor:        submissionTestActor(domain.UserRoleAuthor),
-		SubmissionID: 7,
-	})
-	if !errors.Is(err, apperror.ErrForbidden) {
-		t.Fatalf("err = %v, want ErrForbidden", err)
+		_, err := uc.Get(context.Background(), GetSubmissionInput{Actor: actor, SubmissionID: 7})
+		requireAppError(t, err, apperror.ErrNotFound, "SUBMISSION_NOT_FOUND", "submission not found")
+		if submissions.caseResultsCalled || storage.getKey != "" {
+			t.Fatal("case results and source must not be read before authorization")
+		}
 	}
-	if submissions.caseResultsCalled {
-		t.Fatal("case results must not be read before authorization")
+}
+
+// Anyone may read a public submission, source included, without signing in.
+func TestGetPublicSubmissionAnonymously(t *testing.T) {
+	submissions := &fakeSubmissionRepository{submission: domain.Submission{
+		ID: 7, UserID: "another-user", SourceCodeKey: "submissions/x.py", Status: domain.SubmissionStatusAC, IsPublic: true,
+	}}
+	storage := &fakeSubmissionSourceCodeStorage{getSource: "print(42)"}
+	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{}, storage, &fakeAdmissionControl{}, 255)
+
+	got, err := uc.Get(context.Background(), GetSubmissionInput{SubmissionID: 7})
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got.SourceCode != "print(42)" || storage.getKey != "submissions/x.py" || !submissions.caseResultsCalled {
+		t.Fatalf("detail = %+v, source key = %q", got, storage.getKey)
+	}
+}
+
+func TestGetSubmissionSourceFailure(t *testing.T) {
+	want := errors.New("storage unavailable")
+	submissions := &fakeSubmissionRepository{submission: domain.Submission{UserID: testUserID, Status: domain.SubmissionStatusAC}}
+	storage := &fakeSubmissionSourceCodeStorage{getErr: want}
+	uc := NewSubmissionUsecase(submissions, &submissionProblemRepository{}, storage, &fakeAdmissionControl{}, 255)
+
+	got, err := uc.Get(context.Background(), GetSubmissionInput{Actor: submissionTestActor(domain.UserRoleUser), SubmissionID: 7})
+	if !errors.Is(err, want) || got != nil {
+		t.Fatalf("Get = %+v, %v; want the storage error", got, err)
 	}
 }
 
@@ -244,6 +349,26 @@ func TestListSubmissionsDefaults(t *testing.T) {
 	}
 }
 
+func TestListSubmissionsByProblem(t *testing.T) {
+	submissions := &fakeSubmissionRepository{}
+	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
+	problemID := int64(42)
+
+	if _, err := uc.List(context.Background(), ListSubmissionsInput{Actor: submissionTestActor(domain.UserRoleUser), ProblemID: &problemID}); err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if submissions.listParams.ProblemID == nil || *submissions.listParams.ProblemID != 42 {
+		t.Fatalf("list params = %+v", submissions.listParams)
+	}
+
+	submissions.listCalled = false
+	zero := int64(0)
+	_, err := uc.List(context.Background(), ListSubmissionsInput{Actor: submissionTestActor(domain.UserRoleUser), ProblemID: &zero})
+	if !errors.Is(err, apperror.ErrInvalidInput) || submissions.listCalled {
+		t.Fatalf("err = %v, listCalled = %v; want invalid input without a query", err, submissions.listCalled)
+	}
+}
+
 func TestListSubmissionsLimit(t *testing.T) {
 	submissions := &fakeSubmissionRepository{}
 	uc := newSubmissionUsecaseForTest(submissions, &submissionProblemRepository{})
@@ -315,7 +440,7 @@ func submissionTestActor(role domain.UserRole) auth.Actor {
 	return auth.Actor{UserID: testUserID, Role: role}
 }
 
-func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, problems repository.PublicProblemReader) *SubmissionUsecase {
+func newSubmissionUsecaseForTest(submissions repository.SubmissionRepository, problems repository.ProblemReader) *SubmissionUsecase {
 	return NewSubmissionUsecase(
 		submissions,
 		problems,
@@ -403,6 +528,14 @@ type fakeSubmissionSourceCodeStorage struct {
 	putCalled bool
 	putParams repository.PutSourceCodeParams
 	putErr    error
+	getKey    string
+	getSource string
+	getErr    error
+}
+
+func (s *fakeSubmissionSourceCodeStorage) GetSourceCode(_ context.Context, key string) (string, error) {
+	s.getKey = key
+	return s.getSource, s.getErr
 }
 
 func (s *fakeSubmissionSourceCodeStorage) PutSourceCode(_ context.Context, params repository.PutSourceCodeParams) error {
@@ -475,20 +608,27 @@ func (a *fakeAdmissionControl) CreateCodeRun(_ context.Context, params repositor
 	}, a.createCodeRunErr
 }
 
+// submissionProblemRepository serves a public problem unless told otherwise.
 type submissionProblemRepository struct {
 	findCalled      bool
 	findID          int64
 	findErr         error
 	withoutSnapshot bool
+	visibility      domain.ProblemVisibility
+	createdBy       string
 }
 
-func (r *submissionProblemRepository) FindPublicByID(_ context.Context, id int64) (*domain.Problem, error) {
+func (r *submissionProblemRepository) FindByID(_ context.Context, id int64) (*domain.Problem, error) {
 	r.findCalled = true
 	r.findID = id
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
-	problem := &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: testCasesArtifactKey}
+	visibility := r.visibility
+	if visibility == "" {
+		visibility = domain.ProblemVisibilityPublic
+	}
+	problem := &domain.Problem{ID: id, TimeLimitMS: 1000, CurrentTestCasesKey: testCasesArtifactKey, Visibility: visibility, CreatedBy: r.createdBy}
 	if r.withoutSnapshot {
 		problem.CurrentTestCasesKey = ""
 	}

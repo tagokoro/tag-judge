@@ -38,6 +38,18 @@ func (r *TestCaseRepository) ListByProblemID(ctx context.Context, problemID int6
 	return testCases, nil
 }
 
+func (r *TestCaseRepository) ListSamplesByProblemID(ctx context.Context, problemID int64) ([]domain.ProblemSample, error) {
+	rows, err := r.queries.ListSampleTestCases(ctx, problemID)
+	if err != nil {
+		return nil, err
+	}
+	samples := make([]domain.ProblemSample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, domain.ProblemSample{Input: row.Input, Output: row.ExpectedOutput})
+	}
+	return samples, nil
+}
+
 func (r *TestCaseRepository) FindByID(ctx context.Context, problemID, id int64) (*domain.TestCase, error) {
 	row, err := r.queries.GetTestCase(ctx, sqlc.GetTestCaseParams{ProblemID: problemID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {

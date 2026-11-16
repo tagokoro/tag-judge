@@ -159,7 +159,7 @@ func (r *SubmissionRepository) FindByID(ctx context.Context, id int64) (*domain.
 		return nil, err
 	}
 
-	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt)
+	submission := newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, row.ProblemTitle, row.SubmitterHandle)
 	return &submission, nil
 }
 
@@ -182,8 +182,13 @@ func (r *SubmissionRepository) ListCaseResults(ctx context.Context, submissionID
 }
 
 func (r *SubmissionRepository) ListByUserID(ctx context.Context, params repository.ListSubmissionsParams) ([]domain.Submission, error) {
+	var problemID pgtype.Int8
+	if params.ProblemID != nil {
+		problemID = pgtype.Int8{Int64: *params.ProblemID, Valid: true}
+	}
 	rows, err := r.queries.ListUserSubmissions(ctx, sqlc.ListUserSubmissionsParams{
 		UserID:       params.UserID,
+		ProblemID:    problemID,
 		ResultLimit:  int32(params.Limit),
 		ResultOffset: int32(params.Offset),
 	})
@@ -193,7 +198,7 @@ func (r *SubmissionRepository) ListByUserID(ctx context.Context, params reposito
 
 	submissions := make([]domain.Submission, 0, len(rows))
 	for _, row := range rows {
-		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.CreatedAt, row.JudgedAt))
+		submissions = append(submissions, newSubmission(row.ID, row.UserID, row.ProblemID, row.Language, row.SourceCodeKey, row.TestCasesKey, row.Status, row.Score, row.IsPublic, row.CreatedAt, row.JudgedAt, row.ProblemTitle, row.SubmitterHandle))
 	}
 	return submissions, nil
 }
@@ -238,8 +243,11 @@ func newSubmission(
 	testCasesKey string,
 	status string,
 	score int32,
+	isPublic bool,
 	createdAt pgtype.Timestamptz,
 	judgedAt pgtype.Timestamptz,
+	problemTitle string,
+	submitterHandle pgtype.Text,
 ) domain.Submission {
 	var judgedAtTime *time.Time
 	if judgedAt.Valid {
@@ -248,15 +256,18 @@ func newSubmission(
 	}
 
 	return domain.Submission{
-		ID:            id,
-		UserID:        userID,
-		ProblemID:     problemID,
-		Language:      domain.SubmissionLanguage(language),
-		SourceCodeKey: sourceCodeKey,
-		TestCasesKey:  testCasesKey,
-		Status:        domain.SubmissionStatus(status),
-		Score:         int(score),
-		CreatedAt:     createdAt.Time,
-		JudgedAt:      judgedAtTime,
+		ID:              id,
+		UserID:          userID,
+		ProblemID:       problemID,
+		Language:        domain.SubmissionLanguage(language),
+		SourceCodeKey:   sourceCodeKey,
+		TestCasesKey:    testCasesKey,
+		Status:          domain.SubmissionStatus(status),
+		Score:           int(score),
+		IsPublic:        isPublic,
+		CreatedAt:       createdAt.Time,
+		JudgedAt:        judgedAtTime,
+		ProblemTitle:    problemTitle,
+		SubmitterHandle: submitterHandle.String,
 	}
 }

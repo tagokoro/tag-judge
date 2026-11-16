@@ -242,14 +242,13 @@ func TestGetCodeRunAdmin(t *testing.T) {
 	}
 }
 
-func TestGetCodeRunForbidden(t *testing.T) {
+// Someone else's code run is reported as missing.
+func TestGetCodeRunOfOthersIsNotFound(t *testing.T) {
 	repo := &fakeCodeRunRepository{findResult: &domain.CodeRun{ID: 1, UserID: codeRunOtherID}}
 	uc := newCodeRunUsecase(repo)
 
 	_, err := uc.Get(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), 1)
-	if !errors.Is(err, apperror.ErrForbidden) {
-		t.Fatalf("err = %v, want ErrForbidden", err)
-	}
+	requireAppError(t, err, apperror.ErrNotFound, "CODE_RUN_NOT_FOUND", "code run not found")
 }
 
 func TestGetCodeRunID(t *testing.T) {
@@ -307,6 +306,43 @@ func TestListCodeRunsOffset(t *testing.T) {
 	}
 	if repo.listCalled {
 		t.Fatal("repository should not be called")
+	}
+}
+
+func TestCreateCodeRunSizeLimits(t *testing.T) {
+	tests := []struct {
+		name       string
+		sourceCode string
+		stdin      string
+		wantCode   string
+		wantMsg    string
+	}{
+		{"source at limit", strings.Repeat("a", domain.MaxExecutionSourceBytes), "", "", ""},
+		{"stdin at limit", "print(1)", strings.Repeat("1", domain.MaxCodeRunStdinBytes), "", ""},
+		{"source too large", strings.Repeat("a", domain.MaxExecutionSourceBytes+1), "", "SOURCE_CODE_TOO_LARGE", "source_code must be at most 65536 bytes"},
+		{"stdin too large", "print(1)", strings.Repeat("1", domain.MaxCodeRunStdinBytes+1), "STDIN_TOO_LARGE", "stdin must be at most 131072 bytes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeCodeRunRepository{}
+			storage := &fakeCodeRunStorage{}
+			admission := &fakeAdmissionControl{}
+			uc := NewCodeRunUsecase(repo, storage, admission, 2500, 255)
+
+			_, err := uc.Create(context.Background(), codeRunActor(codeRunUserID, domain.UserRoleUser), CreateCodeRunInput{
+				Language:   domain.ExecutionLanguagePython,
+				SourceCode: tt.sourceCode,
+				Stdin:      tt.stdin,
+			})
+			if tt.wantCode == "" {
+				if err != nil {
+					t.Fatalf("Create returned error: %v", err)
+				}
+				return
+			}
+			requireAppError(t, err, apperror.ErrInvalidInput, tt.wantCode, tt.wantMsg)
+			assertCodeRunCreateNotStarted(t, repo, storage, admission)
+		})
 	}
 }
 

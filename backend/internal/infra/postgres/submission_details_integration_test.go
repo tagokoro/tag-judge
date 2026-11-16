@@ -15,9 +15,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	judgeinfra "github.com/tagokoro/tag-judge/backend/internal/infra/judge"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
 	"github.com/tagokoro/tag-judge/backend/internal/middleware"
+	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
@@ -52,8 +55,12 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 		t.Fatalf("seed test database: %v", err)
 	}
 
+	sources := judgeinfra.NewFileSourceCodeStorage(t.TempDir())
+	if err := sources.PutSourceCode(ctx, repository.PutSourceCodeParams{Key: "source.py", Language: domain.ExecutionLanguagePython, SourceCode: "print(1)"}); err != nil {
+		t.Fatal(err)
+	}
 	repo := postgres.NewSubmissionRepository(db)
-	h := handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(repo, nil, nil, nil, 255))
+	h := handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(repo, nil, sources, nil, 255))
 	auth := middleware.NewAuthMiddleware(nil, true)
 	router := chi.NewRouter()
 	router.Use(auth.InjectActor)
@@ -68,8 +75,10 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 	}
 	var body struct {
 		Data struct {
-			Status string `json:"status"`
-			Cases  []struct {
+			Status       string `json:"status"`
+			SourceCode   string `json:"source_code"`
+			ProblemTitle string `json:"problem_title"`
+			Cases        []struct {
 				ID      int64  `json:"test_case_id"`
 				Status  string `json:"status"`
 				Runtime *int   `json:"execution_time_ms"`
@@ -79,6 +88,9 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
+	}
+	if body.Data.SourceCode != "print(1)" || body.Data.ProblemTitle != "Test" {
+		t.Fatalf("detail must carry the stored source and the problem title: %s", res.Body)
 	}
 	cases := body.Data.Cases
 	if body.Data.Status != "wa" || len(cases) != 2 || cases[0].ID != 10 || cases[1].ID != 12 {

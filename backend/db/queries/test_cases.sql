@@ -9,6 +9,13 @@ FROM test_cases
 WHERE problem_id = $1
 ORDER BY id;
 
+-- Sample cases only, for anyone who may view the problem.
+-- name: ListSampleTestCases :many
+SELECT id, problem_id, input, expected_output, is_sample, score, created_at
+FROM test_cases
+WHERE problem_id = $1 AND is_sample
+ORDER BY id;
+
 -- name: GetTestCase :one
 SELECT id, problem_id, input, expected_output, is_sample, score, created_at
 FROM test_cases

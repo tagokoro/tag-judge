@@ -34,7 +34,7 @@ func (h *CodeRunHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request createCodeRunRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeExecutionJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}

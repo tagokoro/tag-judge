@@ -18,10 +18,10 @@ const (
 
 type ProblemUsecase struct {
 	problems  repository.ProblemRepository
-	testCases repository.TestCaseCounter
+	testCases repository.ProblemTestCaseReader
 }
 
-func NewProblemUsecase(problems repository.ProblemRepository, testCases repository.TestCaseCounter) *ProblemUsecase {
+func NewProblemUsecase(problems repository.ProblemRepository, testCases repository.ProblemTestCaseReader) *ProblemUsecase {
 	return &ProblemUsecase{problems: problems, testCases: testCases}
 }
 
@@ -113,6 +113,10 @@ func (u *ProblemUsecase) UpdateProblem(ctx context.Context, actor auth.Actor, id
 	if err := validateProblem(title, statement, timeLimitMS, memoryLimitKB, visibility); err != nil {
 		return nil, err
 	}
+	// Publishing is one-way so a public submission never becomes hidden again.
+	if problem.Visibility == domain.ProblemVisibilityPublic && visibility != domain.ProblemVisibilityPublic {
+		return nil, apperror.Conflict("PROBLEM_ALREADY_PUBLIC", "a public problem cannot be made private or group")
+	}
 	if visibility == domain.ProblemVisibilityPublic {
 		count, err := u.testCases.CountByProblemID(ctx, id)
 		if err != nil {
@@ -179,7 +183,12 @@ func validateProblemManager(actor auth.Actor) error {
 	return nil
 }
 
+// authorizeProblemManager reports a problem the actor may not even see as
+// missing; a public problem managed by someone else is Forbidden.
 func authorizeProblemManager(actor auth.Actor, problem domain.Problem) error {
+	if !canViewProblem(actor, problem) {
+		return problemNotFound()
+	}
 	if actor.Role != domain.UserRoleAdmin && problem.CreatedBy != actor.UserID {
 		return apperror.Forbidden("PROBLEM_MANAGE_FORBIDDEN", "problem owner or admin role required")
 	}
@@ -227,10 +236,23 @@ func (u *ProblemUsecase) ListMyProblems(ctx context.Context, actor auth.Actor, i
 	})
 }
 
-func (u *ProblemUsecase) GetPublicProblem(ctx context.Context, id int64) (*domain.Problem, error) {
+// GetProblem returns a problem the actor may view, with its sample cases;
+// anyone may view a public one, and an anonymous actor is the zero Actor.
+func (u *ProblemUsecase) GetProblem(ctx context.Context, actor auth.Actor, id int64) (*domain.ProblemDetail, error) {
 	if id <= 0 {
 		return nil, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")
 	}
 
-	return u.problems.FindPublicByID(ctx, id)
+	problem, err := u.problems.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !canViewProblem(actor, *problem) {
+		return nil, problemNotFound()
+	}
+	samples, err := u.testCases.ListSamplesByProblemID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.ProblemDetail{Problem: *problem, Samples: samples}, nil
 }

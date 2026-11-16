@@ -20,16 +20,16 @@ const (
 
 type SubmissionUsecase struct {
 	submissions          repository.SubmissionRepository
-	problems             repository.PublicProblemReader
-	storage              repository.SourceCodeStorage
+	problems             repository.ProblemReader
+	storage              repository.SubmissionSourceStorage
 	admission            repository.AdmissionControl
 	idempotencyKeyMaxLen int
 }
 
 func NewSubmissionUsecase(
 	submissions repository.SubmissionRepository,
-	problems repository.PublicProblemReader,
-	storage repository.SourceCodeStorage,
+	problems repository.ProblemReader,
+	storage repository.SubmissionSourceStorage,
 	admission repository.AdmissionControl,
 	idempotencyKeyMaxLen int,
 ) *SubmissionUsecase {
@@ -60,19 +60,22 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 	if !input.Language.Valid() {
 		return nil, apperror.InvalidInput("INVALID_LANGUAGE", "language must be python")
 	}
-	if strings.TrimSpace(input.SourceCode) == "" {
-		return nil, apperror.InvalidInput("INVALID_SOURCE_CODE", "source_code must not be empty")
+	if err := validateSourceCode(input.SourceCode); err != nil {
+		return nil, err
 	}
 	idempotency, err := buildSubmissionIdempotency(input.Actor.UserID, u.idempotencyKeyMaxLen, input)
 	if err != nil {
 		return nil, err
 	}
 
-	// Problem access policy belongs here so private/group access can be added
-	// without coupling the handler or persistence adapter to authorization.
-	problem, err := u.problems.FindPublicByID(ctx, input.ProblemID)
+	// Problem access policy lives here (problem_access.go), not in the handler
+	// or the persistence adapter.
+	problem, err := u.problems.FindByID(ctx, input.ProblemID)
 	if err != nil {
 		return nil, err
+	}
+	if !canSubmitProblem(input.Actor, *problem) {
+		return nil, problemNotFound()
 	}
 	if strings.TrimSpace(problem.CurrentTestCasesKey) == "" {
 		return nil, apperror.Conflict("PROBLEM_HAS_NO_TEST_CASES", "problem has no test cases")
@@ -99,6 +102,9 @@ func (u *SubmissionUsecase) Create(ctx context.Context, input CreateSubmissionIn
 			TestCasesKey:  problem.CurrentTestCasesKey,
 			Status:        domain.SubmissionStatusPending,
 			Score:         0,
+			// A problem only ever becomes public, so a submission made while it
+			// was a draft safely stays private.
+			IsPublic: problem.Visibility == domain.ProblemVisibilityPublic,
 		},
 		TimeLimitMS: problem.TimeLimitMS,
 	}, idempotency)
@@ -129,15 +135,13 @@ func submissionFingerprint(input CreateSubmissionInput) (string, error) {
 	})
 }
 
+// GetSubmissionInput takes the zero Actor for an anonymous reader.
 type GetSubmissionInput struct {
 	Actor        auth.Actor
 	SubmissionID int64
 }
 
 func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (*domain.SubmissionDetail, error) {
-	if err := validateActor(input.Actor); err != nil {
-		return nil, err
-	}
 	if input.SubmissionID <= 0 {
 		return nil, apperror.InvalidInput("INVALID_SUBMISSION_ID", "submission_id must be a positive integer")
 	}
@@ -146,12 +150,17 @@ func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (
 	if err != nil {
 		return nil, err
 	}
-	if submission.UserID != input.Actor.UserID && !input.Actor.Role.CanViewAnySubmission() {
-		return nil, apperror.Forbidden("SUBMISSION_FORBIDDEN", "submission is not accessible")
+	if !canViewSubmission(input.Actor, *submission) {
+		return nil, submissionNotFound()
+	}
+	sourceCode, err := u.storage.GetSourceCode(ctx, submission.SourceCodeKey)
+	if err != nil {
+		return nil, err
 	}
 
 	detail := &domain.SubmissionDetail{
 		Submission:  *submission,
+		SourceCode:  sourceCode,
 		CaseResults: []domain.SubmissionCaseResult{},
 	}
 	// The worker commits results and the terminal status together. If judging
@@ -170,6 +179,7 @@ func (u *SubmissionUsecase) Get(ctx context.Context, input GetSubmissionInput) (
 
 type ListSubmissionsInput struct {
 	Actor         auth.Actor
+	ProblemID     *int64 // nil lists submissions to every problem
 	Limit         int
 	LimitProvided bool
 	Offset        int
@@ -190,11 +200,15 @@ func (u *SubmissionUsecase) List(ctx context.Context, input ListSubmissionsInput
 	if input.Offset < 0 {
 		return nil, apperror.InvalidInput("INVALID_OFFSET", "offset must be greater than or equal to 0")
 	}
+	if input.ProblemID != nil && *input.ProblemID <= 0 {
+		return nil, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be a positive integer")
+	}
 
 	return u.submissions.ListByUserID(ctx, repository.ListSubmissionsParams{
-		UserID: input.Actor.UserID,
-		Limit:  limit,
-		Offset: input.Offset,
+		UserID:    input.Actor.UserID,
+		ProblemID: input.ProblemID,
+		Limit:     limit,
+		Offset:    input.Offset,
 	})
 }
 
@@ -204,8 +218,8 @@ type ListRecentSubmissionsInput struct {
 	Offset        int
 }
 
-// ListRecentPublic lists recent submissions to public problems. Anyone may
-// call it; the result carries no source and no user id.
+// ListRecentPublic lists recent public submissions. Anyone may call it; the
+// result carries no source and no user id.
 func (u *SubmissionUsecase) ListRecentPublic(ctx context.Context, input ListRecentSubmissionsInput) ([]domain.PublicSubmission, error) {
 	limit := input.Limit
 	if !input.LimitProvided {

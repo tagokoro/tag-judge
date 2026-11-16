@@ -127,46 +127,6 @@ func (q *Queries) GetProblem(ctx context.Context, id int64) (GetProblemRow, erro
 	return i, err
 }
 
-const getPublicProblem = `-- name: GetPublicProblem :one
-SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
-FROM problems p
-LEFT JOIN user_profiles up ON up.user_id = p.created_by
-WHERE p.id = $1 AND p.visibility = 'public'
-`
-
-type GetPublicProblemRow struct {
-	ID                  int64              `json:"id"`
-	Title               string             `json:"title"`
-	Statement           string             `json:"statement"`
-	TimeLimitMs         int32              `json:"time_limit_ms"`
-	MemoryLimitKb       int32              `json:"memory_limit_kb"`
-	Visibility          string             `json:"visibility"`
-	CurrentTestCasesKey string             `json:"current_test_cases_key"`
-	CreatedBy           string             `json:"created_by"`
-	CreatedByHandle     pgtype.Text        `json:"created_by_handle"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) GetPublicProblem(ctx context.Context, id int64) (GetPublicProblemRow, error) {
-	row := q.db.QueryRow(ctx, getPublicProblem, id)
-	var i GetPublicProblemRow
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Statement,
-		&i.TimeLimitMs,
-		&i.MemoryLimitKb,
-		&i.Visibility,
-		&i.CurrentTestCasesKey,
-		&i.CreatedBy,
-		&i.CreatedByHandle,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const listProblemsByCreator = `-- name: ListProblemsByCreator :many
 SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
 FROM problems p

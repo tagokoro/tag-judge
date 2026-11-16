@@ -33,6 +33,18 @@ type Problem struct {
 	UpdatedAt           time.Time
 }
 
+// ProblemSample is a sample case as shown on the problem page.
+type ProblemSample struct {
+	Input  string
+	Output string
+}
+
+// ProblemDetail is a problem with its sample cases, for the problem page.
+type ProblemDetail struct {
+	Problem
+	Samples []ProblemSample
+}
+
 type TestCase struct {
 	ID             int64
 	ProblemID      int64

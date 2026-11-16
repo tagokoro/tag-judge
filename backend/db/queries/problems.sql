@@ -6,12 +6,6 @@ WHERE p.visibility = 'public'
 ORDER BY p.id DESC
 LIMIT $1 OFFSET $2;
 
--- name: GetPublicProblem :one
-SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
-FROM problems p
-LEFT JOIN user_profiles up ON up.user_id = p.created_by
-WHERE p.id = $1 AND p.visibility = 'public';
-
 -- name: GetProblem :one
 SELECT p.id, p.title, p.statement, p.time_limit_ms, p.memory_limit_kb, p.visibility, p.current_test_cases_key, p.created_by::text AS created_by, up.handle AS created_by_handle, p.created_at, p.updated_at
 FROM problems p

@@ -3,6 +3,7 @@ package judgeinfra
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -44,6 +45,29 @@ func (s *S3SourceCodeStorage) PutSourceCode(ctx context.Context, params reposito
 		return fmt.Errorf("put source code to s3://%s/%s: %w", s.bucket, params.Key, err)
 	}
 	return nil
+}
+
+func (s *S3SourceCodeStorage) GetSourceCode(ctx context.Context, key string) (string, error) {
+	if strings.TrimSpace(s.bucket) == "" {
+		return "", fmt.Errorf("judge storage bucket must not be empty")
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", fmt.Errorf("source code key must not be empty")
+	}
+
+	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", fmt.Errorf("get source code from s3://%s/%s: %w", s.bucket, key, err)
+	}
+	defer output.Body.Close()
+	body, err := io.ReadAll(output.Body)
+	if err != nil {
+		return "", fmt.Errorf("read source code from s3://%s/%s: %w", s.bucket, key, err)
+	}
+	return string(body), nil
 }
 
 func (s *S3SourceCodeStorage) PutTestCases(ctx context.Context, params repository.PutTestCasesParams) (string, error) {

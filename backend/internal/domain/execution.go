@@ -1,5 +1,13 @@
 package domain
 
+// Size limits for submissions and code runs, in UTF-8 bytes. Stdin travels
+// inside the queue message, whose limit is 256 KiB, so it gets the headroom
+// JSON escaping needs.
+const (
+	MaxExecutionSourceBytes = 64 * 1024
+	MaxCodeRunStdinBytes    = 128 * 1024
+)
+
 type ExecutionLanguage string
 
 const (

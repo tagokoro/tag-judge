@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -31,7 +32,7 @@ func (h *SubmissionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request createSubmissionRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeExecutionJSON(r, &request); err != nil {
 		WriteError(w, r, apperror.InvalidInput("INVALID_REQUEST_BODY", "request body must be valid JSON"))
 		return
 	}
@@ -84,9 +85,20 @@ func (h *SubmissionHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var problemID *int64
+	if value := r.URL.Query().Get("problem_id"); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			WriteError(w, r, apperror.InvalidInput("INVALID_PROBLEM_ID", "problem_id must be an integer"))
+			return
+		}
+		problemID = &parsed
+	}
+
 	actor, _ := auth.ActorFromContext(r.Context())
 	submissions, err := h.submissions.List(r.Context(), usecase.ListSubmissionsInput{
 		Actor:         actor,
+		ProblemID:     problemID,
 		Limit:         limit,
 		LimitProvided: limitProvided,
 		Offset:        offset,
@@ -161,6 +173,26 @@ func newPublicSubmissionResponse(submission domain.PublicSubmission) publicSubmi
 	}
 }
 
+// maxExecutionRequestBytes bounds a submission or code-run body. JSON escaping
+// can expand one decoded byte to as many as 6 raw bytes (a \uXXXX escape), so
+// a fully escaped body at the source and stdin limits is still admitted; the
+// usecase then enforces the decoded limits.
+const maxExecutionRequestBytes = 6*(domain.MaxExecutionSourceBytes+domain.MaxCodeRunStdinBytes) + 64*1024
+
+// decodeExecutionJSON bounds a request body before the shared decoder runs so
+// an oversized body gets a stable 400 rather than being silently truncated.
+func decodeExecutionJSON(r *http.Request, target any) error {
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxExecutionRequestBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxExecutionRequestBytes {
+		return errors.New("request body too large")
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	return decodeJSON(r, target)
+}
+
 func decodeJSON(r *http.Request, target any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -207,9 +239,22 @@ func newSubmissionResponse(submission domain.Submission) submissionResponse {
 	}
 }
 
+// submissionDetailResponse may be read by anyone when the submission is
+// public, so it carries no user id or storage key; the submitter is named by
+// handle (null when they have none).
 type submissionDetailResponse struct {
-	submissionResponse
-	CaseResults []submissionCaseResultResponse `json:"case_results"`
+	ID           int64                          `json:"id"`
+	ProblemID    int64                          `json:"problem_id"`
+	ProblemTitle string                         `json:"problem_title"`
+	Submitter    *string                        `json:"submitter"`
+	Language     string                         `json:"language"`
+	SourceCode   string                         `json:"source_code"`
+	Status       string                         `json:"status"`
+	Score        int                            `json:"score"`
+	IsPublic     bool                           `json:"is_public"`
+	CreatedAt    time.Time                      `json:"created_at"`
+	JudgedAt     *time.Time                     `json:"judged_at"`
+	CaseResults  []submissionCaseResultResponse `json:"case_results"`
 }
 
 type submissionCaseResultResponse struct {
@@ -230,7 +275,17 @@ func newSubmissionDetailResponse(detail domain.SubmissionDetail) submissionDetai
 		})
 	}
 	return submissionDetailResponse{
-		submissionResponse: newSubmissionResponse(detail.Submission),
-		CaseResults:        results,
+		ID:           detail.ID,
+		ProblemID:    detail.ProblemID,
+		ProblemTitle: detail.ProblemTitle,
+		Submitter:    optionalString(detail.SubmitterHandle),
+		Language:     string(detail.Language),
+		SourceCode:   detail.SourceCode,
+		Status:       string(detail.Status),
+		Score:        detail.Score,
+		IsPublic:     detail.IsPublic,
+		CreatedAt:    detail.CreatedAt,
+		JudgedAt:     detail.JudgedAt,
+		CaseResults:  results,
 	}
 }
