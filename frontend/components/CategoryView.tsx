@@ -32,7 +32,7 @@ export function CategoryView({
   );
 
   return (
-    <div className="page">
+    <div className="page page-card">
       <Breadcrumbs
         items={[{ label: `@${handle}`, href: userPath(handle) }, { label: category.data?.name ?? "カテゴリ" }]}
       />
