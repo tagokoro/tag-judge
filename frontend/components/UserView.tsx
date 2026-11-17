@@ -25,7 +25,7 @@ export function UserView({ initial }: { initial: { profile: UserProfile; categor
   );
 
   return (
-    <div className="page">
+    <div className="page page-card">
       <section className="section profile-head">
         <Avatar name={profile.handle} large />
         <div className="profile-name">

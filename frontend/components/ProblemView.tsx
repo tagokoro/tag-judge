@@ -55,7 +55,7 @@ export function ProblemView({ problemId, initial }: { problemId: number; initial
   };
 
   return (
-    <div className="page">
+    <div className="page page-card">
       <div className="page-head">
         <div className="page-title">
           <h1>{problem.data.title}</h1>

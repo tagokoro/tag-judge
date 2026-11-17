@@ -38,7 +38,7 @@ export function LibraryView({
   const latest = useLatestVersion(libraryId, initial && { data: initial.latest });
 
   return (
-    <div className="page">
+    <div className="page page-card">
       {library.data ? (
         <>
           <Breadcrumbs

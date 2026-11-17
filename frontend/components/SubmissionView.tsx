@@ -34,7 +34,7 @@ export function SubmissionView({ submissionId, initial }: { submissionId: number
   }
 
   return (
-    <div className="page">
+    <div className="page page-card">
       <div className="page-head">
         <div className="page-title">
           <h1>提出 #{data.id}</h1>
@@ -55,10 +55,6 @@ export function SubmissionView({ submissionId, initial }: { submissionId: number
           <dd>{data.language}</dd>
           <dt>提出日時</dt>
           <dd className="num">{formatDateTime(data.created_at)}</dd>
-          <dt>結果</dt>
-          <dd>
-            <StatusBadge status={data.status} />
-          </dd>
           <dt>得点</dt>
           <dd className="num">{data.score}</dd>
         </dl>
