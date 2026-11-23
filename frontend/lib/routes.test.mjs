@@ -9,6 +9,7 @@ import {
   newLibraryPath,
   parseIdSegment,
   problemPath,
+  signupNextPath,
   submissionPath,
   submissionUrlEditPath,
   userPath,
@@ -47,4 +48,14 @@ test("only a positive integer segment names a problem or submission", () => {
   for (const segment of ["0", "-1", "01", "1.5", "abc", "", "1e3", "12345678901234567"]) {
     assert.equal(parseIdSegment(segment), null, segment);
   }
+});
+
+test("sign-up continues only to the OAuth consent page", () => {
+  assert.equal(
+    signupNextPath("?next=" + encodeURIComponent("/oauth/authorize?client_id=a&state=b")),
+    "/oauth/authorize?client_id=a&state=b",
+  );
+  assert.equal(signupNextPath(""), null);
+  assert.equal(signupNextPath("?next=" + encodeURIComponent("https://evil.example/oauth/authorize?")), null);
+  assert.equal(signupNextPath("?next=" + encodeURIComponent("//evil.example/oauth/authorize?")), null);
 });

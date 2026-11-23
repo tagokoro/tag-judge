@@ -8,7 +8,7 @@ import { useAsyncAction } from "@/components/useAsyncAction";
 import { useMe } from "@/components/useMe";
 import { Button, Card, ErrorNote, Field, LoadState } from "@/components/ui";
 import { isApiRequestError } from "@/lib/api";
-import { userPath } from "@/lib/routes";
+import { signupNextPath, userPath } from "@/lib/routes";
 
 /**
  * The sign-up page: a signed-in user without a handle types one in. The login
@@ -61,6 +61,13 @@ function SignupForm() {
             run(async (signal) => {
               try {
                 const created = await client.withSignal(signal).createProfile({ handle: handle.trim() });
+                const next = signupNextPath(window.location.search);
+                if (next) {
+                  // The consent page is served by the API, not this app, so
+                  // leave with a full navigation.
+                  window.location.assign(next);
+                  return;
+                }
                 await refresh();
                 router.push(userPath(created.handle));
               } catch (caught) {
