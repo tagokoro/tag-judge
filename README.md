@@ -11,6 +11,7 @@ Pythonの提出コードを複数のテストケースで判定する、オン�
 - Google OAuthとセッションCookieによる認証、ユーザーの役割に基づく認可
 - グループの作成・取得・メンバー追加
 - 任意の標準入力で実行するCodeRun APIの受付・取得
+- Claudeなどから使えるMCPエンドポイント（`/mcp`）と、その接続を許可するOAuth 2.1の認可サーバー。詳細は[docs/mcp-server-design.md](docs/mcp-server-design.md)
 
 Submissionの判定経路はWorkerまで実装されています。CodeRunはAPIから実行ジョブを送信できますが、現在のRust WorkerはSubmission用のproblem実行に対応しており、CodeRunの実行・結果保存は未対応です。フロントエンドは `frontend/` の Next.js（App Router + TypeScript）プロジェクトとして追加済みで、Go API とは別プロセス（`localhost:3000`）で起動します。この段階の画面はプレースホルダーのみで、ライブラリ共有の UI は未実装です。
 
