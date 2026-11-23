@@ -22,6 +22,10 @@ type Handlers struct {
 	Categories      *handler.CategoryHandler
 	Libraries       *handler.LibraryHandler
 	LibraryVersions *handler.LibraryVersionHandler
+	// OAuth and MCP serve the Model Context Protocol endpoint and the
+	// authorization server for it; a nil MCP leaves both unmounted.
+	OAuth *handler.OAuthHandler
+	MCP   http.Handler
 }
 
 func New(handlers Handlers) http.Handler {
@@ -80,6 +84,19 @@ func New(handlers Handlers) http.Handler {
 	// submission URL; reads come with the version above.
 	r.With(handlers.Auth.RequireAuth).Put("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handlers.LibraryVersions.SetSubmissionURL)
 	r.With(handlers.Auth.RequireAuth).Delete("/api/v1/libraries/{library_id}/versions/{version_number}/submission-url", handlers.LibraryVersions.ClearSubmissionURL)
+
+	if handlers.MCP != nil {
+		r.With(handlers.Auth.RequireToken).Handle("/mcp", handlers.MCP)
+		// Clients look for the resource metadata both at the root and with
+		// the resource path appended (RFC 9728 section 3.1).
+		r.Get("/.well-known/oauth-protected-resource", handlers.OAuth.ProtectedResourceMetadata)
+		r.Get("/.well-known/oauth-protected-resource/mcp", handlers.OAuth.ProtectedResourceMetadata)
+		r.Get("/.well-known/oauth-authorization-server", handlers.OAuth.AuthorizationServerMetadata)
+		r.Post("/oauth/register", handlers.OAuth.Register)
+		r.Get("/oauth/authorize", handlers.OAuth.Authorize)
+		r.Post("/oauth/authorize", handlers.OAuth.Decide)
+		r.Post("/oauth/token", handlers.OAuth.Token)
+	}
 
 	return r
 }

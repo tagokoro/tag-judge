@@ -14,6 +14,7 @@ import (
 	judgeinfra "github.com/tagokoro/tag-judge/backend/internal/infra/judge"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/oauth"
 	"github.com/tagokoro/tag-judge/backend/internal/infra/postgres"
+	"github.com/tagokoro/tag-judge/backend/internal/mcpserver"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/router"
@@ -47,6 +48,7 @@ func run() error {
 	codeRunRepo := postgres.NewCodeRunRepository(db)
 	submissionRepo := postgres.NewSubmissionRepository(db)
 	authRepo := postgres.NewAuthRepository(db)
+	oauthRepo := postgres.NewOAuthRepository(db)
 	groupRepo := postgres.NewGroupRepository(db)
 	userProfileRepo := postgres.NewUserProfileRepository(db)
 	categoryRepo := postgres.NewCategoryRepository(db)
@@ -82,6 +84,7 @@ func run() error {
 	go submissionPublisher.Run(ctx, time.Second)
 	go codeRunPublisher.Run(ctx, time.Second)
 	authUsecase := usecase.NewAuthUsecase(authRepo, googleProvider, cfg.SessionTTL)
+	oauthUsecase := usecase.NewOAuthUsecase(oauthRepo, cfg.PublicBaseURL+"/mcp")
 	groupUsecase := usecase.NewGroupUsecase(groupRepo)
 	userProfileUsecase := usecase.NewUserProfileUsecase(userProfileRepo)
 	categoryUsecase := usecase.NewCategoryUsecase(categoryRepo, userProfileRepo)
@@ -95,11 +98,20 @@ func run() error {
 	groupHandler := handler.NewGroupHandler(groupUsecase)
 	meHandler := handler.NewMeHandler(userProfileUsecase)
 	authHandler := handler.NewAuthHandler(authUsecase, cfg.CookieSecure, cfg.AuthSuccessRedirectURL)
-	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, cfg.DevHeaderAuth)
+	authMiddleware := appmiddleware.NewAuthMiddleware(authRepo, oauthRepo, cfg.DevHeaderAuth).
+		WithResourceMetadata(handler.ResourceMetadataURL(cfg.PublicBaseURL))
 	userProfileHandler := handler.NewUserProfileHandler(userProfileUsecase)
 	categoryHandler := handler.NewCategoryHandler(categoryUsecase)
 	libraryHandler := handler.NewLibraryHandler(libraryUsecase)
 	libraryVersionHandler := handler.NewLibraryVersionHandler(libraryVersionUsecase)
+	oauthHandler := handler.NewOAuthHandler(oauthUsecase, cfg.PublicBaseURL, cfg.CookieSecure)
+	mcpHandler := mcpserver.NewHandler(mcpserver.Deps{
+		Problems:     problemUsecase,
+		TestCases:    testCaseUsecase,
+		Submissions:  submissionUsecase,
+		SubmitWait:   cfg.MCPSubmitWait,
+		PollInterval: 500 * time.Millisecond,
+	})
 
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
@@ -116,6 +128,8 @@ func run() error {
 			Categories:      categoryHandler,
 			Libraries:       libraryHandler,
 			LibraryVersions: libraryVersionHandler,
+			OAuth:           oauthHandler,
+			MCP:             mcpHandler,
 		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,

@@ -147,7 +147,7 @@ func newVersionRouter() (http.Handler, *fakeVersionRepo) {
 			{ID: "33333333-3333-4333-8333-333333333333", VersionNumber: 1, ContentSHA256: "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772", ByteSize: 31},
 		},
 	}
-	auth := appmiddleware.NewAuthMiddleware(nil, true)
+	auth := appmiddleware.NewAuthMiddleware(nil, nil, true)
 	router := chi.NewRouter()
 	router.Use(auth.InjectActor)
 	router.With(auth.RequireAuth).Post("/api/v1/libraries/{library_id}/versions", handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(usecase.NewLibraryUsecase(categories, libraries), versions)).Create)
