@@ -120,6 +120,8 @@ resource "aws_instance" "api" {
     service_env_script = file("${path.module}/scripts/configure_service_env.py")
     cookie_secure      = local.public_api_enabled
     log_group_name     = aws_cloudwatch_log_group.api.name
+    frontend_enabled   = local.frontend_enabled
+    node_version       = var.frontend_node_version
   })
   user_data_replace_on_change = true
 
