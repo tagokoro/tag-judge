@@ -60,6 +60,10 @@ locals {
   bucket_name        = "${var.project_name}-${var.environment}-artifacts-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
   subnet_id          = coalesce(var.subnet_id, sort(data.aws_subnets.default.ids)[0])
   public_api_enabled = trimspace(var.api_domain_name == null ? "" : var.api_domain_name) != ""
+  # The frontend shares the API ALB; aws_instance.api rejects a frontend
+  # domain without an API domain.
+  frontend_requested = trimspace(var.frontend_domain_name == null ? "" : var.frontend_domain_name) != ""
+  frontend_enabled   = local.public_api_enabled && local.frontend_requested
   alarm_actions      = var.alarm_sns_topic_arn == null || var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
 }
 

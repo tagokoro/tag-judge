@@ -128,6 +128,10 @@ resource "aws_instance" "api" {
       condition     = !local.public_api_enabled || !var.api_dev_header_auth
       error_message = "api_dev_header_auth must remain false when api_domain_name exposes the API publicly."
     }
+    precondition {
+      condition     = !local.frontend_requested || local.public_api_enabled
+      error_message = "frontend_domain_name needs api_domain_name: the frontend is served through the API ALB."
+    }
   }
 
   root_block_device {

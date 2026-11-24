@@ -57,6 +57,12 @@ variable "api_domain_name" {
   default     = null
 }
 
+variable "frontend_domain_name" {
+  description = "Optional public DNS name for the frontend. It runs on the API instance behind the API ALB, so api_domain_name is required too. Its issued ACM certificate and Cloudflare DNS records must be prepared separately."
+  type        = string
+  default     = null
+}
+
 variable "cloudwatch_log_retention_days" {
   description = "Retention period for API and worker application logs."
   type        = number

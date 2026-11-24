@@ -103,6 +103,27 @@ resource "aws_cloudwatch_metric_alarm" "api_target_5xx" {
   ok_actions          = local.alarm_actions
 }
 
+resource "aws_cloudwatch_metric_alarm" "frontend_target_5xx" {
+  count = local.frontend_enabled ? 1 : 0
+
+  alarm_name        = "${local.name_prefix}-frontend-target-5xx"
+  alarm_description = "The frontend returned five or more 5xx responses in five minutes."
+  namespace         = "AWS/ApplicationELB"
+  metric_name       = "HTTPCode_Target_5XX_Count"
+  dimensions = {
+    LoadBalancer = aws_lb.api[0].arn_suffix
+    TargetGroup  = aws_lb_target_group.frontend[0].arn_suffix
+  }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 5
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
+}
+
 resource "aws_sqs_queue_redrive_allow_policy" "submissions_dlq" {
   queue_url = aws_sqs_queue.submissions_dlq.id
   redrive_allow_policy = jsonencode({

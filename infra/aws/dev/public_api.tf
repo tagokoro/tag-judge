@@ -38,6 +38,17 @@ resource "aws_security_group" "api_alb" {
     security_groups = [aws_security_group.api.id]
   }
 
+  dynamic "egress" {
+    for_each = local.frontend_enabled ? [3000] : []
+    content {
+      description     = "Frontend target"
+      from_port       = egress.value
+      to_port         = egress.value
+      protocol        = "tcp"
+      security_groups = [aws_security_group.api.id]
+    }
+  }
+
   tags = {
     Name        = "${local.name_prefix}-api-alb-sg"
     Project     = var.project_name
