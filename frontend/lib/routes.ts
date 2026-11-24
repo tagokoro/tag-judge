@@ -13,7 +13,7 @@ export const MY_SUBMISSIONS_PATH = "/me/submissions";
 /** Where a signed-in user without a handle registers one. */
 export const SIGNUP_PATH = "/signup";
 export const SETTINGS_PROFILE_PATH = "/settings/profile";
-export const CLAUDE_GUIDE_PATH = "/claude";
+export const MCP_GUIDE_PATH = "/connect";
 
 /** The problem page; `submit` opens its submission tab. */
 export function problemPath(problemId: number, tab?: "submit"): string {

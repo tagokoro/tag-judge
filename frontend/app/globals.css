@@ -1461,6 +1461,11 @@ textarea.code-input {
 }
 
 /* A gray well around a URL or a command. */
+/* Sections the client table links to; keep the heading clear of the top edge. */
+.guide-anchor {
+  scroll-margin-top: 16px;
+}
+
 .guide-box {
   margin-top: 0.75rem;
   padding: 12px 14px;

@@ -87,7 +87,7 @@ claude.ai はAnthropicのサーバーから接続するため、`localhost` に�
 - `redirect_uri` は登録済みのものと完全一致で照合する。登録できるのは、https のURL、ループバック（`localhost` など）上の http のURL、アプリ独自のスキーム（Cursor の `cursor://...` など。RFC 8252）。`javascript:` や `file:` などブラウザが自分で扱うスキームは拒否する。
 - 同意できるのはブラウザのセッションだけ。同意画面は `X-Frame-Options: DENY` で、iframeへの埋め込みを禁止している。
 - `/mcp` はブラウザのセッションCookieを受け付けない。ブラウザで開いたページから、ユーザーのCookieでtoolを動かされないようにするため。
-- `/mcp` をブラウザで開いた人（`Accept: text/html`）は、Next.jsのredirectで接続手順のページ（`/claude`）へ送る。MCPクライアントはHTMLを求めないので影響しない。
+- `/mcp` をブラウザで開いた人（`Accept: text/html`）は、Next.jsのredirectで接続手順のページ（`/connect`）へ送る。MCPクライアントはHTMLを求めないので影響しない。
 - 新規ユーザーがClaudeから接続した場合は、ハンドル登録（`/signup`）を挟んでから同意画面に戻る。
 
 ## tool一覧

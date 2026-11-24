@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
         // only people are sent to the setup guide instead of a bare 401.
         source: "/mcp",
         has: [{ type: "header", key: "accept", value: "(.*)text/html(.*)" }],
-        destination: "/claude",
+        destination: "/connect",
         permanent: false,
       },
     ];
