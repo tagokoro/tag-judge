@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tag-judge-frontend",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // Read at request time by server-side data fetching (lib/serverApi.ts). The
+  // rewrites in next.config.ts bake the value in at build time, so the build
+  // must see the same API_SERVER_ORIGIN.
+  "vars": {
+    "API_SERVER_ORIGIN": "https://judge-api.tagokoro.dev"
+  }
+}

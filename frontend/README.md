@@ -127,8 +127,30 @@ Go API は別ターミナルで `make run-api`（`:8080`）。ブラウザは `:
 | `npm run typecheck` | `next typegen && tsc --noEmit` |
 | `npm test` | `node:test` によるユニットテスト |
 | `npm run test:watch` | テストの watch 実行 |
+| `npm run preview` | Cloudflare Workers の形でビルドし、手元の workerd で動かす |
+| `npm run deploy` | Cloudflare Workers の形でビルドし、デプロイする |
 
 ルートの Makefile から `make frontend-check`（lint / typecheck / build）も実行できます。
+
+## デプロイ（Cloudflare Workers）
+
+ページはサーバーで描画し、`/api` などを Go API へ転送するので、静的サイト（Pages）ではなく
+[OpenNext](https://opennext.js.org/cloudflare) で Workers にデプロイします。設定は `wrangler.jsonc` と `open-next.config.ts` です。
+
+```sh
+cd frontend
+npx wrangler login
+API_SERVER_ORIGIN=https://judge-api.tagokoro.dev npm run deploy
+```
+
+- `API_SERVER_ORIGIN` はビルド時にも必要です。`next.config.ts` の rewrite はビルド時に転送先を埋め込みます。
+  実行時の値（サーバー側の取得で使う）は `wrangler.jsonc` の `vars` にあります。両方を同じ値にします。
+- 初回のデプロイ後、Cloudflare ダッシュボードの Workers → `tag-judge-frontend` → Settings → Domains & Routes で
+  フロントのドメインを Custom Domain に追加します。
+- ブラウザはフロントのドメインだけを使うので、Go API の設定はフロントのドメインに合わせます
+  （`GOOGLE_OAUTH_REDIRECT_URL=https://<フロント>/api/v1/auth/google/callback`、
+  `AUTH_SUCCESS_REDIRECT_URL=https://<フロント>/`、`COOKIE_SECURE=true`、`DEV_HEADER_AUTH=false`）。
+  Google Cloud Console にも同じコールバック URL を登録します。MCP の URL は `https://<フロント>/mcp` です。
 
 ## テスト
 
