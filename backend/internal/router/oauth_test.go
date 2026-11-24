@@ -212,13 +212,27 @@ func TestOAuthDenySendsAccessDenied(t *testing.T) {
 
 func TestOAuthRegisterValidatesRedirectURIs(t *testing.T) {
 	router := newTestRouter()
-	for _, uri := range []string{"http://evil.example/callback", "https://claude.ai/cb#frag", "javascript:alert(1)"} {
+	for _, uri := range []string{"http://evil.example/callback", "https://claude.ai/cb#frag", "javascript:alert(1)", "file://host/etc/passwd", "ws://evil.example/cb"} {
 		body, _ := json.Marshal(map[string]any{"client_name": "Claude", "redirect_uris": []string{uri}})
 		req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(string(body)))
 
 		res := serve(router, req)
 
 		assertOAuthError(t, res, http.StatusBadRequest, "invalid_redirect_uri")
+	}
+}
+
+func TestOAuthRegisterAcceptsAppRedirectURIs(t *testing.T) {
+	router := newTestRouter()
+	for _, uri := range []string{"https://chatgpt.com/connector_platform_oauth_redirect", "http://127.0.0.1:33418/", "cursor://anysphere.cursor-mcp/oauth/callback"} {
+		body, _ := json.Marshal(map[string]any{"client_name": "Client", "redirect_uris": []string{uri}})
+		req := httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(string(body)))
+
+		res := serve(router, req)
+
+		if res.Code != http.StatusCreated {
+			t.Fatalf("register %q: status = %d, body = %s", uri, res.Code, res.Body.String())
+		}
 	}
 }
 

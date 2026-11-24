@@ -347,7 +347,17 @@ func validOAuthRedirectURI(raw string) bool {
 		host := parsed.Hostname()
 		return host == "localhost" || host == "127.0.0.1" || host == "::1"
 	}
-	return false
+	// Native apps such as Cursor return to their own private-use scheme
+	// (RFC 8252 section 7.1). An app that hijacks the scheme gets only a
+	// code, which is useless without the client's PKCE verifier.
+	return !nonAppRedirectSchemes[parsed.Scheme]
+}
+
+// nonAppRedirectSchemes are schemes a browser handles itself, so a redirect
+// to them never reaches an app.
+var nonAppRedirectSchemes = map[string]bool{
+	"about": true, "blob": true, "data": true, "file": true, "ftp": true,
+	"javascript": true, "vbscript": true, "ws": true, "wss": true,
 }
 
 func verifyPKCE(verifier, challenge string) bool {
