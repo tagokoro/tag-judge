@@ -172,6 +172,22 @@ cloud-init adds a 2 GB swap file first; use a larger `api_instance_type` if buil
 are slow or fail. Setting the domain changes the API user data and replaces the API
 instance, as does any later change to it; without the domain, nothing changes.
 
+The build runs third-party npm code, so it runs as a separate `judge-build` user on
+a copy of `frontend/`, with `npm ci --ignore-scripts`, and with the instance
+metadata service blocked (`IPAddressDeny=169.254.169.254`); `judge-web` is blocked
+from it too. Neither can read the role's credentials or touch the API binary. The
+CloudWatch agent starts before the build, so a failed build still ships the API log;
+check `/var/log/cloud-init-output.log` if the frontend target stays unhealthy.
+
+Merging frontend changes to `main` does not redeploy them. The frontend, like the
+API, is built only when the instance is created, and the deploy workflow runs only
+for `infra/aws/dev/**` changes. To ship new `main`, replace the API instance in a
+quiet window (the API is down until the new instance passes its health check):
+
+```sh
+terraform apply -replace=aws_instance.api
+```
+
 On the API EC2 instance:
 
 ```sh

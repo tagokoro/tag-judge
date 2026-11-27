@@ -156,18 +156,33 @@ install -d /opt/node
 tar -C /opt/node --strip-components=1 -xJf /tmp/tag-judge-node.tar.xz
 rm /tmp/tag-judge-node.tar.xz
 
-# The rewrites to the Go API are baked in at build time, so build against the
+# The build runs third-party npm code, so it runs as its own user on a copy of
+# the frontend, where it cannot touch the API binary, and without access to the
+# instance metadata service that hands out the role's credentials. The
+# rewrites to the Go API are baked in at build time, so build against the
 # local API the service will reach at run time.
-cd /opt/tag-judge-api/frontend
-runuser -u judge-api -- env HOME=/home/judge-api PATH=/opt/node/bin:/usr/bin:/bin \
-  NEXT_TELEMETRY_DISABLED=1 npm ci --no-audit --no-fund
-runuser -u judge-api -- env HOME=/home/judge-api PATH=/opt/node/bin:/usr/bin:/bin \
-  NEXT_TELEMETRY_DISABLED=1 API_SERVER_ORIGIN=http://127.0.0.1:8080 npm run build
+id -u judge-build >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin judge-build
+rm -rf /opt/tag-judge-build
+cp -R /opt/tag-judge-api/frontend /opt/tag-judge-build
+chown -R judge-build:judge-build /opt/tag-judge-build
+build_frontend() {
+  systemd-run --quiet --wait --pipe --collect \
+    --uid=judge-build --gid=judge-build --working-directory=/opt/tag-judge-build \
+    -p IPAddressDeny=169.254.169.254 \
+    -E HOME=/home/judge-build -E PATH=/opt/node/bin:/usr/bin:/bin \
+    -E NEXT_TELEMETRY_DISABLED=1 -E API_SERVER_ORIGIN=http://127.0.0.1:8080 \
+    "$@"
+}
+build_frontend /opt/node/bin/npm ci --ignore-scripts --no-audit --no-fund
+build_frontend /opt/node/bin/npm run build
+cd /opt/tag-judge-build
 
 id -u judge-web >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin judge-web
 rm -rf /opt/tag-judge-web
 cp -R .next/standalone /opt/tag-judge-web
 cp -R .next/static /opt/tag-judge-web/.next/static
+cd /
+rm -rf /opt/tag-judge-build
 chown -R root:root /opt/tag-judge-web
 # Next.js writes its cache at run time; everything else stays read-only.
 install -d -o judge-web -g judge-web /opt/tag-judge-web/.next/cache
@@ -198,6 +213,8 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/tag-judge-web/.next/cache
+# The frontend never calls AWS, so keep it away from the role's credentials.
+IPAddressDeny=169.254.169.254
 
 [Install]
 WantedBy=multi-user.target
