@@ -13,6 +13,7 @@ export const MY_SUBMISSIONS_PATH = "/me/submissions";
 /** Where a signed-in user without a handle registers one. */
 export const SIGNUP_PATH = "/signup";
 export const SETTINGS_PROFILE_PATH = "/settings/profile";
+export const MCP_GUIDE_PATH = "/connect";
 
 /** The problem page; `submit` opens its submission tab. */
 export function problemPath(problemId: number, tab?: "submit"): string {
@@ -69,4 +70,14 @@ export function parseIdSegment(segment: string): number | null {
     return null;
   }
   return Number(segment);
+}
+
+/**
+ * Where sign-up continues once the handle exists: the OAuth consent page an
+ * MCP client such as Claude sent the user to, or null for the usual page.
+ * Only that page is accepted, so `?next=` cannot send a user elsewhere.
+ */
+export function signupNextPath(search: string): string | null {
+  const next = new URLSearchParams(search).get("next");
+  return next?.startsWith("/oauth/authorize?") ? next : null;
 }

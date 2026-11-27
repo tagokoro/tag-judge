@@ -1421,3 +1421,200 @@ textarea.code-input {
 .judging-note {
   margin-top: 1rem;
 }
+
+/* ---------- Claude guide ---------- */
+
+/* The three-step summary at the top: tiles on the mist tint. */
+.guide-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+}
+
+.guide-overview li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--mist);
+  line-height: 1.6;
+}
+
+.guide-overview li > span:last-child {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.guide-num {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: var(--deep);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* A gray well around a URL or a command. */
+/* Sections the client table links to; keep the heading clear of the top edge. */
+.guide-anchor {
+  scroll-margin-top: 16px;
+}
+
+.guide-box {
+  margin-top: 0.75rem;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--mist);
+  border: 1px solid var(--line);
+}
+
+.guide-box .sample-text {
+  min-height: 0;
+  padding: 8px 12px;
+}
+
+/* Numbered steps: the number sits in a sky circle beside each step. */
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+  list-style: none;
+  counter-reset: guide-step;
+  line-height: 1.7;
+}
+
+.guide-steps > li {
+  position: relative;
+  padding-left: 2.4rem;
+  counter-increment: guide-step;
+}
+
+.guide-steps > li::before {
+  content: counter(guide-step);
+  position: absolute;
+  top: 0.1rem;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: var(--sky);
+  color: var(--deep);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Callouts: sky for information, gray for side notes, rose for cautions. */
+.callout {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  line-height: 1.7;
+}
+
+.callout > strong:first-child {
+  display: block;
+}
+
+.callout-info {
+  border-color: var(--mizu);
+  background: var(--sky);
+  color: var(--deep);
+}
+
+.callout-note {
+  border-color: var(--line);
+  background: var(--mist);
+  color: var(--muted);
+}
+
+.callout-caution {
+  border-color: var(--rose);
+  background: var(--rose-bg);
+  color: var(--rose);
+}
+
+/* Reference tables keep a frame and a tinted header, unlike list tables. */
+.section > .guide-table,
+.section > .note + .guide-table {
+  margin-top: 0.75rem;
+}
+
+.guide-table {
+  border: 1px solid var(--line);
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--paper);
+  line-height: 1.6;
+}
+
+.section .guide-table th {
+  background: var(--mist);
+}
+
+.section .guide-table th:first-child,
+.section .guide-table td:first-child {
+  padding-left: 16px;
+}
+
+.guide-table td code {
+  white-space: nowrap;
+}
+
+.badge-author {
+  background: var(--mist);
+  border: 1px solid var(--line);
+  color: var(--deep);
+}
+
+.guide-scopes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guide-symptom {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .guide-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .section .guide-table tr {
+    padding: 12px 16px;
+  }
+
+  .section .guide-table td:first-child {
+    padding-left: 0;
+  }
+
+  .badge-author {
+  background: var(--mist);
+  border: 1px solid var(--line);
+  color: var(--deep);
+}
+
+.guide-scopes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guide-symptom {
+    white-space: normal;
+  }
+}

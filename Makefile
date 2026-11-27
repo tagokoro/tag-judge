@@ -8,6 +8,7 @@ POSTGRES_USER ?= judge_user
 POSTGRES_PASSWORD ?= judge_pass
 POSTGRES_PORT ?= 5432
 PORT ?= 8080
+FRONTEND_PORT ?= 3000
 
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 BACKEND_DIR ?= backend
@@ -80,11 +81,11 @@ frontend-install: ## Install frontend dependencies from the exact lockfile
 
 .PHONY: run-frontend
 run-frontend: ## Run the Next.js dev server (localhost:3000)
-	cd $(WEB_DIR) && npm run dev
+	cd $(WEB_DIR) && PORT=$(FRONTEND_PORT) npm run dev
 
 .PHONY: frontend-start
 frontend-start: ## Serve the production Next.js build (localhost:3000)
-	cd $(WEB_DIR) && npm run start
+	cd $(WEB_DIR) && PORT=$(FRONTEND_PORT) npm run start
 
 .PHONY: frontend-lint
 frontend-lint: ## Run frontend ESLint

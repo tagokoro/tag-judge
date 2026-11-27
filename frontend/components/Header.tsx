@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { GOOGLE_LOGIN_PATH } from "@/lib/api";
 import {
+  MCP_GUIDE_PATH,
   HOME_PATH,
   ME_PATH,
   MY_PROBLEMS_PATH,
@@ -106,6 +107,7 @@ const MY_ITEMS = [
   { href: ME_PATH, label: "自分のページ" },
   { href: MY_SUBMISSIONS_PATH, label: "自分の提出" },
   { href: MY_PROBLEMS_PATH, label: "自分の問題" },
+  { href: MCP_GUIDE_PATH, label: "AI と接続" },
 ];
 
 /** The phone menu: every page link and the account actions in one sheet. */

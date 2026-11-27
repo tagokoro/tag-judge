@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
@@ -10,7 +11,12 @@ import (
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
 )
 
-const oauthStateCookieName = "tag_judge_oauth_state"
+const (
+	oauthStateCookieName = "tag_judge_oauth_state"
+	// loginNextCookieName holds where to return after sign-in, such as the
+	// OAuth consent page an MCP client sent the user to.
+	loginNextCookieName = "tag_judge_login_next"
+)
 
 type AuthHandler struct {
 	auth                  *usecase.AuthUsecase
@@ -42,6 +48,29 @@ func onboardingRedirectURL(successRedirectURL string) string {
 	return base.ResolveReference(&url.URL{Path: onboardingPath}).String()
 }
 
+// safeNextPath accepts only a path on this site, so sign-in cannot be used to
+// bounce a user to another site.
+func safeNextPath(next string) bool {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsAny(next, "\\\r\n") {
+		return false
+	}
+	parsed, err := url.Parse(next)
+	return err == nil && parsed.Scheme == "" && parsed.Host == ""
+}
+
+// resolveOnOrigin puts path on the origin of base, the configured frontend URL.
+func resolveOnOrigin(base, path string) string {
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return path
+	}
+	target, err := parsed.Parse(path)
+	if err != nil {
+		return path
+	}
+	return target.String()
+}
+
 func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	state, err := auth.NewToken()
 	if err != nil {
@@ -56,6 +85,12 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, h.oauthStateCookie(state))
+	if next := r.URL.Query().Get("next"); safeNextPath(next) {
+		// Escaped, as a query string may hold bytes a cookie cannot.
+		cookie := h.oauthStateCookie(url.QueryEscape(next))
+		cookie.Name = loginNextCookieName
+		http.SetCookie(w, cookie)
+	}
 	http.Redirect(w, r, loginURL, http.StatusFound)
 }
 
@@ -77,8 +112,24 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, h.clearCookie(oauthStateCookieName))
 	http.SetCookie(w, h.sessionCookie(session))
+	next := ""
+	if cookie, err := r.Cookie(loginNextCookieName); err == nil {
+		http.SetCookie(w, h.clearCookie(loginNextCookieName))
+		if value, err := url.QueryUnescape(cookie.Value); err == nil && safeNextPath(value) {
+			next = value
+		}
+	}
 	if session.NeedsHandle {
-		http.Redirect(w, r, h.onboardingRedirectURL, http.StatusFound)
+		target := h.onboardingRedirectURL
+		if next != "" {
+			// The sign-up page continues to next once the handle exists.
+			target += "?next=" + url.QueryEscape(next)
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	if next != "" {
+		http.Redirect(w, r, resolveOnOrigin(h.successRedirectURL, next), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, h.successRedirectURL, http.StatusFound)

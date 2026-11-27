@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tagokoro/tag-judge/backend/internal/apperror"
 	"github.com/tagokoro/tag-judge/backend/internal/auth"
 	"github.com/tagokoro/tag-judge/backend/internal/domain"
 	"github.com/tagokoro/tag-judge/backend/internal/handler"
+	"github.com/tagokoro/tag-judge/backend/internal/mcpserver"
 	appmiddleware "github.com/tagokoro/tag-judge/backend/internal/middleware"
 	"github.com/tagokoro/tag-judge/backend/internal/repository"
 	"github.com/tagokoro/tag-judge/backend/internal/usecase"
@@ -804,10 +806,13 @@ func newTestRouterWithRepositories(groups repository.GroupRepository, submission
 type testRouterOptions struct {
 	groups      repository.GroupRepository
 	submissions repository.SubmissionRepository
-	categories  repository.CategoryRepository
-	profiles    *routerUserProfileRepository
-	libraries   *fakeLibraryRouterRepository
-	versions    *fakeLibraryVersionRouterRepository
+	oauth       *fakeOAuthRepository
+	// mcpSubmitWait bounds submit_code's wait; zero returns at once.
+	mcpSubmitWait time.Duration
+	categories    repository.CategoryRepository
+	profiles      *routerUserProfileRepository
+	libraries     *fakeLibraryRouterRepository
+	versions      *fakeLibraryVersionRouterRepository
 }
 
 func newTestRouterOptions(groups repository.GroupRepository, submissions repository.SubmissionRepository) *testRouterOptions {
@@ -815,6 +820,7 @@ func newTestRouterOptions(groups repository.GroupRepository, submissions reposit
 	return &testRouterOptions{
 		groups:      groups,
 		submissions: submissions,
+		oauth:       newFakeOAuthRepository(),
 		categories:  newRouterCategoryRepository(),
 		profiles:    newRouterUserProfileRepository(),
 		libraries:   libraries,
@@ -828,6 +834,13 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 	problemRepo := &fakeProblemRepository{}
 	testCaseRepo := &fakeRouterTestCaseRepository{}
 	admission := &fakeRouterAdmissionControl{}
+	submissionUsecase := usecase.NewSubmissionUsecase(
+		options.submissions,
+		problemRepo,
+		&fakeSourceCodeStorage{},
+		admission,
+		255,
+	)
 	return New(Handlers{
 		Problems:  handler.NewProblemHandler(usecase.NewProblemUsecase(problemRepo, testCaseRepo)),
 		TestCases: handler.NewTestCaseHandler(usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, &fakeSourceCodeStorage{})),
@@ -838,23 +851,25 @@ func newTestRouterWithHandlers(options *testRouterOptions) http.Handler {
 			2500,
 			255,
 		)),
-		Groups: handler.NewGroupHandler(usecase.NewGroupUsecase(options.groups)),
-		Submissions: handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(
-			options.submissions,
-			problemRepo,
-			&fakeSourceCodeStorage{},
-			admission,
-			255,
-		)),
-		Me:         handler.NewMeHandler(usecase.NewUserProfileUsecase(options.profiles)),
-		AuthHTTP:   handler.NewAuthHandler(authUsecase, false, "/"),
-		Auth:       appmiddleware.NewAuthMiddleware(authRepo, true),
-		Profiles:   handler.NewUserProfileHandler(usecase.NewUserProfileUsecase(options.profiles)),
-		Categories: handler.NewCategoryHandler(usecase.NewCategoryUsecase(options.categories, options.profiles)),
-		Libraries:  handler.NewLibraryHandler(usecase.NewLibraryUsecase(options.categories, options.libraries)),
+		Groups:      handler.NewGroupHandler(usecase.NewGroupUsecase(options.groups)),
+		Submissions: handler.NewSubmissionHandler(submissionUsecase),
+		Me:          handler.NewMeHandler(usecase.NewUserProfileUsecase(options.profiles)),
+		AuthHTTP:    handler.NewAuthHandler(authUsecase, false, "/"),
+		Auth:        appmiddleware.NewAuthMiddleware(authRepo, options.oauth, true).WithResourceMetadata(handler.ResourceMetadataURL(routerBaseURL)),
+		Profiles:    handler.NewUserProfileHandler(usecase.NewUserProfileUsecase(options.profiles)),
+		Categories:  handler.NewCategoryHandler(usecase.NewCategoryUsecase(options.categories, options.profiles)),
+		Libraries:   handler.NewLibraryHandler(usecase.NewLibraryUsecase(options.categories, options.libraries)),
 		LibraryVersions: handler.NewLibraryVersionHandler(usecase.NewLibraryVersionUsecase(
 			usecase.NewLibraryUsecase(options.categories, options.libraries), options.versions,
 		)),
+		OAuth: handler.NewOAuthHandler(usecase.NewOAuthUsecase(options.oauth, routerBaseURL+"/mcp"), routerBaseURL, false),
+		MCP: mcpserver.NewHandler(mcpserver.Deps{
+			Problems:     usecase.NewProblemUsecase(problemRepo, testCaseRepo),
+			TestCases:    usecase.NewTestCaseUsecase(problemRepo, testCaseRepo, &fakeSourceCodeStorage{}),
+			Submissions:  submissionUsecase,
+			SubmitWait:   options.mcpSubmitWait,
+			PollInterval: time.Millisecond,
+		}),
 	})
 }
 
