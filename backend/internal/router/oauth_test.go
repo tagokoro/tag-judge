@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,7 +25,10 @@ const (
 	routerBaseURL = "https://judge.example"
 	// routerAccessToken is a valid access token for routerUserID as an author.
 	routerAccessToken = "tja_valid-token"
-	oauthRedirectURI  = "http://localhost:33418/callback"
+	// routerFailingAccessToken makes the token lookup fail as a database
+	// outage would.
+	routerFailingAccessToken = "tja_lookup-fails"
+	oauthRedirectURI         = "http://localhost:33418/callback"
 	// oauthVerifier is a PKCE code verifier; oauthChallenge is its S256 hash.
 	oauthVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 )
@@ -128,7 +132,7 @@ func TestOAuthFlowConnectsMCP(t *testing.T) {
 	}
 	res = postForm(router, "/oauth/token", url.Values{"grant_type": {"refresh_token"}, "client_id": {clientID}, "refresh_token": {tokens.RefreshToken}})
 	assertOAuthError(t, res, http.StatusBadRequest, "invalid_grant")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
 	if res := serve(router, req); res.Code != http.StatusUnauthorized {
 		t.Fatalf("old access token status = %d, want %d", res.Code, http.StatusUnauthorized)
@@ -253,22 +257,24 @@ func TestOAuthConfidentialClientNeedsSecret(t *testing.T) {
 	assertOAuthError(t, res, http.StatusUnauthorized, "invalid_client")
 }
 
-func TestBearerTokenAuthenticates(t *testing.T) {
+func TestBearerTokenDoesNotAuthenticateRESTAPI(t *testing.T) {
 	router := newTestRouter()
+	// An OAuth token grants only what the MCP tools offer, so the REST API
+	// treats a request carrying one as anonymous.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
-	req.Header.Set("Authorization", "bearer "+routerAccessToken)
+	req.Header.Set("Authorization", "Bearer "+routerAccessToken)
 
 	res := serve(router, req)
 
-	if res.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusUnauthorized, res.Body.String())
 	}
+	assertErrorCode(t, res, "UNAUTHORIZED")
 }
 
 func TestInvalidBearerTokenIsRejected(t *testing.T) {
 	router := newTestRouter()
-	// Even a public route rejects a bad token instead of serving it anonymously.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/problems", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	req.Header.Set("Authorization", "Bearer tja_revoked")
 
 	res := serve(router, req)
@@ -280,6 +286,21 @@ func TestInvalidBearerTokenIsRejected(t *testing.T) {
 		t.Fatalf("WWW-Authenticate = %q, want an invalid_token challenge", got)
 	}
 	assertErrorCode(t, res, "INVALID_TOKEN")
+}
+
+func TestBearerTokenLookupFailureIsNotInvalidToken(t *testing.T) {
+	router := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+routerFailingAccessToken)
+
+	res := serve(router, req)
+
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusInternalServerError)
+	}
+	if got := res.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("WWW-Authenticate = %q, want none", got)
+	}
 }
 
 type oauthTokenResponse struct {
@@ -511,6 +532,9 @@ func (r *fakeOAuthRepository) RotateToken(_ context.Context, clientID, refreshTo
 func (r *fakeOAuthRepository) FindActorByAccessTokenHash(_ context.Context, tokenHash string) (auth.Actor, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if tokenHash == auth.HashToken(routerFailingAccessToken) {
+		return auth.Actor{}, errors.New("connection refused")
+	}
 	token, ok := r.tokens[tokenHash]
 	if !ok || r.revoked[tokenHash] || time.Now().After(token.AccessExpiresAt) {
 		return auth.Actor{}, apperror.Unauthorized("INVALID_TOKEN", "access token is invalid, expired, or revoked")

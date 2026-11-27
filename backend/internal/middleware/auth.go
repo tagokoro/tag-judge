@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -49,23 +50,6 @@ func (m *AuthMiddleware) WithResourceMetadata(url string) *AuthMiddleware {
 
 func (m *AuthMiddleware) InjectActor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A Bearer token is checked before the session cookie: a request that
-		// carries one asks to act as that token, and /mcp accepts only tokens.
-		if token, ok := bearerToken(r); ok && m.tokens != nil {
-			actor, err := m.tokens.FindActorByAccessTokenHash(r.Context(), auth.HashToken(token))
-			if err != nil {
-				// A bad token is rejected rather than treated as anonymous, so
-				// the client learns it must authenticate again.
-				m.challenge(w, `error="invalid_token"`)
-				handler.WriteError(w, r, apperror.Unauthorized("INVALID_TOKEN", "access token is invalid, expired, or revoked"))
-				return
-			}
-			actor.Method = auth.MethodOAuth
-			ctx := auth.ContextWithActor(r.Context(), actor)
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
 		if m.sessions != nil {
 			cookie, err := r.Cookie(auth.SessionCookieName)
 			if err == nil && cookie.Value != "" {
@@ -114,13 +98,33 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireToken guards /mcp. Browser sessions are refused, so a page open in
-// the browser cannot drive the MCP tools with the user's cookie, and the 401
-// tells an MCP client where to start OAuth.
+// RequireToken guards /mcp, the only route that accepts OAuth access tokens:
+// a token grants what the MCP tools offer, not the whole REST API. Browser
+// sessions are refused, so a page open in the browser cannot drive the MCP
+// tools with the user's cookie, and the 401 tells an MCP client where to
+// start OAuth.
 func (m *AuthMiddleware) RequireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token, ok := bearerToken(r); ok && m.tokens != nil {
+			actor, err := m.tokens.FindActorByAccessTokenHash(r.Context(), auth.HashToken(token))
+			if errors.Is(err, apperror.ErrUnauthorized) {
+				m.challenge(w, `error="invalid_token"`)
+				handler.WriteError(w, r, err)
+				return
+			}
+			if err != nil {
+				// A failed lookup says nothing about the token, so the client
+				// must not be told to authenticate again.
+				handler.WriteError(w, r, err)
+				return
+			}
+			actor.Method = auth.MethodOAuth
+			next.ServeHTTP(w, r.WithContext(auth.ContextWithActor(r.Context(), actor)))
+			return
+		}
+
 		actor, ok := auth.ActorFromContext(r.Context())
-		if !ok || actor.Method == auth.MethodSession {
+		if !ok || actor.Method != auth.MethodDevHeader {
 			m.challenge(w, "")
 			handler.WriteError(w, r, apperror.Unauthorized("UNAUTHORIZED", "authentication required"))
 			return

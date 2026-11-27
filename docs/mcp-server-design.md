@@ -21,7 +21,7 @@ flowchart TD
     Front[Next.js<br/>rewrite] --> API
 
     subgraph API[Go API プロセス]
-        AuthMW[認証ミドルウェア<br/>Bearer / Cookie → Actor]
+        AuthMW[認証ミドルウェア<br/>Cookie → Actor<br/>/mcp だけ Bearer → Actor]
         REST[既存 REST ハンドラ<br/>/api/v1/*]
         MCP[MCP ハンドラ<br/>/mcp]
         OAuth[認可サーバー<br/>/oauth/* /.well-known/*]
@@ -110,26 +110,28 @@ claude.ai はAnthropicのサーバーから接続するため、`localhost` に�
 
 ```mermaid
 flowchart TD
-    Start([リクエスト受信]) --> HasBearer{Authorization:<br/>Bearer がある?}
-    HasBearer -->|Yes| CheckToken{oauth_tokens に一致し、<br/>失効・期限切れでない?}
-    CheckToken -->|Yes| UpdateUsed[last_used_at を更新] --> SetActor[Actor を context に設定]
-    CheckToken -->|No| Reject[401 + WWW-Authenticate<br/>error=invalid_token]
-    HasBearer -->|No| HasCookie{Session Cookie<br/>がある?}
+    Start([リクエスト受信]) --> HasCookie{Session Cookie<br/>がある?}
     HasCookie -->|Yes| CheckSession{sessions に<br/>一致する?}
-    CheckSession -->|Yes| SetActor
+    CheckSession -->|Yes| SetActor[Actor を context に設定]
     CheckSession -->|No| DevHeader
     HasCookie -->|No| DevHeader{DEV_HEADER_AUTH=true<br/>かつ X-User-ID あり?}
     DevHeader -->|Yes| SetActor
     DevHeader -->|No| Anonymous[未認証のまま続行]
-    SetActor --> Next([ハンドラへ])
-    Anonymous --> Next
-    Next --> IsMCP{/mcp ?}
-    IsMCP -->|Yes| TokenActor{トークンの Actor?}
-    TokenActor -->|No| Challenge[401 + WWW-Authenticate<br/>resource_metadata]
+    SetActor --> IsMCP{/mcp ?}
+    Anonymous --> IsMCP
+    IsMCP -->|No| Next([ハンドラへ])
+    IsMCP -->|Yes| HasBearer{Authorization:<br/>Bearer がある?}
+    HasBearer -->|Yes| CheckToken{oauth_tokens に一致し、<br/>失効・期限切れでない?}
+    CheckToken -->|Yes| UpdateUsed[last_used_at を更新] --> TokenActor[トークンの Actor で上書き] --> MCPNext([MCP ハンドラへ])
+    CheckToken -->|No| Reject[401 + WWW-Authenticate<br/>error=invalid_token]
+    CheckToken -->|DB エラー| Fail[500]
+    HasBearer -->|No| Challenge[401 + WWW-Authenticate<br/>resource_metadata]
 ```
 
-- Bearerを先に見る。Bearerを付けたリクエストは、そのトークンとして動くことを求めているため。
-- 不正なBearerは匿名扱いにせず、401で拒否する。Claudeがトークンの更新か再認証を始められるようにするため。
+- Bearerを受け付けるのは `/mcp` だけ。トークンで許すのはMCPのtoolでできる操作に限るため、REST API（`/api/v1/*`）ではBearerを見ない。
+- 不正なBearerは401で拒否する。Claudeがトークンの更新か再認証を始められるようにするため。
+- トークンの照合でDBが失敗したときは500を返す。401を返すと、一時的な障害で全クライアントが再認証を始めてしまう。
+- `/mcp` はセッションCookieを受け付けない。ブラウザで開いたページが、利用者のCookieでtoolを動かせないようにするため。
 
 ## ① 接続（OAuth）
 
