@@ -109,19 +109,20 @@ resource "aws_instance" "api" {
   }
 
   user_data = templatefile("${path.module}/api_user_data.sh.tftpl", {
-    aws_region         = var.aws_region
-    repository_url     = var.repository_url
-    repository_ref     = var.repository_ref
-    go_version         = var.api_go_version
-    queue_name         = aws_sqs_queue.submissions.name
-    bucket_name        = aws_s3_bucket.artifacts.bucket
-    secret_arn         = data.aws_secretsmanager_secret.api.arn
-    dev_header_auth    = var.api_dev_header_auth
-    service_env_script = file("${path.module}/scripts/configure_service_env.py")
-    cookie_secure      = local.public_api_enabled
-    log_group_name     = aws_cloudwatch_log_group.api.name
-    frontend_enabled   = local.frontend_enabled
-    node_version       = var.frontend_node_version
+    aws_region           = var.aws_region
+    repository_url       = var.repository_url
+    repository_ref       = var.repository_ref
+    go_version           = var.api_go_version
+    queue_name           = aws_sqs_queue.submissions.name
+    bucket_name          = aws_s3_bucket.artifacts.bucket
+    secret_arn           = data.aws_secretsmanager_secret.api.arn
+    dev_header_auth      = var.api_dev_header_auth
+    service_env_script   = file("${path.module}/scripts/configure_service_env.py")
+    cookie_secure        = local.public_api_enabled
+    log_group_name       = aws_cloudwatch_log_group.api.name
+    frontend_enabled     = local.frontend_enabled
+    frontend_domain_name = local.frontend_enabled ? trimspace(var.frontend_domain_name) : ""
+    node_version         = var.frontend_node_version
   })
   user_data_replace_on_change = true
 

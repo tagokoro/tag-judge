@@ -162,6 +162,8 @@ Point the frontend hostname at the same ALB with a Cloudflare CNAME (target:
 `terraform output -raw api_alb_dns_name`, SSL/TLS mode `Full (strict)`). The URL is
 `terraform output -raw frontend_public_url`. Update the API secret's Google OAuth
 URLs to the frontend domain as described above.
+The API also gets `PUBLIC_BASE_URL` set to the frontend URL, so the MCP server's
+OAuth metadata names the domain MCP clients connect to.
 
 Cloud-init downloads a pinned, checksum-verified Node.js (`frontend_node_version`),
 builds `frontend/` at `repository_ref` with `API_SERVER_ORIGIN=http://127.0.0.1:8080`
