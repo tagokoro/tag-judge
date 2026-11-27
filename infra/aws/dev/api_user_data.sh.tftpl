@@ -95,6 +95,32 @@ WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
 systemctl enable --now judge-api
+
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CLOUDWATCH_CONFIG'
+{
+  "agent": {"run_as_user": "root"},
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [{
+          "file_path": "/var/log/tag-judge/api.log",
+          "log_group_name": "${log_group_name}",
+          "log_stream_name": "{instance_id}",
+          "timezone": "UTC"
+        }%{ if frontend_enabled }, {
+          "file_path": "/var/log/tag-judge/web.log",
+          "log_group_name": "${log_group_name}",
+          "log_stream_name": "{instance_id}-web",
+          "timezone": "UTC"
+        }%{ endif }]
+      }
+    }
+  }
+}
+CLOUDWATCH_CONFIG
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 %{ if frontend_enabled ~}
 
 # The frontend builds on this instance next to the API. next build can use
@@ -179,29 +205,3 @@ SERVICE
 systemctl daemon-reload
 systemctl enable --now judge-web
 %{ endif ~}
-
-cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CLOUDWATCH_CONFIG'
-{
-  "agent": {"run_as_user": "root"},
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [{
-          "file_path": "/var/log/tag-judge/api.log",
-          "log_group_name": "${log_group_name}",
-          "log_stream_name": "{instance_id}",
-          "timezone": "UTC"
-        }%{ if frontend_enabled }, {
-          "file_path": "/var/log/tag-judge/web.log",
-          "log_group_name": "${log_group_name}",
-          "log_stream_name": "{instance_id}-web",
-          "timezone": "UTC"
-        }%{ endif }]
-      }
-    }
-  }
-}
-CLOUDWATCH_CONFIG
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-  -a fetch-config -m ec2 -s \
-  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
