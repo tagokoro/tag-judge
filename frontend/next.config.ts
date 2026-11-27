@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 import { apiServerOrigin } from "./lib/apiOrigin";
 
 const nextConfig: NextConfig = {
+  // The EC2 instance runs .next/standalone/server.js with a bare Node.js, so
+  // the build carries only the files the server needs. API_SERVER_ORIGIN must
+  // be set at build time too: the rewrites below are baked into the output.
+  output: "standalone",
   async redirects() {
     return [
       {

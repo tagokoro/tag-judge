@@ -120,6 +120,8 @@ resource "aws_instance" "api" {
     service_env_script = file("${path.module}/scripts/configure_service_env.py")
     cookie_secure      = local.public_api_enabled
     log_group_name     = aws_cloudwatch_log_group.api.name
+    frontend_enabled   = local.frontend_enabled
+    node_version       = var.frontend_node_version
   })
   user_data_replace_on_change = true
 
@@ -127,6 +129,10 @@ resource "aws_instance" "api" {
     precondition {
       condition     = !local.public_api_enabled || !var.api_dev_header_auth
       error_message = "api_dev_header_auth must remain false when api_domain_name exposes the API publicly."
+    }
+    precondition {
+      condition     = !local.frontend_requested || local.public_api_enabled
+      error_message = "frontend_domain_name needs api_domain_name: the frontend is served through the API ALB."
     }
   }
 

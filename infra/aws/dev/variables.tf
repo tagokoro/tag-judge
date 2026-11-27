@@ -57,6 +57,23 @@ variable "api_domain_name" {
   default     = null
 }
 
+variable "frontend_domain_name" {
+  description = "Optional public DNS name for the frontend. It runs on the API instance behind the API ALB, so api_domain_name is required too. Its issued ACM certificate and Cloudflare DNS records must be prepared separately."
+  type        = string
+  default     = null
+}
+
+variable "frontend_node_version" {
+  description = "Pinned Node.js release used to build and run the frontend (without the v prefix)."
+  type        = string
+  default     = "26.13.1"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.frontend_node_version))
+    error_message = "Use a release version such as 26.13.1."
+  }
+}
+
 variable "cloudwatch_log_retention_days" {
   description = "Retention period for API and worker application logs."
   type        = number

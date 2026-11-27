@@ -107,7 +107,12 @@ cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CLOUDW
           "log_group_name": "${log_group_name}",
           "log_stream_name": "{instance_id}",
           "timezone": "UTC"
-        }]
+        }%{ if frontend_enabled }, {
+          "file_path": "/var/log/tag-judge/web.log",
+          "log_group_name": "${log_group_name}",
+          "log_stream_name": "{instance_id}-web",
+          "timezone": "UTC"
+        }%{ endif }]
       }
     }
   }
@@ -116,3 +121,104 @@ CLOUDWATCH_CONFIG
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
   -a fetch-config -m ec2 -s \
   -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+%{ if frontend_enabled ~}
+
+# The frontend builds on this instance next to the API. next build can use
+# more memory than a t3.small has left beside the API, so give it swap.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  echo '/swapfile none swap sw 0 0' >>/etc/fstab
+fi
+swapon /swapfile || true
+
+# Fetch the pinned Node.js release and verify it against the release's SHASUMS256.txt.
+python3 - '${node_version}' <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+import urllib.request
+
+version = "v" + sys.argv[1]
+filename = "node-" + version + "-linux-x64.tar.xz"
+base = "https://nodejs.org/dist/" + version + "/"
+with urllib.request.urlopen(base + "SHASUMS256.txt", timeout=60) as response:
+    sums = response.read().decode()
+expected = next(line.split()[0] for line in sums.splitlines() if line.split()[1] == filename)
+with urllib.request.urlopen(base + filename, timeout=300) as response:
+    data = response.read()
+if hashlib.sha256(data).hexdigest() != expected:
+    raise RuntimeError("Node.js archive checksum mismatch")
+Path("/tmp/tag-judge-node.tar.xz").write_bytes(data)
+PY
+install -d /opt/node
+tar -C /opt/node --strip-components=1 -xJf /tmp/tag-judge-node.tar.xz
+rm /tmp/tag-judge-node.tar.xz
+
+# The build runs third-party npm code, so it runs as its own user on a copy of
+# the frontend, where it cannot touch the API binary, and without access to the
+# instance metadata service that hands out the role's credentials. The
+# rewrites to the Go API are baked in at build time, so build against the
+# local API the service will reach at run time.
+id -u judge-build >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin judge-build
+rm -rf /opt/tag-judge-build
+cp -R /opt/tag-judge-api/frontend /opt/tag-judge-build
+chown -R judge-build:judge-build /opt/tag-judge-build
+build_frontend() {
+  systemd-run --quiet --wait --pipe --collect \
+    --uid=judge-build --gid=judge-build --working-directory=/opt/tag-judge-build \
+    -p IPAddressDeny=169.254.169.254 \
+    -E HOME=/home/judge-build -E PATH=/opt/node/bin:/usr/bin:/bin \
+    -E NEXT_TELEMETRY_DISABLED=1 -E API_SERVER_ORIGIN=http://127.0.0.1:8080 \
+    "$@"
+}
+build_frontend /opt/node/bin/npm ci --ignore-scripts --no-audit --no-fund
+build_frontend /opt/node/bin/npm run build
+cd /opt/tag-judge-build
+
+id -u judge-web >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin judge-web
+rm -rf /opt/tag-judge-web
+cp -R .next/standalone /opt/tag-judge-web
+cp -R .next/static /opt/tag-judge-web/.next/static
+cd /
+rm -rf /opt/tag-judge-build
+chown -R root:root /opt/tag-judge-web
+# Next.js writes its cache at run time; everything else stays read-only.
+install -d -o judge-web -g judge-web /opt/tag-judge-web/.next/cache
+
+cat >/etc/systemd/system/judge-web.service <<'SERVICE'
+[Unit]
+Description=tag-judge frontend (Next.js)
+Wants=network-online.target judge-api.service
+After=network-online.target judge-api.service
+
+[Service]
+Type=simple
+User=judge-web
+Group=judge-web
+WorkingDirectory=/opt/tag-judge-web
+ExecStart=/opt/node/bin/node /opt/tag-judge-web/server.js
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+Environment=API_SERVER_ORIGIN=http://127.0.0.1:8080
+Environment=NEXT_TELEMETRY_DISABLED=1
+StandardOutput=append:/var/log/tag-judge/web.log
+StandardError=append:/var/log/tag-judge/web.log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tag-judge-web/.next/cache
+# The frontend never calls AWS, so keep it away from the role's credentials.
+IPAddressDeny=169.254.169.254
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable --now judge-web
+%{ endif ~}

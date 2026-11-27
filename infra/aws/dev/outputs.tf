@@ -55,8 +55,13 @@ output "api_public_url" {
   value       = local.public_api_enabled ? "https://${var.api_domain_name}" : null
 }
 
+output "frontend_public_url" {
+  description = "Public HTTPS frontend URL when frontend_domain_name is configured."
+  value       = local.frontend_enabled ? "https://${var.frontend_domain_name}" : null
+}
+
 output "api_alb_dns_name" {
-  description = "ALB DNS name to configure as the Cloudflare CNAME target."
+  description = "ALB DNS name to configure as the Cloudflare CNAME target of both the API and frontend domains."
   value       = local.public_api_enabled ? aws_lb.api[0].dns_name : null
 }
 

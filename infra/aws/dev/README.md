@@ -4,7 +4,8 @@ The API runs on a separate EC2 instance with its own IAM role and an inbound-clo
 security group. Access HTTP through SSM port forwarding by default. It shares the
 existing RDS, S3 bucket and SQS queue with the worker. An optional public HTTPS
 endpoint uses an ALB, an existing ACM certificate, and Cloudflare DNS; the instance
-itself is never opened to the internet.
+itself is never opened to the internet. The Next.js frontend can run on the same
+instance behind the same ALB under its own domain.
 
 ## API deployment prerequisites
 
@@ -41,9 +42,20 @@ The secret may also include `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRE
 `AUTH_SUCCESS_REDIRECT_URL`. Without these, Google login is not configured.
 For browser login through the tunnel, use the localhost callback URL and register
 the same URL with Google. When `api_domain_name` is configured, cookies are marked
-Secure and the secret should use `https://<api-domain>/api/v1/auth/google/callback`
-for `GOOGLE_OAUTH_REDIRECT_URL`. Register that exact callback in Google Cloud and
-set `AUTH_SUCCESS_REDIRECT_URL` to the deployed frontend URL. OAuth settings are
+Secure. Browsers reach the API only through the frontend's `/api/*` rewrite, so the
+session cookie must be set on the frontend domain: with the public frontend, use the
+frontend domain, not the API domain, for both URLs:
+
+```json
+{
+  "GOOGLE_OAUTH_REDIRECT_URL": "https://judge.tagokoro.dev/api/v1/auth/google/callback",
+  "AUTH_SUCCESS_REDIRECT_URL": "https://judge.tagokoro.dev/"
+}
+```
+
+Register that exact callback in Google Cloud. With the MCP server, its OAuth issuer
+(`PUBLIC_BASE_URL`) defaults to the origin of `AUTH_SUCCESS_REDIRECT_URL`
+(`https://judge.tagokoro.dev`). OAuth settings are
 read at instance provisioning time; rotate the secret and rerun the configuration
 helper plus `systemctl restart judge-api`, or replace the instance.
 
@@ -71,14 +83,14 @@ manage Cloudflare or the certificate lifecycle.
 Then set the domain in an uncommitted tfvars file:
 
 ```hcl
-api_domain_name = "api.example.com"
+api_domain_name = "judge-api.tagokoro.dev"
 ```
 
 For the automatic `main` deployment, configure the equivalent optional GitHub
 Actions repository variables:
 
 ```sh
-gh variable set API_DOMAIN_NAME --body "api.example.com"
+gh variable set API_DOMAIN_NAME --body "judge-api.tagokoro.dev"
 # Optional alarm notifications:
 gh variable set ALARM_SNS_TOPIC_ARN --body "arn:aws:sns:ap-northeast-1:123456789012:tag-judge-alerts"
 ```
@@ -128,6 +140,64 @@ Then use `http://localhost:8080`. The instance uses a public IP for
 outbound package downloads and AWS API access; its security group has no inbound
 rules unless the optional ALB is enabled, in which case only ALB-to-instance traffic
 is allowed.
+
+## Optional public frontend
+
+The Next.js frontend runs on the API instance and shares the API ALB, so it needs
+the public API endpoint above. Requests whose host is the frontend domain go to the
+frontend on port 3000; every other host keeps going to the API. Request an ACM
+certificate for the frontend domain in the deployment region the same way, wait
+until it is `Issued`, then set the domain next to the API one:
+
+```hcl
+api_domain_name      = "judge-api.tagokoro.dev"
+frontend_domain_name = "judge.tagokoro.dev"
+```
+
+```sh
+gh variable set FRONTEND_DOMAIN_NAME --body "judge.tagokoro.dev"
+```
+
+Point the frontend hostname at the same ALB with a Cloudflare CNAME (target:
+`terraform output -raw api_alb_dns_name`, SSL/TLS mode `Full (strict)`). The URL is
+`terraform output -raw frontend_public_url`. Update the API secret's Google OAuth
+URLs to the frontend domain as described above.
+
+Cloud-init downloads a pinned, checksum-verified Node.js (`frontend_node_version`),
+builds `frontend/` at `repository_ref` with `API_SERVER_ORIGIN=http://127.0.0.1:8080`
+(the rewrites to the API are fixed at build time), and runs `.next/standalone` as the
+`judge-web` service on port 3000. Its log goes to the API log group under the
+`<instance-id>-web` stream. `next build` runs beside the API on a t3.small, so
+cloud-init adds a 2 GB swap file first; use a larger `api_instance_type` if builds
+are slow or fail. Setting the domain changes the API user data and replaces the API
+instance, as does any later change to it; without the domain, nothing changes.
+
+The build runs third-party npm code, so it runs as a separate `judge-build` user on
+a copy of `frontend/`, with `npm ci --ignore-scripts`, and with the instance
+metadata service blocked (`IPAddressDeny=169.254.169.254`); `judge-web` is blocked
+from it too. Neither can read the role's credentials or touch the API binary. The
+CloudWatch agent starts before the build, so a failed build still ships the API log;
+check `/var/log/cloud-init-output.log` if the frontend target stays unhealthy.
+
+Merging frontend changes to `main` does not redeploy them. The frontend, like the
+API, is built only when the instance is created, and the deploy workflow runs only
+for `infra/aws/dev/**` changes. To ship new `main`, replace the API instance in a
+quiet window (the API is down until the new instance passes its health check):
+
+```sh
+terraform apply -replace=aws_instance.api
+```
+
+On the API EC2 instance:
+
+```sh
+sudo systemctl is-active judge-web
+sudo tail -n 50 /var/log/tag-judge/web.log
+curl -i http://localhost:3000/healthz
+curl -i http://localhost:3000/
+```
+
+`/healthz` returns 204 without calling the API; it is the ALB health check.
 
 ## AWS submission smoke test
 
