@@ -137,6 +137,10 @@ if [ ! -f /swapfile ]; then
 fi
 swapon /swapfile || true
 
+# The official Node.js binary links against libatomic, which the Ubuntu AMI
+# does not ship.
+apt-get install -y libatomic1
+
 # Fetch the pinned Node.js release and verify it against the release's SHASUMS256.txt.
 python3 - '${node_version}' <<'PY'
 import hashlib
