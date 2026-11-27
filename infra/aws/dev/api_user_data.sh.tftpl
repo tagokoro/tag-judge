@@ -80,6 +80,10 @@ Environment=JUDGE_STORAGE_BUCKET=${bucket_name}
 Environment=JUDGE_SUBMISSIONS_QUEUE_NAME=${queue_name}
 Environment=DEV_HEADER_AUTH=${dev_header_auth}
 Environment=COOKIE_SECURE=${cookie_secure}
+%{ if frontend_enabled ~}
+# OAuth metadata and the MCP resource URL name the origin users reach.
+Environment=PUBLIC_BASE_URL=https://${frontend_domain_name}
+%{ endif ~}
 EnvironmentFile=/etc/tag-judge/api.env
 StandardOutput=append:/var/log/tag-judge/api.log
 StandardError=append:/var/log/tag-judge/api.log
