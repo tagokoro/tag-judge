@@ -63,7 +63,7 @@ VALUES (7, 12, 'wa', NULL, NULL, 'secret-stdout', 'secret-stderr'),
 	}
 	repo := postgres.NewSubmissionRepository(db)
 	h := handler.NewSubmissionHandler(usecase.NewSubmissionUsecase(repo, nil, sources, nil, 255))
-	auth := middleware.NewAuthMiddleware(nil, true)
+	auth := middleware.NewAuthMiddleware(nil, nil, true)
 	router := chi.NewRouter()
 	router.Use(auth.InjectActor)
 	router.With(auth.RequireAuth).Get("/api/v1/submissions/{submission_id}", h.Get)

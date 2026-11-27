@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -33,6 +34,10 @@ type Config struct {
 	AdmissionGlobalOutstandingLimit int
 	AdmissionLockTimeoutMS          int
 	IdempotencyKeyMaxLength         int
+	MCPSubmitWait                   time.Duration
+	// PublicBaseURL is the origin users and MCP clients reach Tag Judge at.
+	// It is the OAuth issuer, and its /mcp is the MCP endpoint.
+	PublicBaseURL string
 }
 
 func Load() (Config, error) {
@@ -61,7 +66,9 @@ func Load() (Config, error) {
 		AdmissionGlobalOutstandingLimit: 100,
 		AdmissionLockTimeoutMS:          5000,
 		IdempotencyKeyMaxLength:         255,
+		MCPSubmitWait:                   getDurationEnv("MCP_SUBMIT_WAIT_SECONDS", 8*time.Second),
 	}
+	cfg.PublicBaseURL = strings.TrimSuffix(getEnv("PUBLIC_BASE_URL", defaultPublicBaseURL(cfg)), "/")
 
 	var validationErrs []string
 	setPositiveInt(&cfg.AdmissionUserRateLimit, "ADMISSION_USER_RATE_LIMIT", &validationErrs)
@@ -70,6 +77,15 @@ func Load() (Config, error) {
 	setPositiveInt(&cfg.AdmissionGlobalOutstandingLimit, "ADMISSION_GLOBAL_OUTSTANDING_LIMIT", &validationErrs)
 	setPositiveInt(&cfg.AdmissionLockTimeoutMS, "ADMISSION_LOCK_TIMEOUT_MS", &validationErrs)
 	setPositiveInt(&cfg.IdempotencyKeyMaxLength, "IDEMPOTENCY_KEY_MAX_LENGTH", &validationErrs)
+	// submit_code answers within one response, so its wait must end before
+	// the server gives up writing that response.
+	if cfg.MCPSubmitWait >= cfg.WriteTimeout {
+		validationErrs = append(validationErrs, "MCP_SUBMIT_WAIT_SECONDS must be less than WRITE_TIMEOUT")
+	}
+
+	if parsed, err := url.Parse(cfg.PublicBaseURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Path != "" {
+		validationErrs = append(validationErrs, "PUBLIC_BASE_URL must be an http(s) origin such as https://tag-judge.example")
+	}
 
 	if cfg.DatabaseURL == "" {
 		cfg.DatabaseURL = fmt.Sprintf(
@@ -89,6 +105,15 @@ func Load() (Config, error) {
 
 func (c Config) AWSJudgeInfraEnabled() bool {
 	return strings.TrimSpace(c.JudgeStorageBucket) != "" && strings.TrimSpace(c.JudgeSubmissionsQueue) != ""
+}
+
+// defaultPublicBaseURL takes the frontend's origin from
+// AUTH_SUCCESS_REDIRECT_URL, since the browser reaches the API through it.
+func defaultPublicBaseURL(cfg Config) string {
+	if parsed, err := url.Parse(cfg.AuthSuccessRedirectURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		return parsed.Scheme + "://" + parsed.Host
+	}
+	return "http://localhost:" + cfg.Port
 }
 
 func getEnv(key, fallback string) string {

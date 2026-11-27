@@ -98,6 +98,38 @@ type LibraryVersion struct {
 	SubmissionUrlUpdatedAt pgtype.Timestamptz `json:"submission_url_updated_at"`
 }
 
+type OauthAuthorizationCode struct {
+	CodeHash      string             `json:"code_hash"`
+	ClientID      string             `json:"client_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	RedirectUri   string             `json:"redirect_uri"`
+	CodeChallenge string             `json:"code_challenge"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	UsedAt        pgtype.Timestamptz `json:"used_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type OauthClient struct {
+	ID           string             `json:"id"`
+	SecretHash   pgtype.Text        `json:"secret_hash"`
+	Name         string             `json:"name"`
+	RedirectUris []string           `json:"redirect_uris"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type OauthToken struct {
+	ID               pgtype.UUID        `json:"id"`
+	ClientID         string             `json:"client_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	AccessTokenHash  string             `json:"access_token_hash"`
+	AccessExpiresAt  pgtype.Timestamptz `json:"access_expires_at"`
+	RefreshTokenHash string             `json:"refresh_token_hash"`
+	RefreshExpiresAt pgtype.Timestamptz `json:"refresh_expires_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt       pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type Problem struct {
 	ID                  int64              `json:"id"`
 	Title               string             `json:"title"`

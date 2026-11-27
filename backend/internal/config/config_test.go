@@ -153,3 +153,36 @@ func TestLoadAdmissionRejectsInvalidValues(t *testing.T) {
 		t.Fatal("Load expected error for invalid admission values")
 	}
 }
+
+func TestLoadPublicBaseURL(t *testing.T) {
+	cases := []struct {
+		publicBaseURL string
+		authSuccess   string
+		want          string
+	}{
+		{"", "http://localhost:3000/", "http://localhost:3000"},
+		{"", "/", "http://localhost:8080"},
+		{"https://judge.example/", "http://localhost:3000/", "https://judge.example"},
+	}
+	for _, tc := range cases {
+		t.Setenv("PORT", "8080")
+		t.Setenv("PUBLIC_BASE_URL", tc.publicBaseURL)
+		t.Setenv("AUTH_SUCCESS_REDIRECT_URL", tc.authSuccess)
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load returned error: %v", err)
+		}
+		if cfg.PublicBaseURL != tc.want {
+			t.Fatalf("PublicBaseURL = %q, want %q", cfg.PublicBaseURL, tc.want)
+		}
+	}
+}
+
+func TestLoadRejectsPublicBaseURLWithPath(t *testing.T) {
+	t.Setenv("PUBLIC_BASE_URL", "https://judge.example/app")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a PUBLIC_BASE_URL with a path")
+	}
+}

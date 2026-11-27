@@ -455,7 +455,7 @@ func TestAdmissionHTTPPostgres(t *testing.T) {
 	}
 	admission := postgres.NewAdmissionControl(db, limits)
 
-	authMw := middleware.NewAuthMiddleware(nil, true)
+	authMw := middleware.NewAuthMiddleware(nil, nil, true)
 	codeRunHandler := handler.NewCodeRunHandler(usecase.NewCodeRunUsecase(
 		postgres.NewCodeRunRepository(db),
 		&fakeAdmissionSourceCodeStorage{},
@@ -776,7 +776,7 @@ func TestCodeRunPrestoredKeyAndStorageFailurePostgres(t *testing.T) {
 	}
 	admission := postgres.NewAdmissionControl(db, limits)
 
-	authMw := middleware.NewAuthMiddleware(nil, true)
+	authMw := middleware.NewAuthMiddleware(nil, nil, true)
 	failingStorage := &conditionalFailingSourceCodeStorage{failNext: true}
 	codeRunHandler := handler.NewCodeRunHandler(usecase.NewCodeRunUsecase(
 		postgres.NewCodeRunRepository(db),
